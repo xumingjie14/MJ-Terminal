@@ -1,0 +1,57 @@
+name: build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'main.go'
+      - 'index.html'
+      - 'go.mod'
+      - '.github/workflows/build.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+
+      - name: Fetch sing-box core (official v1.14.4, legacy Windows 7 build)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/SagerNet/sing-box/releases/download/v1.14.4/sing-box-1.14.4-windows-amd64-legacy-windows-7.zip" -OutFile "singbox.zip"
+          $len = (Get-Item "singbox.zip").Length
+          Write-Host "singbox.zip bytes: $len"
+          if ($len -ne 27010034) { throw "sing-box zip size mismatch: $len" }
+
+      - name: Build single-file EXE (windows/amd64)
+        shell: pwsh
+        run: |
+          $env:GOOS = "windows"
+          $env:GOARCH = "amd64"
+          $env:CGO_ENABLED = "0"
+          go build -trimpath -ldflags "-H windowsgui -s -w" -o MJ-System.exe .
+          (Get-Item "MJ-System.exe").Length
+
+      - name: Package
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "MJ-System.exe" -DestinationPath "MJ-System-64bit.zip" -Force
+          (Get-Item "MJ-System-64bit.zip").Length
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.5
+          name: 铭杰终端机 v0.5（64 位单文件版）
+          body: |
+            64 位单文件版：解压后运行 MJ-System.exe（需 64 位 Windows）。
+            第一次运行会自动释放内置 sing-box 核心，数据保存在 EXE 旁的 Data/ 文件夹。
+          files: MJ-System-64bit.zip
