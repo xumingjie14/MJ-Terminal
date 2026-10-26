@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - 'main.go'
+      - 'update.go'
       - 'index.html'
       - 'go.mod'
       - '.github/workflows/build.yml'
@@ -45,13 +46,23 @@ jobs:
         run: |
           Compress-Archive -Path "MJ-System.exe" -DestinationPath "MJ-System-64bit.zip" -Force
           (Get-Item "MJ-System-64bit.zip").Length
+          $hash = (Get-FileHash "MJ-System-64bit.zip" -Algorithm SHA256).Hash.ToLower()
+          $size = (Get-Item "MJ-System-64bit.zip").Length
+          $manifest = [ordered]@{ version = "0.6"; file = "MJ-System-64bit.zip"; size = $size; sha256 = $hash }
+          $json = $manifest | ConvertTo-Json -Compress
+          [IO.File]::WriteAllText((Join-Path $PWD "update.json"), $json, (New-Object System.Text.UTF8Encoding $false))
+          Get-Content "update.json"
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.5
-          name: 铭杰终端机 v0.5（64 位单文件版）
+          tag_name: v0.6
+          name: 铭杰终端机 v0.6（64 位单文件版 · 支持应用内更新）
           body: |
             64 位单文件版：解压后运行 MJ-System.exe（需 64 位 Windows）。
             第一次运行会自动释放内置 sing-box 核心，数据保存在 EXE 旁的 Data/ 文件夹。
-          files: MJ-System-64bit.zip
+            本版起支持应用内更新：设置 → 软件更新，粘贴一次只读令牌（Fine-grained token，仅 MJ-Terminal 仓库、Contents 只读）后即可检查/下载/一键更新。
+            update.json 是给程序自动更新用的校验清单（版本/大小/SHA-256），手动下载时不用管它。
+          files: |
+            MJ-System-64bit.zip
+            update.json
