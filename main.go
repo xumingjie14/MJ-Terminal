@@ -1158,6 +1158,10 @@ var bundledWebApps = []webApp{
 	{"哔哩哔哩", "https://www.bilibili.com"},
 	{"GitHub", "https://github.com"},
 	{"Vercel", "https://vercel.com/dashboard"},
+	{"ChatGPT", "https://chatgpt.com"},
+	{"Gemini", "https://gemini.google.com"},
+	{"Muse", "https://claude.ai"},
+	{"TikTok", "https://www.tiktok.com"},
 }
 
 // webAppRenames migrates a bundled entry's display name when the user
