@@ -51,7 +51,7 @@ jobs:
           (Get-Item "MJ-System-64bit.zip").Length
           $hash = (Get-FileHash "MJ-System-64bit.zip" -Algorithm SHA256).Hash.ToLower()
           $size = (Get-Item "MJ-System-64bit.zip").Length
-          $manifest = [ordered]@{ version = "0.10"; file = "MJ-System-64bit.zip"; size = $size; sha256 = $hash }
+          $manifest = [ordered]@{ version = "0.11"; file = "MJ-System-64bit.zip"; size = $size; sha256 = $hash }
           $json = $manifest | ConvertTo-Json -Compress
           [IO.File]::WriteAllText((Join-Path $PWD "update.json"), $json, (New-Object System.Text.UTF8Encoding $false))
           Get-Content "update.json"
@@ -59,8 +59,8 @@ jobs:
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.10
-          name: 铭杰终端机 v0.10（64 位单文件版 · 网站应用化）
+          tag_name: v0.11
+          name: 铭杰终端机 v0.11（64 位单文件版 · 真实图标）
           body: |
             64 位单文件版：解压后运行 MJ-System.exe（需 64 位 Windows）。
             第一次运行会自动释放内置 sing-box 核心，数据保存在 EXE 旁的 Data/ 文件夹。
