@@ -1562,6 +1562,9 @@ func runServer(portFlag int, isDaemon bool) {
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		// Never cache the shell page: after an in-app update the newly
+		// opened desktop must run the new UI, not a stale copy.
+		w.Header().Set("Cache-Control", "no-store")
 		_, _ = w.Write(indexHTML)
 	})
 	mux.HandleFunc("/api/system", sysInfo)

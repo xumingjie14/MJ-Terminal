@@ -32,6 +32,7 @@ body{font-family:-apple-system,"SF Pro Display","PingFang SC","Microsoft YaHei",
 #icons{position:fixed;inset:0;z-index:5;pointer-events:none}
 .icon{position:absolute;width:92px;padding:8px 2px 6px;border:1px solid transparent;border-radius:12px;background:transparent;cursor:pointer;color:#fff;text-align:center;pointer-events:auto;touch-action:none;user-select:none;-webkit-user-select:none}
 .icon.dragging{opacity:.88;z-index:60;cursor:grabbing;filter:drop-shadow(0 10px 18px rgba(0,0,0,.45))}
+.icon img,.fp-item img{-webkit-user-drag:none;user-drag:none}
 .icon.dropok{background:rgba(120,200,255,.35);border-color:rgba(255,255,255,.6)}
 .appico.folderico{background:rgba(255,255,255,.24);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);display:grid;grid-template-columns:1fr 1fr;gap:3px;padding:8px;box-sizing:border-box}
 .fmini{position:relative;width:100%;aspect-ratio:1;border-radius:6px;background:#f5f5f7;display:flex;align-items:center;justify-content:center;overflow:hidden;font-size:11px;font-weight:700;color:#333}
@@ -214,7 +215,7 @@ function openApp(id){
  if(!w){w=makeWin(APPS.find(a=>a.id===id),APPS.findIndex(a=>a.id===id));render(id)}
  w.classList.remove('hidden');bring(w);
  document.getElementById('mb-appname').textContent=APPS.find(a=>a.id===id).n;
- document.querySelectorAll('.icon').forEach(x=>x.classList.toggle('sel',x.dataset.app===id));
+ document.querySelectorAll('.icon').forEach(x=>x.classList.toggle('sel',x.dataset.key==='app:'+id));
  syncDots();
 }
 function syncDots(){
@@ -232,7 +233,7 @@ function webLetter(n){return (String(n||'?').trim()[0]||'?').toUpperCase()}
 function faviconURL(u){try{return 'https://www.google.com/s2/favicons?domain='+new URL(u).hostname+'&sz=128'}catch(e){return ''}}
 function webIconHTML(a,mini){
  const f=faviconURL(a.url);
- const img=f?`<img src="${f}" alt="" loading="lazy" onerror="this.remove()">`:'';
+ const img=f?`<img src="${f}" alt="" draggable="false" loading="lazy" onerror="this.remove()">`:'';
  return `<div class="appico webapp${mini?' mini':''}">${esc(webLetter(a.name))}${img}</div>`;
 }
 /* ----- desktop layout: free icon positions + folders (v0.12) ----- */
@@ -256,14 +257,15 @@ function folderById(id){return LAYOUT.folders.find(f=>f.id===id)}
 function folderIconHTML(f){
  const items=f.items.map(u=>WEBAPPS.find(a=>a.url===u)).filter(Boolean).slice(0,4);
  if(!items.length) return `<div class="appico folderico"><span class="fempty">📁</span></div>`;
- return `<div class="appico folderico">${items.map(a=>{const fv=faviconURL(a.url);return `<span class="fmini">${esc(webLetter(a.name))}${fv?`<img src="${fv}" alt="" onerror="this.remove()">`:''}</span>`}).join('')}</div>`;
+ return `<div class="appico folderico">${items.map(a=>{const fv=faviconURL(a.url);return `<span class="fmini">${esc(webLetter(a.name))}${fv?`<img src="${fv}" alt="" draggable="false" onerror="this.remove()">`:''}</span>`}).join('')}</div>`;
 }
 function mkDeskIcon(key,kind,iconHTML,name,onOpen,fid){
  const d=document.createElement('button');
  d.className='icon'; d.dataset.key=key; d.dataset.kind=kind; if(fid) d.dataset.fid=fid;
  d.innerHTML=iconHTML+`<div class="n">${esc(name)}</div>`;
  d.title=name;
- d.onclick=()=>{ if(Date.now()<suppressClickUntil) return; onOpen(); };
+ d.onclick=()=>{ document.querySelectorAll('.icon.sel').forEach(x=>{if(x!==d)x.classList.remove('sel')}); d.classList.add('sel'); };
+ d.ondblclick=()=>{ if(Date.now()<suppressClickUntil) return; onOpen(); };
  attachDrag(d,key,kind);
  return d;
 }
@@ -281,6 +283,7 @@ let dragState=null;
 function attachDrag(el,key,kind){
  el.addEventListener('pointerdown',ev=>{
   if(ev.button!==0) return;
+  ev.preventDefault();
   const r=el.getBoundingClientRect();
   dragState={el,key,kind,sx:ev.clientX,sy:ev.clientY,ox:r.left,oy:r.top,moved:false};
   try{el.setPointerCapture(ev.pointerId)}catch(e){}
@@ -359,6 +362,7 @@ function attachPopupDrag(it,fid){
  let st=null;
  it.addEventListener('pointerdown',ev=>{
   if(ev.button!==0) return;
+  ev.preventDefault();
   const r=it.getBoundingClientRect();
   st={sx:ev.clientX,sy:ev.clientY,ox:r.left,oy:r.top,moved:false};
   try{it.setPointerCapture(ev.pointerId)}catch(e){}
@@ -410,7 +414,11 @@ document.addEventListener('contextmenu',ev=>{
  if(ev.target.closest('.win')||ev.target.closest('#dockwrap')||ev.target.closest('#menubar')||ev.target.closest('#folderpop')||ev.target.closest('#ctxmenu')) return;
  ev.preventDefault(); showCtx(ev.clientX,ev.clientY);
 });
+document.addEventListener('dragstart',ev=>{
+ if(ev.target.closest&&ev.target.closest('.icon,.fp-item')) ev.preventDefault();
+});
 document.addEventListener('pointerdown',ev=>{
+ if(!ev.target.closest||!ev.target.closest('.icon')) document.querySelectorAll('.icon.sel').forEach(x=>x.classList.remove('sel'));
  if(!ev.target.closest('#ctxmenu')) hideCtx();
  const pop=document.getElementById('folderpop');
  if(pop&&!pop.classList.contains('hidden')&&!ev.target.closest('#folderpop')&&!ev.target.closest('.icon')) closeFolderPop();
