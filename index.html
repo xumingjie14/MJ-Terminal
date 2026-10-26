@@ -221,7 +221,7 @@ function render(id){
  if(id==='files') b.innerHTML=`<div class="row"><button class="btn gray" id="fup">↑ 上级</button><button class="btn gray" id="fhome">主目录</button><input class="pathin" id="fpath"><button class="btn" id="fgo">打开</button></div><div id="flist" style="margin-top:10px" class="mut">加载中…</div>`;
  if(id==='browser') b.innerHTML=`<h3>谷歌浏览器（独立窗口）</h3><p class="mut" style="margin-top:8px">这个浏览器和公用电脑自己的浏览器是分开的：独立档案存在 EXE 旁边的 Data 文件夹，历史、Cookie、登录都在你自己的档案里。<br><b style="color:#fff">走节点打开时，只有这个窗口的流量走节点</b>，不会改这台电脑的系统代理。</p><div class="row" style="margin-top:14px"><input class="txt" id="burl" value="https://www.google.com"></div><div class="row" style="margin-top:10px"><button class="btn" id="bproxy">🚀 走节点打开 Chrome</button><button class="btn gray" id="bdirect">直连打开 Chrome</button><button class="btn gray" id="btest">代理自检</button></div><p style="margin-top:12px"><span class="tag" id="bstatus">连不上时先点「代理自检」，它会告诉你卡在哪一步</span></p>`;
  if(id==='core') b.innerHTML=`<h3>节点（sing-box）</h3><p class="mut" style="margin-top:8px">粘贴<b style="color:#fff">节点链接</b>或填<b style="color:#fff">订阅地址</b>导入，支持 vless / vmess / trojan / ss / hysteria2，自动生成 sing-box 配置、自动去重。sing-box.exe 在程序同目录的 core 文件夹（完整版已自带）。</p><textarea id="nlink" rows="3" style="width:100%;margin-top:12px" placeholder="粘贴节点链接，如 vless://... 或 ss://..."></textarea><div class="row" style="margin-top:8px"><button class="btn" id="nadd">添加这个节点</button></div><div class="row" style="margin-top:12px"><input class="txt" id="nsub" placeholder="或粘贴订阅地址 https://..."><button class="btn gray" id="nsubbtn">导入订阅</button></div><p style="margin:12px 0"><span class="tag" id="core-status">状态：读取中…</span> <span class="tag" id="ncount"></span></p><div id="nlist" class="mut"></div><div class="row" style="margin-top:12px"><button class="btn" id="core-start">启动节点</button><button class="btn red" id="core-stop">停止节点</button><button class="btn gray" id="core-refresh">刷新状态</button><button class="btn gray" id="ptest">代理自检</button><button class="btn gray" id="nclear">清空节点</button></div><div class="row" style="margin-top:8px"><button class="btn gray" id="corelogbtn">看 sing-box 日志</button></div><pre class="term" id="corelog" style="min-height:90px;margin-top:10px;display:none"></pre>`;
- if(id==='sys') b.innerHTML=`<h3>外观</h3><p class="mut" style="margin-top:6px">点一张换壁纸，立刻生效。也可以上传你自己的图片当壁纸（存在 EXE 旁的 Data 文件夹，跟着程序走）。</p><div class="wp-grid" id="wp-grid">${Object.entries(WALLPAPERS).map(([k,v])=>`<div class="wp" data-wp="${k}" style="background:${v.css}"><span>${v.n}</span></div>`).join('')}</div><div class="row" style="margin-top:12px"><label class="btn gray" for="wp-file" style="cursor:pointer">上传我的图片…</label><input type="file" id="wp-file" accept="image/*" style="display:none"><button class="btn gray" id="wp-remove">删除自定义壁纸</button><span class="tag" id="wp-status"></span></div><hr style="border-color:rgba(255,255,255,.14);margin:18px 0"><h3>系统</h3><div class="kv" id="syskv" style="margin-top:10px"><span>读取中…</span></div><div class="row" style="margin-top:16px"><button class="btn red" id="quit">退出系统（停节点 + 关后台）</button></div><p class="mut" style="margin-top:12px">关掉桌面窗口只是隐藏，后台和节点继续跑；再双击 MJ-System.exe 回来。真正断开只有点这个「退出系统」。个人数据都在 EXE 旁的 Data 文件夹，用完带走或删掉即可。</p>`;
+ if(id==='sys') b.innerHTML=`<h3>外观</h3><p class="mut" style="margin-top:6px">点一张换壁纸，立刻生效。也可以上传你自己的图片当壁纸（存在 EXE 旁的 Data 文件夹，跟着程序走）。</p><div class="wp-grid" id="wp-grid">${Object.entries(WALLPAPERS).map(([k,v])=>`<div class="wp" data-wp="${k}" style="background:${v.css}"><span>${v.n}</span></div>`).join('')}</div><div class="row" style="margin-top:12px"><label class="btn gray" for="wp-file" style="cursor:pointer">上传我的图片…</label><input type="file" id="wp-file" accept="image/*" style="display:none"><button class="btn gray" id="wp-remove">删除自定义壁纸</button><span class="tag" id="wp-status"></span></div><hr style="border-color:rgba(255,255,255,.14);margin:18px 0"><h3>系统</h3><div class="kv" id="syskv" style="margin-top:10px"><span>读取中…</span></div><hr style="border-color:rgba(255,255,255,.14);margin:18px 0"><h3>软件更新</h3><p class="mut" style="margin-top:6px">当前版本 <b style="color:#fff" id="upd-cur">…</b>。新版发布后会在这里检查、下载、一键更新（更新时节点断开几秒，自动重连，节点和数据都不动）。仓库是私有的，需要先粘贴一次<b style="color:#fff">只读令牌</b>：GitHub → Settings → Developer settings → Fine-grained tokens → 新建，仓库只选 MJ-Terminal，权限只给 Contents 只读。</p><div class="row" style="margin-top:10px"><input class="txt" id="upd-token" type="password" placeholder="更新令牌 github_pat_…（粘贴一次即可）" autocomplete="off"><button class="btn gray" id="upd-token-save">保存令牌</button></div><div class="row" style="margin-top:10px"><button class="btn" id="upd-check">检查更新</button><button class="btn gray" id="upd-dl" style="display:none">下载更新</button><button class="btn red" id="upd-apply" style="display:none">重启并更新</button><span class="tag" id="upd-status">…</span></div><div class="row" style="margin-top:16px"><button class="btn red" id="quit">退出系统（停节点 + 关后台）</button></div><p class="mut" style="margin-top:12px">关掉桌面窗口只是隐藏，后台和节点继续跑；再双击 MJ-System.exe 回来。真正断开只有点这个「退出系统」。个人数据都在 EXE 旁的 Data 文件夹，用完带走或删掉即可。</p>`;
  bind(id);
 }
 
@@ -280,6 +280,37 @@ function bind(id){
    };
    document.getElementById('wp-remove').onclick=async()=>{await api('/api/wallpaper',{method:'DELETE'});customWall=false;applyWallpaper();markSel()};
    document.getElementById('quit').onclick=async()=>{await api('/api/shutdown',{method:'POST'});document.body.innerHTML='<div style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;font-size:20px;color:#fff;text-shadow:0 2px 10px #000">已退出，节点和后台都停了</div>'};
+   /* ----- OTA update ----- */
+   const updStatus=document.getElementById('upd-status'), updDl=document.getElementById('upd-dl'), updApply=document.getElementById('upd-apply');
+   const updPaint=r=>{
+     document.getElementById('upd-cur').textContent='v'+(r.current||'?');
+     let m=r.message||'';
+     if(r.phase==='downloading'&&r.size) m=`正在下载… ${((r.progress||0)/1048576).toFixed(1)} / ${(r.size/1048576).toFixed(1)} MB`;
+     if(!r.token&&!m) m='还没配置更新令牌';
+     else if(!r.token) m+='（未配置令牌）';
+     updStatus.textContent=m||r.phase;
+     updDl.style.display=r.phase==='available'?'':'none';
+     updApply.style.display=r.phase==='ready'?'':'none';
+     const tk=document.getElementById('upd-token');
+     if(r.token&&tk&&document.activeElement!==tk) tk.placeholder='令牌已配置（粘贴新令牌可更换，留空保存 = 删除）';
+   };
+   const updRefresh=async()=>{try{updPaint(await api('/api/update'))}catch(e){}};
+   updRefresh(); setInterval(()=>{if(document.getElementById('upd-status'))updRefresh()},3000);
+   document.getElementById('upd-token-save').onclick=async()=>{
+     const v=document.getElementById('upd-token').value;
+     const r=await api('/api/update/token',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:v})});
+     document.getElementById('upd-token').value='';
+     updStatus.textContent=r.error?('保存失败：'+r.error):(r.token?'令牌已保存，可以检查更新了':'令牌已删除');
+     updRefresh();
+   };
+   document.getElementById('upd-check').onclick=async()=>{updStatus.textContent='检查中…';updPaint(await api('/api/update/check',{method:'POST'}))};
+   updDl.onclick=async()=>{updPaint(await api('/api/update/download',{method:'POST'}));updRefresh()};
+   updApply.onclick=async()=>{
+     if(!confirm('现在重启并更新到新版本？节点会断开几秒，之后自动重连。'))return;
+     const r=await api('/api/update/apply',{method:'POST'});
+     if(r.error){updStatus.textContent='更新失败：'+r.error;return}
+     document.body.innerHTML='<div style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;font-size:20px;color:#fff;text-shadow:0 2px 10px #000">正在更新到新版本，桌面马上自动重开…</div>';
+   };
  }
  if(id==='term'){
    const tin=document.getElementById('tin');
