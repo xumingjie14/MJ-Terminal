@@ -251,6 +251,7 @@ func runCmd(w http.ResponseWriter, r *http.Request) {
 		c = exec.CommandContext(ctx, "/bin/sh", "-c", cmdStr)
 	}
 	c.Dir = termCwd
+	hideConsole(c)
 	if proxyActive() {
 		// v0.8 in-app global acceleration: tools that honor proxy env
 		// vars (curl, git, pip, npm, ...) go through the node. Only
@@ -843,6 +844,7 @@ func startCoreLocked() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	checkCmd := exec.CommandContext(ctx, corePath(), "check", "-c", cfg)
 	checkCmd.Dir = coreDir()
+	hideConsole(checkCmd)
 	checkOut, checkErr := checkCmd.CombinedOutput()
 	cancel()
 	if checkErr != nil {
@@ -855,6 +857,7 @@ func startCoreLocked() error {
 	}
 	coreCmd = exec.Command(corePath(), "run", "-c", cfg)
 	coreCmd.Dir = coreDir()
+	hideConsole(coreCmd)
 	coreCmd.Stdout = logFile
 	coreCmd.Stderr = logFile
 	if err := coreCmd.Start(); err != nil {
