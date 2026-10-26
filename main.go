@@ -1272,10 +1272,10 @@ func runServer(portFlag int, isDaemon bool) {
 		}
 	}()
 
-	// OTA: when a token is configured, silently check on daemon start
-	// and pre-download a newer release; applying still waits for the
-	// user to click in 设置 -> 软件更新.
-	if isDaemon && readUpdateToken() != "" {
+	// OTA: silently check on daemon start and pre-download a newer
+	// release; applying still waits for the user to click in
+	// 设置 -> 软件更新. The repo is public, so no token is needed.
+	if isDaemon {
 		go func() {
 			time.Sleep(20 * time.Second)
 			checkUpdate()
