@@ -40,6 +40,9 @@ body{font-family:-apple-system,"SF Pro Display","PingFang SC","Microsoft YaHei",
 .g-files{background:linear-gradient(180deg,#ffe9a8,#f5b301)}
 .g-core{background:linear-gradient(180deg,#bf5af2,#7d2ae8)}
 .appico.webapp{display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:700;color:#fff;background:linear-gradient(135deg,#0a84ff,#5e5ce6);text-shadow:0 1px 3px rgba(0,0,0,.3)}
+.appico.webapp img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;padding:7px;box-sizing:border-box;background:#f5f5f7;border-radius:inherit}
+.appico.webapp.mini{width:26px;height:26px;font-size:14px;border-radius:7px;margin:0;flex:none}
+.appico.webapp.mini img{padding:3px}
 .g-sys{background:linear-gradient(180deg,#d1d1d6,#636366)}
 .g-browser{background:#fff}
 .chrome-dot{width:34px;height:34px;border-radius:50%;background:radial-gradient(circle at center,#4f9cf9 0 34%,transparent 35%),conic-gradient(#ea4335 0 32%,#fbbc05 32% 64%,#34a853 64% 100%)}
@@ -206,11 +209,17 @@ APPS.forEach(a=>{
 /* ----- website apps pinned to the desktop (v0.10) ----- */
 let WEBAPPS=[];
 function webLetter(n){return (String(n||'?').trim()[0]||'?').toUpperCase()}
+function faviconURL(u){try{return 'https://www.google.com/s2/favicons?domain='+new URL(u).hostname+'&sz=128'}catch(e){return ''}}
+function webIconHTML(a,mini){
+ const f=faviconURL(a.url);
+ const img=f?`<img src="${f}" alt="" loading="lazy" onerror="this.remove()">`:'';
+ return `<div class="appico webapp${mini?' mini':''}">${esc(webLetter(a.name))}${img}</div>`;
+}
 function renderWebIcons(){
  document.querySelectorAll('.webicon').forEach(x=>x.remove());
  WEBAPPS.forEach(a=>{
   const d=document.createElement('button');d.className='icon webicon';d.title=a.url;
-  d.innerHTML=`<div class="appico webapp">${esc(webLetter(a.name))}</div><div class="n">${esc(a.name)}</div>`;
+  d.innerHTML=webIconHTML(a)+`<div class="n">${esc(a.name)}</div>`;
   d.onclick=()=>openWebApp(a.url);
   iconsEl.appendChild(d);
  });
@@ -360,7 +369,7 @@ function bind(id){
    document.getElementById('bdirect').onclick=()=>openB(false);
    const renderWa=()=>{
      const l=document.getElementById('walist'); if(!l) return;
-     l.innerHTML=WEBAPPS.length?WEBAPPS.map(a=>`<div class="row" style="margin-top:6px"><b style="color:#fff">${esc(a.name)}</b><span style="word-break:break-all">${esc(a.url)}</span><button class="btn gray" data-waopen="${esc(a.url)}">打开</button><button class="btn gray" data-wadel="${esc(a.url)}">删除</button></div>`).join(''):'还没有钉住的网站，在下面添加第一个。';
+     l.innerHTML=WEBAPPS.length?WEBAPPS.map(a=>`<div class="row" style="margin-top:6px">${webIconHTML(a,true)}<b style="color:#fff">${esc(a.name)}</b><span style="word-break:break-all">${esc(a.url)}</span><button class="btn gray" data-waopen="${esc(a.url)}">打开</button><button class="btn gray" data-wadel="${esc(a.url)}">删除</button></div>`).join(''):'还没有钉住的网站，在下面添加第一个。';
      l.querySelectorAll('[data-waopen]').forEach(x=>x.onclick=()=>openWebApp(x.dataset.waopen));
      l.querySelectorAll('[data-wadel]').forEach(x=>x.onclick=async()=>{
        await api('/api/apps/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:x.dataset.wadel,delete:true})});

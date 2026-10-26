@@ -1133,29 +1133,79 @@ func openBrowser(w http.ResponseWriter, r *http.Request) {
 // (clean window, no address bar / tabs, like a standalone app) through
 // the isolated profile and, when in-app acceleration is on and nodes
 // exist, through the node. Stored in Data/apps.txt ("name\turl" per
-// line) so they travel with the folder. The file is seeded once with
-// the defaults below; after that it is the source of truth, so a
-// deletion stays deleted.
+// line) so they travel with the folder; bundled defaults are seeded
+// on first run and merged in on upgrades (see bundledWebApps).
 
 type webApp struct {
 	Name string `json:"name"`
 	URL  string `json:"url"`
 }
 
-var seedWebApps = []webApp{
+// bundledWebApps are the defaults shipped with the app. They are
+// seeded on first run; on later upgrades any bundled entry the user
+// does not have yet is merged in once — unless the user deleted it,
+// which is remembered in Data/apps-deleted.txt (tombstones), so a
+// deletion never comes back.
+var bundledWebApps = []webApp{
 	{"X", "https://x.com"},
 	{"YouTube", "https://www.youtube.com"},
-	{"美联储流动性", "https://fed-liquidity-mingjieofficial-7844s-projects.vercel.app/#/macro"},
+	{"铭杰工作站", "https://fed-liquidity-mingjieofficial-7844s-projects.vercel.app/#/macro"},
+	{"TradingView", "https://www.tradingview.com/chart/"},
+	{"ETF 资金流", "https://farside.co.uk/eth"},
+	{"Coinglass", "https://www.coinglass.com"},
+	{"Gmail", "https://mail.google.com"},
+	{"谷歌翻译", "https://translate.google.com"},
+	{"哔哩哔哩", "https://www.bilibili.com"},
+	{"GitHub", "https://github.com"},
+	{"Vercel", "https://vercel.com/dashboard"},
 }
 
-func appsPath() string { return filepath.Join(dataDir(), "apps.txt") }
+// webAppRenames migrates a bundled entry's display name when the user
+// still has the old default name (url -> {oldName, newName}).
+var webAppRenames = map[string][2]string{
+	"https://fed-liquidity-mingjieofficial-7844s-projects.vercel.app/#/macro": {"美联储流动性", "铭杰工作站"},
+}
+
+func appsPath() string        { return filepath.Join(dataDir(), "apps.txt") }
+func tombstonePath() string   { return filepath.Join(dataDir(), "apps-deleted.txt") }
+func isBundledURL(u string) bool {
+	for _, a := range bundledWebApps {
+		if a.URL == u {
+			return true
+		}
+	}
+	return false
+}
+
+func loadTombstones() map[string]bool {
+	out := map[string]bool{}
+	b, err := os.ReadFile(tombstonePath())
+	if err != nil {
+		return out
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			out[line] = true
+		}
+	}
+	return out
+}
+
+func saveTombstones(set map[string]bool) {
+	var lines []string
+	for u := range set {
+		lines = append(lines, u)
+	}
+	_ = os.MkdirAll(dataDir(), 0o755)
+	_ = os.WriteFile(tombstonePath(), []byte(strings.Join(lines, "\n")), 0o644)
+}
 
 func loadWebApps() []webApp {
 	b, err := os.ReadFile(appsPath())
 	if err != nil {
-		saveWebApps(seedWebApps)
-		out := make([]webApp, len(seedWebApps))
-		copy(out, seedWebApps)
+		saveWebApps(bundledWebApps)
+		out := make([]webApp, len(bundledWebApps))
+		copy(out, bundledWebApps)
 		return out
 	}
 	out := []webApp{}
@@ -1173,6 +1223,27 @@ func loadWebApps() []webApp {
 			continue
 		}
 		out = append(out, webApp{name, u})
+	}
+	changed := false
+	for i, a := range out {
+		if rn, ok := webAppRenames[a.URL]; ok && a.Name == rn[0] {
+			out[i].Name = rn[1]
+			changed = true
+		}
+	}
+	tomb := loadTombstones()
+	have := map[string]bool{}
+	for _, a := range out {
+		have[a.URL] = true
+	}
+	for _, d := range bundledWebApps {
+		if !have[d.URL] && !tomb[d.URL] {
+			out = append(out, d)
+			changed = true
+		}
+	}
+	if changed {
+		saveWebApps(out)
 	}
 	return out
 }
@@ -1214,8 +1285,18 @@ func webAppSaveHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		saveWebApps(out)
+		if isBundledURL(u) {
+			tomb := loadTombstones()
+			tomb[u] = true
+			saveTombstones(tomb)
+		}
 		writeJSON(w, map[string]any{"ok": true, "apps": out})
 		return
+	}
+	// (Re-)adding a site clears its tombstone, so it stays added.
+	if tomb := loadTombstones(); tomb[u] {
+		delete(tomb, u)
+		saveTombstones(tomb)
 	}
 	name := strings.TrimSpace(body.Name)
 	if name == "" {
