@@ -1351,6 +1351,38 @@ func openWebAppHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"ok": true, "mode": mode})
 }
 
+// ---------- desktop layout (v0.12) ----------
+//
+// Icon positions and desktop folders, owned by the frontend and
+// stored as one JSON blob in Data/layout.json so the arrangement
+// travels with the folder.
+
+func layoutPath() string { return filepath.Join(dataDir(), "layout.json") }
+
+func layoutGetHandler(w http.ResponseWriter, r *http.Request) {
+	b, err := os.ReadFile(layoutPath())
+	if err != nil || !json.Valid(b) {
+		writeJSON(w, map[string]any{"layout": nil})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(b)
+}
+
+func layoutSaveHandler(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, 512*1024))
+	if err != nil || !json.Valid(body) {
+		writeJSON(w, map[string]any{"error": "布局数据不对"})
+		return
+	}
+	_ = os.MkdirAll(dataDir(), 0o755)
+	if err := os.WriteFile(layoutPath(), body, 0o644); err != nil {
+		writeJSON(w, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true})
+}
+
 // ---------- background daemon (v0.4) ----------
 //
 // The desktop window is now just a view. The real work (local API +
@@ -1539,6 +1571,8 @@ func runServer(portFlag int, isDaemon bool) {
 	mux.HandleFunc("/api/proxytest", proxyTest)
 	mux.HandleFunc("/api/node", nodeControl)
 	mux.HandleFunc("/api/browser", openBrowser)
+	mux.HandleFunc("/api/layout", layoutGetHandler)
+	mux.HandleFunc("/api/layout/save", layoutSaveHandler)
 	mux.HandleFunc("/api/apps", webAppsHandler)
 	mux.HandleFunc("/api/apps/save", webAppSaveHandler)
 	mux.HandleFunc("/api/appopen", openWebAppHandler)
