@@ -294,7 +294,7 @@ func openPath(w http.ResponseWriter, r *http.Request) {
 	// PC's default browser. Falls back to the default browser when
 	// the isolated one cannot start.
 	if body.URL != "" && runtime.GOOS == "windows" && accelEnabled() {
-		if err := launchIsolatedBrowser(true, target); err == nil {
+		if err := launchIsolatedBrowser(true, target, false); err == nil {
 			writeJSON(w, map[string]any{"ok": true, "via": "node"})
 			return
 		}
@@ -1070,8 +1070,10 @@ func findShellBrowser() string {
 // Only this window goes through the node; nothing system-wide changes.
 // launchIsolatedBrowser starts the isolated Chrome/Edge window:
 // separate profile + optional proxy. Only this window goes through
-// the node; nothing system-wide changes.
-func launchIsolatedBrowser(proxy bool, target string) error {
+// the node; nothing system-wide changes. With appMode it uses the
+// browser's --app mode: a clean window with no address bar or tabs,
+// like a standalone app (v0.10).
+func launchIsolatedBrowser(proxy bool, target string, appMode bool) error {
 	browser := findChrome()
 	if browser == "" {
 		return fmt.Errorf("这台电脑没找到 Chrome 或 Edge，请先装一个 Chrome")
@@ -1093,7 +1095,11 @@ func launchIsolatedBrowser(proxy bool, target string) error {
 	if proxy {
 		args = append(args, "--proxy-server=socks5://127.0.0.1:"+strconv.Itoa(proxyPort), "--proxy-bypass-list=127.0.0.1;localhost")
 	}
-	args = append(args, target)
+	if appMode {
+		args = append(args, "--app="+target)
+	} else {
+		args = append(args, target)
+	}
 	if err := exec.Command(browser, args...).Start(); err != nil {
 		return fmt.Errorf("浏览器打开失败: %w", err)
 	}
@@ -1110,7 +1116,7 @@ func openBrowser(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"error": "当前不是 Windows 环境（这是测试环境），到 Windows 上会正常打开 Chrome"})
 		return
 	}
-	if err := launchIsolatedBrowser(body.Proxy, body.URL); err != nil {
+	if err := launchIsolatedBrowser(body.Proxy, body.URL, false); err != nil {
 		writeJSON(w, map[string]any{"error": err.Error()})
 		return
 	}
@@ -1119,6 +1125,149 @@ func openBrowser(w http.ResponseWriter, r *http.Request) {
 		kind = fmt.Sprintf("走节点（127.0.0.1:%d）", proxyPort)
 	}
 	writeJSON(w, map[string]any{"ok": true, "browser": filepath.Base(findChrome()), "mode": kind, "profile": filepath.Join(dataDir(), "ChromeProfile")})
+}
+
+// ---------- website app shortcuts (v0.10) ----------
+//
+// Websites pinned to the desktop, opened in the browser's --app mode
+// (clean window, no address bar / tabs, like a standalone app) through
+// the isolated profile and, when in-app acceleration is on and nodes
+// exist, through the node. Stored in Data/apps.txt ("name\turl" per
+// line) so they travel with the folder. The file is seeded once with
+// the defaults below; after that it is the source of truth, so a
+// deletion stays deleted.
+
+type webApp struct {
+	Name string `json:"name"`
+	URL  string `json:"url"`
+}
+
+var seedWebApps = []webApp{
+	{"X", "https://x.com"},
+	{"YouTube", "https://www.youtube.com"},
+	{"美联储流动性", "https://fed-liquidity-mingjieofficial-7844s-projects.vercel.app/#/macro"},
+}
+
+func appsPath() string { return filepath.Join(dataDir(), "apps.txt") }
+
+func loadWebApps() []webApp {
+	b, err := os.ReadFile(appsPath())
+	if err != nil {
+		saveWebApps(seedWebApps)
+		out := make([]webApp, len(seedWebApps))
+		copy(out, seedWebApps)
+		return out
+	}
+	out := []webApp{}
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		name, u := strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
+		if name == "" || u == "" {
+			continue
+		}
+		out = append(out, webApp{name, u})
+	}
+	return out
+}
+
+func saveWebApps(list []webApp) {
+	var sb strings.Builder
+	for _, a := range list {
+		sb.WriteString(a.Name + "\t" + a.URL + "\n")
+	}
+	_ = os.MkdirAll(dataDir(), 0o755)
+	_ = os.WriteFile(appsPath(), []byte(sb.String()), 0o644)
+}
+
+func webAppsHandler(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, map[string]any{"apps": loadWebApps()})
+}
+
+func webAppSaveHandler(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name   string `json:"name"`
+		URL    string `json:"url"`
+		Delete bool   `json:"delete"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	u := strings.TrimSpace(body.URL)
+	if u != "" && !strings.Contains(u, "://") {
+		u = "https://" + u
+	}
+	if !(strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://")) {
+		writeJSON(w, map[string]any{"error": "网址不对"})
+		return
+	}
+	list := loadWebApps()
+	if body.Delete {
+		out := list[:0]
+		for _, a := range list {
+			if a.URL != u {
+				out = append(out, a)
+			}
+		}
+		saveWebApps(out)
+		writeJSON(w, map[string]any{"ok": true, "apps": out})
+		return
+	}
+	name := strings.TrimSpace(body.Name)
+	if name == "" {
+		writeJSON(w, map[string]any{"error": "给它起个名字"})
+		return
+	}
+	if rr := []rune(name); len(rr) > 24 {
+		name = string(rr[:24])
+	}
+	for i, a := range list {
+		if a.URL == u {
+			list[i].Name = name
+			saveWebApps(list)
+			writeJSON(w, map[string]any{"ok": true, "apps": list})
+			return
+		}
+	}
+	list = append(list, webApp{name, u})
+	saveWebApps(list)
+	writeJSON(w, map[string]any{"ok": true, "apps": list})
+}
+
+// openWebAppHandler opens a pinned website in --app mode. It goes
+// through the node when acceleration is on and nodes are saved
+// (falling back to a direct window when the node cannot start).
+func openWebAppHandler(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		URL string `json:"url"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	u := strings.TrimSpace(body.URL)
+	if !(strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://")) {
+		writeJSON(w, map[string]any{"error": "网址不对"})
+		return
+	}
+	if runtime.GOOS != "windows" {
+		writeJSON(w, map[string]any{"error": "当前不是 Windows 环境（这是测试环境），到 Windows 上会正常打开"})
+		return
+	}
+	mode := "直连"
+	if accelEnabled() && len(nodes) > 0 {
+		if err := launchIsolatedBrowser(true, u, true); err == nil {
+			writeJSON(w, map[string]any{"ok": true, "mode": "走节点"})
+			return
+		}
+		mode = "直连（节点启动失败，已降级）"
+	}
+	if err := launchIsolatedBrowser(false, u, true); err != nil {
+		writeJSON(w, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true, "mode": mode})
 }
 
 // ---------- background daemon (v0.4) ----------
@@ -1309,6 +1458,9 @@ func runServer(portFlag int, isDaemon bool) {
 	mux.HandleFunc("/api/proxytest", proxyTest)
 	mux.HandleFunc("/api/node", nodeControl)
 	mux.HandleFunc("/api/browser", openBrowser)
+	mux.HandleFunc("/api/apps", webAppsHandler)
+	mux.HandleFunc("/api/apps/save", webAppSaveHandler)
+	mux.HandleFunc("/api/appopen", openWebAppHandler)
 	mux.HandleFunc("/api/update", updateStatusHandler)
 	mux.HandleFunc("/api/update/token", updateTokenHandler)
 	mux.HandleFunc("/api/update/check", updateCheckHandler)
