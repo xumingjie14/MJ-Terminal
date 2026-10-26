@@ -251,6 +251,17 @@ func runCmd(w http.ResponseWriter, r *http.Request) {
 		c = exec.CommandContext(ctx, "/bin/sh", "-c", cmdStr)
 	}
 	c.Dir = termCwd
+	if proxyActive() {
+		// v0.8 in-app global acceleration: tools that honor proxy env
+		// vars (curl, git, pip, npm, ...) go through the node. Only
+		// this child process gets the vars; the host PC is untouched.
+		px := fmt.Sprintf("http://127.0.0.1:%d", proxyPort)
+		sx := fmt.Sprintf("socks5://127.0.0.1:%d", proxyPort)
+		c.Env = append(os.Environ(),
+			"HTTP_PROXY="+px, "HTTPS_PROXY="+px, "ALL_PROXY="+sx,
+			"http_proxy="+px, "https_proxy="+px, "all_proxy="+sx,
+			"NO_PROXY=127.0.0.1,localhost", "no_proxy=127.0.0.1,localhost")
+	}
 	out, err := c.CombinedOutput()
 	s := string(out)
 	if len(s) > 64*1024 {
@@ -276,6 +287,16 @@ func openPath(w http.ResponseWriter, r *http.Request) {
 	if target == "" {
 		writeJSON(w, map[string]any{"error": "empty target"})
 		return
+	}
+	// v0.8 in-app global acceleration: a link opened from inside the
+	// system goes through the node (isolated Chrome), not to the host
+	// PC's default browser. Falls back to the default browser when
+	// the isolated one cannot start.
+	if body.URL != "" && runtime.GOOS == "windows" && accelEnabled() {
+		if err := launchIsolatedBrowser(true, target); err == nil {
+			writeJSON(w, map[string]any{"ok": true, "via": "node"})
+			return
+		}
 	}
 	var c *exec.Cmd
 	switch runtime.GOOS {
@@ -1044,6 +1065,38 @@ func findShellBrowser() string {
 
 // openBrowser opens the ISOLATED browser: separate profile + optional proxy.
 // Only this window goes through the node; nothing system-wide changes.
+// launchIsolatedBrowser starts the isolated Chrome/Edge window:
+// separate profile + optional proxy. Only this window goes through
+// the node; nothing system-wide changes.
+func launchIsolatedBrowser(proxy bool, target string) error {
+	browser := findChrome()
+	if browser == "" {
+		return fmt.Errorf("这台电脑没找到 Chrome 或 Edge，请先装一个 Chrome")
+	}
+	if proxy {
+		coreMu.Lock()
+		err := startCoreLocked()
+		coreMu.Unlock()
+		if err != nil {
+			return fmt.Errorf("节点启动失败：%w", err)
+		}
+	}
+	if target == "" {
+		target = "https://www.google.com"
+	}
+	profile := filepath.Join(dataDir(), "ChromeProfile")
+	_ = os.MkdirAll(profile, 0o755)
+	args := []string{"--user-data-dir=" + profile, "--no-first-run", "--start-maximized"}
+	if proxy {
+		args = append(args, "--proxy-server=socks5://127.0.0.1:"+strconv.Itoa(proxyPort), "--proxy-bypass-list=127.0.0.1;localhost")
+	}
+	args = append(args, target)
+	if err := exec.Command(browser, args...).Start(); err != nil {
+		return fmt.Errorf("浏览器打开失败: %w", err)
+	}
+	return nil
+}
+
 func openBrowser(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Proxy bool   `json:"proxy"`
@@ -1054,41 +1107,15 @@ func openBrowser(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"error": "当前不是 Windows 环境（这是测试环境），到 Windows 上会正常打开 Chrome"})
 		return
 	}
-	browser := findChrome()
-	if browser == "" {
-		writeJSON(w, map[string]any{"error": "这台电脑没找到 Chrome 或 Edge，请先装一个 Chrome"})
-		return
-	}
-	if body.Proxy {
-		coreMu.Lock()
-		err := startCoreLocked()
-		coreMu.Unlock()
-		if err != nil {
-			writeJSON(w, map[string]any{"error": "节点启动失败：" + err.Error()})
-			return
-		}
-	}
-	target := body.URL
-	if target == "" {
-		target = "https://www.google.com"
-	}
-	profile := filepath.Join(dataDir(), "ChromeProfile")
-	_ = os.MkdirAll(profile, 0o755)
-	args := []string{"--user-data-dir=" + profile, "--no-first-run", "--start-maximized"}
-	if body.Proxy {
-		args = append(args, "--proxy-server=socks5://127.0.0.1:"+strconv.Itoa(proxyPort))
-	}
-	args = append(args, target)
-	cmd := exec.Command(browser, args...)
-	if err := cmd.Start(); err != nil {
-		writeJSON(w, map[string]any{"error": "浏览器打开失败: " + err.Error()})
+	if err := launchIsolatedBrowser(body.Proxy, body.URL); err != nil {
+		writeJSON(w, map[string]any{"error": err.Error()})
 		return
 	}
 	kind := "直连"
 	if body.Proxy {
 		kind = fmt.Sprintf("走节点（127.0.0.1:%d）", proxyPort)
 	}
-	writeJSON(w, map[string]any{"ok": true, "browser": filepath.Base(browser), "mode": kind, "profile": profile})
+	writeJSON(w, map[string]any{"ok": true, "browser": filepath.Base(findChrome()), "mode": kind, "profile": filepath.Join(dataDir(), "ChromeProfile")})
 }
 
 // ---------- background daemon (v0.4) ----------
@@ -1134,7 +1161,7 @@ func findDaemon() string {
 	return ""
 }
 
-func openShellWindow(url string) error {
+func openShellWindow(url string, proxy bool) error {
 	browser := findShellBrowser()
 	profile := filepath.Join(dataDir(), "ShellProfile")
 	_ = os.MkdirAll(profile, 0o755)
@@ -1143,14 +1170,63 @@ func openShellWindow(url string) error {
 	}
 	// Deliberately NOT waited on: this window may be closed freely, it
 	// no longer owns the backend's lifetime.
-	return exec.Command(browser, "--app="+url, "--start-maximized", "--user-data-dir="+profile, "--no-first-run").Start()
+	args := []string{"--app=" + url, "--start-maximized", "--user-data-dir=" + profile, "--no-first-run"}
+	if proxy {
+		// The desktop itself goes through the node (v0.8 in-app global
+		// acceleration); loopback stays direct so the local UI itself
+		// never depends on the node being alive.
+		args = append(args, "--proxy-server=socks5://127.0.0.1:"+strconv.Itoa(proxyPort), "--proxy-bypass-list=127.0.0.1;localhost")
+	}
+	return exec.Command(browser, args...).Start()
+}
+
+// shellOpenHandler runs in the DAEMON: it knows the real core state,
+// so it decides whether the desktop window launches through the node.
+func shellOpenHandler(w http.ResponseWriter, r *http.Request) {
+	if runtime.GOOS != "windows" {
+		writeJSON(w, map[string]any{"error": "当前不是 Windows 环境（测试环境），桌面窗口在 Windows 上会打开"})
+		return
+	}
+	proxy := false
+	if accelEnabled() && len(nodes) > 0 {
+		// Give the auto-starting core a moment to come up.
+		for i := 0; i < 20 && !coreRunningQuick(); i++ {
+			time.Sleep(300 * time.Millisecond)
+		}
+		proxy = coreRunningQuick()
+	}
+	url := "http://" + r.Host + "/"
+	if err := openShellWindow(url, proxy); err != nil {
+		writeJSON(w, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true, "proxy": proxy})
+}
+
+// askDaemonOpenShell lets the daemon open the desktop window (it
+// decides about the proxy). False means the daemon is too old to know
+// the endpoint or failed -- the launcher falls back to a direct open.
+func askDaemonOpenShell(base string) bool {
+	client := &http.Client{Timeout: 12 * time.Second}
+	resp, err := client.Post(base+"api/openshell", "application/json", nil)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	var v struct {
+		OK bool `json:"ok"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&v)
+	return v.OK
 }
 
 // launcherMain runs on a normal double-click on Windows: ensure the
 // daemon is up, open the desktop, exit.
 func launcherMain() {
 	if url := findDaemon(); url != "" {
-		_ = openShellWindow(url)
+		if !askDaemonOpenShell(url) {
+			_ = openShellWindow(url, false)
+		}
 		return
 	}
 	exe, err := os.Executable()
@@ -1164,7 +1240,9 @@ func launcherMain() {
 	}
 	for i := 0; i < 30; i++ {
 		if url := findDaemon(); url != "" {
-			_ = openShellWindow(url)
+			if !askDaemonOpenShell(url) {
+				_ = openShellWindow(url, false)
+			}
 			return
 		}
 		time.Sleep(200 * time.Millisecond)
@@ -1233,6 +1311,8 @@ func runServer(portFlag int, isDaemon bool) {
 	mux.HandleFunc("/api/update/check", updateCheckHandler)
 	mux.HandleFunc("/api/update/download", updateDownloadHandler)
 	mux.HandleFunc("/api/update/apply", updateApplyHandler)
+	mux.HandleFunc("/api/accel", accelHandler)
+	mux.HandleFunc("/api/openshell", shellOpenHandler)
 	srv := &http.Server{Handler: activityMiddleware(mux)}
 	mux.HandleFunc("/api/shutdown", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"ok": true, "message": "后台和节点一起退出"})
