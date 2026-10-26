@@ -7,6 +7,7 @@ on:
     paths:
       - 'main.go'
       - 'update.go'
+      - 'accel.go'
       - 'index.html'
       - 'go.mod'
       - '.github/workflows/build.yml'
@@ -48,7 +49,7 @@ jobs:
           (Get-Item "MJ-System-64bit.zip").Length
           $hash = (Get-FileHash "MJ-System-64bit.zip" -Algorithm SHA256).Hash.ToLower()
           $size = (Get-Item "MJ-System-64bit.zip").Length
-          $manifest = [ordered]@{ version = "0.7"; file = "MJ-System-64bit.zip"; size = $size; sha256 = $hash }
+          $manifest = [ordered]@{ version = "0.8"; file = "MJ-System-64bit.zip"; size = $size; sha256 = $hash }
           $json = $manifest | ConvertTo-Json -Compress
           [IO.File]::WriteAllText((Join-Path $PWD "update.json"), $json, (New-Object System.Text.UTF8Encoding $false))
           Get-Content "update.json"
@@ -56,13 +57,13 @@ jobs:
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.7
-          name: 铭杰终端机 v0.7（64 位单文件版 · 应用内更新）
+          tag_name: v0.8
+          name: 铭杰终端机 v0.8（64 位单文件版 · 软件内全局加速）
           body: |
             64 位单文件版：解压后运行 MJ-System.exe（需 64 位 Windows）。
             第一次运行会自动释放内置 sing-box 核心，数据保存在 EXE 旁的 Data/ 文件夹。
-            仓库已改为公开：免登录下载，应用内更新不需要令牌。本版变化：守护进程启动时自动检查并预下载新版；存有失效令牌时自动改走匿名请求，不再挡住更新；设置页文案同步更新。
-            v0.6 用户升级方法：设置 → 软件更新，先把令牌框清空并保存，再点「检查更新」→「下载更新」→「重启并更新」，一次点完即升到本版。
+            本版新增「软件内全局加速」（节点页开关，默认开）：桌面窗口本身、从软件里点开的链接、终端里跑的命令（curl/git 等）都走节点；宿主电脑自己的浏览器和程序完全不受影响。仍不改系统代理、不开 TUN。
+            v0.7 用户直接应用内升级：设置 → 软件更新 →「检查更新」→「下载更新」→「重启并更新」。升级后桌面在下次打开时带节点生效。
             update.json 是给程序自动更新用的校验清单（版本/大小/SHA-256），手动下载时不用管它。
           files: |
             MJ-System-64bit.zip
