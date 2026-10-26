@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>铭杰工作站</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --glass:rgba(30,30,36,.58);
+  --glass-brd:rgba(255,255,255,.22);
+  --field:rgba(255,255,255,.09);
+  --field-brd:rgba(255,255,255,.16);
+  --txt:#f5f5f7;
+  --accent:#0a84ff;
+}
+html,body{height:100%;overflow:hidden}
+body{font-family:-apple-system,"SF Pro Display","PingFang SC","Microsoft YaHei","Segoe UI",system-ui,sans-serif;color:var(--txt);-webkit-font-smoothing:antialiased}
+#wall{position:fixed;inset:0;background-size:cover;background-position:center;transition:background .5s ease}
+/* ---------- menu bar ---------- */
+#menubar{position:fixed;top:0;left:0;right:0;height:38px;z-index:1000;display:flex;align-items:center;gap:18px;padding:0 16px;background:rgba(22,22,28,.34);backdrop-filter:blur(22px) saturate(180%);-webkit-backdrop-filter:blur(22px) saturate(180%);border-bottom:1px solid rgba(255,255,255,.14);font-size:13.5px;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.35)}
+#menubar .logo{font-weight:700;font-size:15px;cursor:pointer}
+#menubar .mi{opacity:.92;cursor:default}
+#menubar .mi b{font-weight:600}
+#menubar .sp{flex:1}
+#menubar .right{display:flex;align-items:center;gap:16px}
+#mb-node{cursor:pointer;display:flex;align-items:center;gap:6px}
+#mb-dot{width:9px;height:9px;border-radius:50%;background:#8e8e93;box-shadow:0 0 6px rgba(0,0,0,.3)}
+#mb-dot.on{background:#30d158;box-shadow:0 0 8px #30d158}
+#mb-clock{font-variant-numeric:tabular-nums}
+/* ---------- desktop icons ---------- */
+#icons{position:fixed;top:54px;right:14px;display:flex;flex-direction:column;gap:8px;z-index:5}
+.icon{width:92px;padding:8px 2px 6px;border:1px solid transparent;border-radius:12px;background:transparent;cursor:pointer;color:#fff;text-align:center}
+.icon:hover{background:rgba(255,255,255,.10)}
+.icon.sel{background:rgba(120,160,255,.30);border-color:rgba(255,255,255,.35)}
+.appico{width:54px;height:54px;margin:0 auto;border-radius:13px;display:flex;align-items:center;justify-content:center;font-size:27px;box-shadow:0 6px 16px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.35);position:relative}
+.icon .n{font-size:12px;margin-top:5px;line-height:1.25;text-shadow:0 1px 5px rgba(0,0,0,.8);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.g-home{background:linear-gradient(180deg,#5ec2ff,#0a62d6)}
+.g-term{background:linear-gradient(180deg,#4a4a52,#101014);font-family:ui-monospace,Consolas,monospace;font-size:21px;color:#7dff8a}
+.g-files{background:linear-gradient(180deg,#ffe9a8,#f5b301)}
+.g-core{background:linear-gradient(180deg,#bf5af2,#7d2ae8)}
+.g-sys{background:linear-gradient(180deg,#d1d1d6,#636366)}
+.g-browser{background:#fff}
+.chrome-dot{width:34px;height:34px;border-radius:50%;background:radial-gradient(circle at center,#4f9cf9 0 34%,transparent 35%),conic-gradient(#ea4335 0 32%,#fbbc05 32% 64%,#34a853 64% 100%)}
+/* ---------- windows ---------- */
+.win{position:fixed;width:700px;max-width:95vw;height:490px;max-height:calc(100vh - 130px);background:var(--glass);backdrop-filter:blur(28px) saturate(170%);-webkit-backdrop-filter:blur(28px) saturate(170%);border:1px solid var(--glass-brd);border-radius:18px;box-shadow:0 24px 70px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.18);display:flex;flex-direction:column;overflow:hidden;color:var(--txt)}
+.win.hidden{display:none}
+.title{position:relative;height:46px;flex:none;display:flex;align-items:center;padding:0 14px;cursor:move;user-select:none;background:rgba(255,255,255,.05)}
+.lights{display:flex;gap:8px}
+.lights button{width:13px;height:13px;border-radius:50%;border:0;cursor:pointer;font-size:9px;line-height:1;color:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:0}
+.l-close{background:#ff5f57}.l-min{background:#febc2e}.l-max{background:#28c840}
+.lights button span{opacity:0}.title:hover .lights button span{opacity:.8}
+.title b{position:absolute;left:0;right:0;text-align:center;font-size:13.5px;font-weight:600;pointer-events:none;color:rgba(255,255,255,.92)}
+.body{flex:1;overflow:auto;padding:16px;font-size:14px}
+.body::-webkit-scrollbar{width:9px}.body::-webkit-scrollbar-thumb{background:rgba(255,255,255,.22);border-radius:9px}
+.body h2,.body h3{font-weight:650}
+.mut{opacity:.72;font-size:13px;line-height:1.7}
+.tag{display:inline-block;padding:3px 10px;border-radius:99px;background:rgba(255,255,255,.12);font-size:12px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.btn{background:var(--accent);border:0;color:#fff;border-radius:9px;padding:8px 15px;cursor:pointer;font-size:13.5px;box-shadow:0 2px 8px rgba(0,0,0,.25)}
+.btn:active{filter:brightness(.85)}
+.btn.gray{background:rgba(255,255,255,.16)}.btn.red{background:#ff453a}.btn:disabled{opacity:.5}
+.txt,.pathin,textarea{flex:1;min-width:120px;background:var(--field);border:1px solid var(--field-brd);color:#fff;border-radius:9px;padding:9px 11px;outline:none;font:inherit}
+.txt:focus,.pathin:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(10,132,255,.35)}
+pre.term{background:rgba(5,7,10,.78);color:#b7ffb0;border-radius:12px;padding:12px;min-height:280px;white-space:pre-wrap;word-break:break-all;font-family:ui-monospace,Consolas,monospace;font-size:12.5px;line-height:1.55;overflow:auto}
+table{width:100%;border-collapse:collapse}
+td,th{padding:7px 8px;border-bottom:1px solid rgba(255,255,255,.09);text-align:left}
+tr.file{cursor:pointer}tr.file:hover{background:rgba(255,255,255,.08)}
+.kv{display:grid;grid-template-columns:120px 1fr;gap:8px 14px}
+a{color:#64d2ff}
+/* wallpaper picker */
+.wp-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:10px}
+.wp{height:64px;border-radius:12px;border:2px solid transparent;cursor:pointer;background-size:cover;background-position:center;position:relative;overflow:hidden}
+.wp.sel{border-color:var(--accent)}
+.wp span{position:absolute;left:7px;bottom:5px;font-size:11px;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.9)}
+/* ---------- dock ---------- */
+#dockwrap{position:fixed;left:0;right:0;bottom:10px;display:flex;justify-content:center;z-index:900;pointer-events:none}
+#dock{pointer-events:auto;display:flex;align-items:flex-end;gap:7px;padding:8px 10px;background:rgba(30,30,38,.42);backdrop-filter:blur(24px) saturate(180%);-webkit-backdrop-filter:blur(24px) saturate(180%);border:1px solid rgba(255,255,255,.24);border-radius:26px;box-shadow:0 18px 44px rgba(0,0,0,.4),inset 0 1px 0 rgba(255,255,255,.22)}
+.ditem{display:flex;flex-direction:column;align-items:center;gap:3px;position:relative}
+.dockbtn{border:0;background:transparent;cursor:pointer;padding:0;transition:transform .12s ease-out;transform-origin:bottom center}
+.dockbtn .appico{width:52px;height:52px;border-radius:12px;transition:width .12s,height .12s}
+.dlabel{position:absolute;bottom:calc(100% + 14px);left:50%;transform:translateX(-50%);background:rgba(40,40,46,.75);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.2);color:#fff;font-size:12px;padding:3px 10px;border-radius:7px;white-space:nowrap;opacity:0;pointer-events:none;transition:opacity .12s}
+.ditem:hover .dlabel{opacity:1}
+.ddot{width:4px;height:4px;border-radius:50%;background:rgba(255,255,255,.85);opacity:0}
+.ddot.on{opacity:1}
+</style>
+</head>
+<body>
+<div id="wall"></div>
+
+<div id="menubar">
+  <span class="logo" id="mb-logo"> 铭杰</span>
+  <span class="mi"><b id="mb-appname">访达</b></span>
+  <span class="mi">文件</span><span class="mi">编辑</span><span class="mi">显示</span><span class="mi">窗口</span><span class="mi">帮助</span>
+  <span class="sp"></span>
+  <span class="right">
+    <span id="mb-node" title="节点状态"><span id="mb-dot"></span><span id="mb-nodetxt">节点</span></span>
+    <span>📶</span><span>🔋</span>
+    <span id="mb-clock">--</span>
+  </span>
+</div>
+
+<div id="icons"></div>
+<div id="wins"></div>
+
+<div id="dockwrap"><div id="dock"></div></div>
+
+<script>
+const APPS=[
+ {id:'home',e:'',g:'g-home',glyph:'⌂',n:'工作站'},
+ {id:'term',e:'>_',g:'g-term',glyph:'>_',n:'终端'},
+ {id:'files',e:'🗂️',g:'g-files',glyph:'🗂️',n:'文件'},
+ {id:'browser',e:'',g:'g-browser',glyph:'',n:'谷歌浏览器'},
+ {id:'core',e:'🚀',g:'g-core',glyph:'🚀',n:'节点'},
+ {id:'sys',e:'⚙️',g:'g-sys',glyph:'⚙️',n:'设置'},
+];
+const WALLPAPERS={
+ tahoe:{n:'大湖',css:'radial-gradient(1100px 600px at 78% -10%,#ffb35c 0%,transparent 55%),radial-gradient(900px 700px at 12% 110%,#3b1d8f 0%,transparent 60%),linear-gradient(160deg,#1c6dd9 0%,#5b2ee5 52%,#b01e9e 100%)'},
+ sonoma:{n:'索诺玛',css:'radial-gradient(900px 550px at 85% 0%,#ffd29d 0%,transparent 55%),radial-gradient(800px 600px at 0% 100%,#7a1e5e 0%,transparent 60%),linear-gradient(150deg,#f2709c 0%,#ff9472 55%,#b24592 100%)'},
+ sequoia:{n:'红杉',css:'radial-gradient(900px 650px at 80% 110%,#0f5132 0%,transparent 60%),radial-gradient(700px 500px at 10% -10%,#9be15d22 0%,transparent 50%),linear-gradient(165deg,#06131f 0%,#0b2e2a 60%,#083344 100%)'},
+ ventura:{n:'文图拉',css:'radial-gradient(900px 600px at 15% -10%,#f0f 0%,transparent 45%),radial-gradient(900px 700px at 90% 110%,#302b63 0%,transparent 60%),linear-gradient(140deg,#6441a5 0%,#2a0845 90%)'},
+ aurora:{n:'极光',css:'radial-gradient(1000px 500px at 60% -20%,#43e97b55 0%,transparent 55%),radial-gradient(800px 600px at 20% 120%,#38f9d755 0%,transparent 55%),linear-gradient(170deg,#050a1f 0%,#0b2740 55%,#12082e 100%)'},
+ graphite:{n:'石墨',css:'radial-gradient(900px 600px at 80% 0%,#ffffff14 0%,transparent 50%),linear-gradient(160deg,#232329 0%,#101014 70%,#050507 100%)'},
+};
+const winsEl=document.getElementById('wins'), iconsEl=document.getElementById('icons'), dockEl=document.getElementById('dock'), wallEl=document.getElementById('wall');
+let z=10, sysInfo=null, customWall=false;
+
+function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+async function api(p,opt){const r=await fetch(p,opt);let t=await r.text();try{return JSON.parse(t)}catch(e){return{raw:t}}}
+
+/* ----- wallpaper ----- */
+function applyWallpaper(){
+ if(customWall){wallEl.style.background=`center/cover no-repeat url(/api/wallpaper?v=${Date.now()})`;return}
+ const key=localStorage.getItem('mj-wall')||'tahoe';
+ wallEl.style.background=(WALLPAPERS[key]||WALLPAPERS.tahoe).css;
+}
+async function detectCustomWall(){
+ try{const r=await fetch('/api/wallpaper',{method:'GET'});customWall=r.ok}catch(e){customWall=false}
+ applyWallpaper();
+}
+detectCustomWall();
+
+/* ----- menu bar clock ----- */
+function tick(){
+ const d=new Date();
+ const s=d.toLocaleDateString('zh-CN',{month:'numeric',day:'numeric',weekday:'short'})+' '+d.toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',hour12:false});
+ document.getElementById('mb-clock').textContent=s;
+}
+tick();setInterval(tick,5000);
+
+/* ----- node status in menu bar ----- */
+async function pollNode(){
+ try{
+  const r=await api('/api/core',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'status'})});
+  document.getElementById('mb-dot').className=r.running?'on':'';
+  document.getElementById('mb-dot').id='mb-dot';
+  document.getElementById('mb-nodetxt').textContent=r.running?'节点已连':'节点';
+ }catch(e){}
+}
+pollNode();setInterval(pollNode,20000);
+document.getElementById('mb-node').onclick=()=>openApp('core');
+document.getElementById('mb-logo').onclick=()=>openApp('home');
+
+/* ----- windows ----- */
+function appIcon(a,size){
+ if(a.id==='browser')return `<div class="appico g-browser"><div class="chrome-dot"></div></div>`;
+ return `<div class="appico ${a.g}">${esc(a.glyph)}</div>`;
+}
+function makeWin(app,i){
+ const w=document.createElement('section');w.className='win hidden';w.id='win-'+app.id;
+ w.style.left=(90+i*40)+'px';w.style.top=(86+i*30)+'px';
+ w.innerHTML=`<div class="title"><div class="lights"><button class="l-close" data-a="close"><span>✕</span></button><button class="l-min" data-a="min"><span>–</span></button><button class="l-max"><span>＋</span></button></div><b>${app.n}</b></div><div class="body" id="body-${app.id}"></div>`;
+ const title=w.querySelector('.title');
+ title.addEventListener('pointerdown',ev=>{
+   if(ev.target.closest('button'))return;bring(w);
+   const sx=ev.clientX-w.offsetLeft, sy=ev.clientY-w.offsetTop;
+   function mv(e){w.style.left=Math.max(0,e.clientX-sx)+'px';w.style.top=Math.max(44,e.clientY-sy)+'px'}
+   function up(){removeEventListener('pointermove',mv);removeEventListener('pointerup',up)}
+   addEventListener('pointermove',mv);addEventListener('pointerup',up);
+ });
+ title.addEventListener('dblclick',()=>{w.style.width=w.style.width==='96vw'?'':'96vw';w.style.left=w.style.width?'2vw':'90px'});
+ w.querySelector('[data-a="close"]').onclick=()=>{w.classList.add('hidden');syncDots()};
+ w.querySelector('[data-a="min"]').onclick=()=>{w.classList.add('hidden');syncDots()};
+ winsEl.appendChild(w);return w;
+}
+function bring(w){w.style.zIndex=++z}
+function openApp(id){
+ let w=document.getElementById('win-'+id);
+ if(!w){w=makeWin(APPS.find(a=>a.id===id),APPS.findIndex(a=>a.id===id));render(id)}
+ w.classList.remove('hidden');bring(w);
+ document.getElementById('mb-appname').textContent=APPS.find(a=>a.id===id).n;
+ document.querySelectorAll('.icon').forEach(x=>x.classList.toggle('sel',x.dataset.app===id));
+ syncDots();
+}
+function syncDots(){
+ APPS.forEach(a=>{const d=document.getElementById('ddot-'+a.id);if(!d)return;const w=document.getElementById('win-'+a.id);d.classList.toggle('on',!!w&&!w.classList.contains('hidden'))});
+}
+APPS.forEach(a=>{
+ const d=document.createElement('button');d.className='icon';d.dataset.app=a.id;d.innerHTML=appIcon(a)+`<div class="n">${a.n}</div>`;d.onclick=()=>openApp(a.id);iconsEl.appendChild(d);
+ const it=document.createElement('div');it.className='ditem';
+ it.innerHTML=`<span class="dlabel">${a.n}</span><button class="dockbtn">${appIcon(a)}</button><span class="ddot" id="ddot-${a.id}"></span>`;
+ it.querySelector('.dockbtn').onclick=()=>openApp(a.id);
+ dockEl.appendChild(it);
+});
+/* dock magnification, like macOS */
+dockEl.addEventListener('pointermove',e=>{
+ dockEl.querySelectorAll('.dockbtn .appico').forEach(ic=>{
+   const r=ic.getBoundingClientRect(),cx=r.left+r.width/2;
+   const dist=Math.min(Math.abs(e.clientX-cx),130);
+   const s=52+(1-dist/130)*24;
+   ic.style.width=s+'px';ic.style.height=s+'px';
+ });
+});
+dockEl.addEventListener('pointerleave',()=>{dockEl.querySelectorAll('.dockbtn .appico').forEach(ic=>{ic.style.width='52px';ic.style.height='52px'})});
+
+/* ----- app contents (same real functions as before) ----- */
+function render(id){
+ const b=document.getElementById('body-'+id);
+ if(id==='home') b.innerHTML=`<h2 style="margin-bottom:8px">铭杰工作站</h2><p class="mut">真功能版：终端执行的是这台电脑的真实命令，文件打开的是真实目录，浏览器是独立档案的 Chrome，节点在后台常驻。<br>关掉桌面窗口只是隐藏，后台和节点继续跑；再双击 EXE 就能回来，彻底退出在「设置」里。</p><p style="margin-top:14px"><span class="tag" id="home-sys">正在读取系统信息…</span></p><div class="row" style="margin-top:16px"><button class="btn" onclick="openApp('term')">打开终端</button><button class="btn gray" onclick="openApp('files')">打开文件</button><button class="btn gray" onclick="openApp('sys')">换壁纸</button></div>`;
+ if(id==='term') b.innerHTML=`<pre class="term" id="tout">铭杰终端（真实命令）\r\n试试：dir、ipconfig、ping 223.5.5.5、systeminfo、tasklist\r\n</pre><div class="row" style="margin-top:10px"><span id="prompt" class="tag">…</span><input class="txt" id="tin" placeholder="输入命令，回车执行" autocomplete="off"><button class="btn" id="trun">执行</button></div><div class="row" style="margin-top:8px"><button class="btn gray" data-cmd="systeminfo">系统信息</button><button class="btn gray" data-cmd="ipconfig">IP 配置</button><button class="btn gray" data-cmd="dir">当前目录</button><button class="btn gray" data-cmd="tasklist">进程</button></div>`;
+ if(id==='files') b.innerHTML=`<div class="row"><button class="btn gray" id="fup">↑ 上级</button><button class="btn gray" id="fhome">主目录</button><input class="pathin" id="fpath"><button class="btn" id="fgo">打开</button></div><div id="flist" style="margin-top:10px" class="mut">加载中…</div>`;
+ if(id==='browser') b.innerHTML=`<h3>谷歌浏览器（独立窗口）</h3><p class="mut" style="margin-top:8px">这个浏览器和公用电脑自己的浏览器是分开的：独立档案存在 EXE 旁边的 Data 文件夹，历史、Cookie、登录都在你自己的档案里。<br><b style="color:#fff">走节点打开时，只有这个窗口的流量走节点</b>，不会改这台电脑的系统代理。</p><div class="row" style="margin-top:14px"><input class="txt" id="burl" value="https://www.google.com"></div><div class="row" style="margin-top:10px"><button class="btn" id="bproxy">🚀 走节点打开 Chrome</button><button class="btn gray" id="bdirect">直连打开 Chrome</button><button class="btn gray" id="btest">代理自检</button></div><p style="margin-top:12px"><span class="tag" id="bstatus">连不上时先点「代理自检」，它会告诉你卡在哪一步</span></p>`;
+ if(id==='core') b.innerHTML=`<h3>节点（sing-box）</h3><p class="mut" style="margin-top:8px">粘贴<b style="color:#fff">节点链接</b>或填<b style="color:#fff">订阅地址</b>导入，支持 vless / vmess / trojan / ss / hysteria2，自动生成 sing-box 配置、自动去重。sing-box.exe 在程序同目录的 core 文件夹（完整版已自带）。</p><textarea id="nlink" rows="3" style="width:100%;margin-top:12px" placeholder="粘贴节点链接，如 vless://... 或 ss://..."></textarea><div class="row" style="margin-top:8px"><button class="btn" id="nadd">添加这个节点</button></div><div class="row" style="margin-top:12px"><input class="txt" id="nsub" placeholder="或粘贴订阅地址 https://..."><button class="btn gray" id="nsubbtn">导入订阅</button></div><p style="margin:12px 0"><span class="tag" id="core-status">状态：读取中…</span> <span class="tag" id="ncount"></span></p><div id="nlist" class="mut"></div><div class="row" style="margin-top:12px"><button class="btn" id="core-start">启动节点</button><button class="btn red" id="core-stop">停止节点</button><button class="btn gray" id="core-refresh">刷新状态</button><button class="btn gray" id="ptest">代理自检</button><button class="btn gray" id="nclear">清空节点</button></div><div class="row" style="margin-top:8px"><button class="btn gray" id="corelogbtn">看 sing-box 日志</button></div><pre class="term" id="corelog" style="min-height:90px;margin-top:10px;display:none"></pre>`;
+ if(id==='sys') b.innerHTML=`<h3>外观</h3><p class="mut" style="margin-top:6px">点一张换壁纸，立刻生效。也可以上传你自己的图片当壁纸（存在 EXE 旁的 Data 文件夹，跟着程序走）。</p><div class="wp-grid" id="wp-grid">${Object.entries(WALLPAPERS).map(([k,v])=>`<div class="wp" data-wp="${k}" style="background:${v.css}"><span>${v.n}</span></div>`).join('')}</div><div class="row" style="margin-top:12px"><label class="btn gray" for="wp-file" style="cursor:pointer">上传我的图片…</label><input type="file" id="wp-file" accept="image/*" style="display:none"><button class="btn gray" id="wp-remove">删除自定义壁纸</button><span class="tag" id="wp-status"></span></div><hr style="border-color:rgba(255,255,255,.14);margin:18px 0"><h3>系统</h3><div class="kv" id="syskv" style="margin-top:10px"><span>读取中…</span></div><div class="row" style="margin-top:16px"><button class="btn red" id="quit">退出系统（停节点 + 关后台）</button></div><p class="mut" style="margin-top:12px">关掉桌面窗口只是隐藏，后台和节点继续跑；再双击 MJ-System.exe 回来。真正断开只有点这个「退出系统」。个人数据都在 EXE 旁的 Data 文件夹，用完带走或删掉即可。</p>`;
+ bind(id);
+}
+
+async function loadSys(){
+ sysInfo=await api('/api/system');
+ const el=document.getElementById('home-sys'); if(el) el.textContent=`${sysInfo.os}/${sysInfo.arch} · ${sysInfo.hostname} · CPU ${sysInfo.numCPU} 核 · 主目录 ${sysInfo.home}`;
+ const kv=document.getElementById('syskv'); if(kv) kv.innerHTML=Object.entries({电脑名:sysInfo.hostname,系统:sysInfo.os,架构:sysInfo.arch,CPU核数:sysInfo.numCPU,主目录:sysInfo.home,程序目录:sysInfo.exeDir,数据目录:sysInfo.dataDir,当前时间:sysInfo.time}).map(([k,v])=>`<span class="mut">${k}</span><span>${esc(v)}</span>`).join('');
+ const pr=document.getElementById('prompt'); if(pr) pr.textContent=sysInfo.home||'>';
+}
+
+let curPath='';
+async function loadFiles(p){
+ const r=await api('/api/list?path='+encodeURIComponent(p||''));
+ if(r.error){document.getElementById('flist').textContent='打开失败：'+r.error;return}
+ curPath=r.path;document.getElementById('fpath').value=curPath;
+ document.getElementById('flist').innerHTML=`<table>${r.items.map(it=>`<tr class="file" data-p="${esc(it.path)}" data-d="${it.dir}"><td>${it.dir?'📁':'📄'}</td><td>${esc(it.name)}</td><td>${it.dir?'':(it.size/1024).toFixed(1)+' KB'}</td></tr>`).join('')}</table>`;
+ document.querySelectorAll('tr.file').forEach(tr=>tr.ondblclick=async()=>{
+   if(tr.dataset.d==='true') loadFiles(tr.dataset.p);
+   else await api('/api/open',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:tr.dataset.p})});
+ });
+}
+
+let history=[],hi=-1;
+async function runCmd(cmd){
+ const out=document.getElementById('tout'), pr=document.getElementById('prompt');
+ if(!cmd.trim())return; history.unshift(cmd);hi=-1;
+ out.textContent+=`\r\n${pr.textContent}> ${cmd}\r\n运行中…`;
+ const r=await api('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cmd})});
+ out.textContent=out.textContent.replace(/运行中…$/,'');
+ out.textContent+=(r.output||'')+(r.error?('\r\n[错误] '+r.error):'')+'\r\n';
+ if(r.cwd) pr.textContent=r.cwd;
+ out.scrollTop=out.scrollHeight;
+}
+async function coreAct(action){
+ const r=await api('/api/core',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action})});
+ const s=document.getElementById('core-status'); if(s) s.textContent='状态：'+(r.message||JSON.stringify(r));
+ pollNode();
+}
+
+function bind(id){
+ if(id==='home'||id==='sys') loadSys();
+ if(id==='sys'){
+   const markSel=()=>{const cur=customWall?'':(localStorage.getItem('mj-wall')||'tahoe');document.querySelectorAll('.wp').forEach(x=>x.classList.toggle('sel',x.dataset.wp===cur));const st=document.getElementById('wp-status');if(st)st.textContent=customWall?'当前：自定义壁纸':'当前：'+(WALLPAPERS[cur]?.n||'');};
+   markSel();
+   document.querySelectorAll('.wp').forEach(x=>x.onclick=async()=>{
+     if(customWall){await api('/api/wallpaper',{method:'DELETE'});customWall=false}
+     localStorage.setItem('mj-wall',x.dataset.wp);applyWallpaper();markSel();
+   });
+   document.getElementById('wp-file').onchange=async(e)=>{
+     const f=e.target.files[0];if(!f)return;
+     const st=document.getElementById('wp-status');st.textContent='上传中…';
+     const buf=await f.arrayBuffer();
+     const r=await fetch('/api/wallpaper',{method:'POST',headers:{'Content-Type':f.type||'image/jpeg'},body:buf});
+     const j=await r.json().catch(()=>({}));
+     if(j.ok){customWall=true;applyWallpaper();markSel()}else{st.textContent='失败：'+(j.error||'未知错误')}
+   };
+   document.getElementById('wp-remove').onclick=async()=>{await api('/api/wallpaper',{method:'DELETE'});customWall=false;applyWallpaper();markSel()};
+   document.getElementById('quit').onclick=async()=>{await api('/api/shutdown',{method:'POST'});document.body.innerHTML='<div style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;font-size:20px;color:#fff;text-shadow:0 2px 10px #000">已退出，节点和后台都停了</div>'};
+ }
+ if(id==='term'){
+   const tin=document.getElementById('tin');
+   document.getElementById('trun').onclick=()=>{runCmd(tin.value);tin.value=''};
+   tin.onkeydown=e=>{if(e.key==='Enter'){runCmd(tin.value);tin.value=''} if(e.key==='ArrowUp'){e.preventDefault();if(hi<history.length-1)tin.value=history[++hi]||''} if(e.key==='ArrowDown'){e.preventDefault();if(hi>0)tin.value=history[--hi]||''}};
+   document.querySelectorAll('[data-cmd]').forEach(x=>x.onclick=()=>runCmd(x.dataset.cmd));
+   loadSys();
+ }
+ if(id==='files'){
+   loadFiles('');
+   document.getElementById('fgo').onclick=()=>loadFiles(document.getElementById('fpath').value);
+   document.getElementById('fhome').onclick=()=>loadFiles('');
+   document.getElementById('fup').onclick=()=>{let p=curPath.replace(/[\\/]+$/,'');let i=Math.max(p.lastIndexOf('\\'),p.lastIndexOf('/'));if(i>0)loadFiles(p.slice(0,i));else if(i===0)loadFiles(p.slice(0,1))};
+ }
+ if(id==='browser'){
+   const openB=async(proxy)=>{
+     const s=document.getElementById('bstatus'); s.textContent=proxy?'正在启动节点并打开 Chrome…':'正在打开 Chrome…';
+     const r=await api('/api/browser',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({proxy,url:document.getElementById('burl').value})});
+     s.textContent=r.error?('失败：'+r.error):(`已打开：${r.browser} · ${r.mode} · 档案在 ${r.profile}`);
+   };
+   document.getElementById('bproxy').onclick=()=>openB(true);
+   document.getElementById('bdirect').onclick=()=>openB(false);
+   document.getElementById('btest').onclick=async()=>{
+     const s=document.getElementById('bstatus'); s.textContent='自检中（经节点连接 Google，最多约 15 秒）…';
+     const r=await api('/api/proxytest',{method:'POST'});
+     s.textContent=(r.ok?'✅ ':'❌ ')+(r.message||'');
+   };
+ }
+ if(id==='core'){
+   const loadNodes=async()=>{
+     const r=await api('/api/node');
+     const c=document.getElementById('ncount'); if(c) c.textContent=`已保存节点 ${r.count} 个 · 代理 ${r.proxy}`;
+     const l=document.getElementById('nlist'); if(l) l.innerHTML=r.nodes&&r.nodes.length?r.nodes.map(n=>`• ${esc(n.name)}（${esc(n.type)} ${esc(n.server)}:${n.port}）`).join('<br>'):'还没有节点，先在上面添加。';
+   };
+   const nodePost=async(body)=>{
+     const s=document.getElementById('core-status'); s.textContent='状态：处理中…';
+     const r=await api('/api/node',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+     s.textContent='状态：'+(r.error||r.message||'完成'); loadNodes();
+   };
+   coreAct('status'); loadNodes();
+   document.getElementById('nadd').onclick=()=>nodePost({link:document.getElementById('nlink').value});
+   document.getElementById('nsubbtn').onclick=()=>nodePost({suburl:document.getElementById('nsub').value});
+   document.getElementById('nclear').onclick=()=>nodePost({action:'clear'});
+   document.getElementById('core-start').onclick=()=>coreAct('start');
+   document.getElementById('core-stop').onclick=()=>{coreAct('stop')};
+   document.getElementById('core-refresh').onclick=()=>coreAct('status');
+   document.getElementById('ptest').onclick=async()=>{
+     const s=document.getElementById('core-status'); s.textContent='状态：自检中（经节点连接 Google，最多约 15 秒）…';
+     const r=await api('/api/proxytest',{method:'POST'});
+     s.textContent=(r.ok?'✅ ':'❌ ')+(r.message||'');
+   };
+   document.getElementById('corelogbtn').onclick=async()=>{
+     const r=await api('/api/core/log');
+     const el=document.getElementById('corelog'); el.style.display='block'; el.textContent=r.log||'(暂无日志)';
+   };
+ }
+}
+openApp('home');
+</script>
+</body>
+</html>
