@@ -2,14 +2,14 @@
 //
 // Key v0.2 feature for shared/public PCs: an isolated Google Chrome window
 // whose traffic -- and only its traffic -- goes through a sing-box node.
-//   * No system-wide proxy is ever changed: the public PC's own browser and
+//   - No system-wide proxy is ever changed: the public PC's own browser and
 //     apps stay direct, this window uses --proxy-server=socks5://127.0.0.1:2080.
-//   * A separate --user-data-dir (next to the EXE, in Data/ChromeProfile) is
+//   - A separate --user-data-dir (next to the EXE, in Data/ChromeProfile) is
 //     essential: Chrome ignores --proxy-server when attaching to an already
 //     running instance with the default profile. The separate profile also
 //     keeps history/cookies/logins out of the PC owner's own Chrome, and the
 //     whole Data folder travels with the EXE / can be deleted afterwards.
-//   * No bundled Chromium, no VM: keeps old PCs fast.
+//   - No bundled Chromium, no VM: keeps old PCs fast.
 package main
 
 import (
@@ -57,9 +57,9 @@ var (
 	coreCmd *exec.Cmd
 	// Atomics: written by the Wait() goroutine, read from handlers that
 	// may already hold coreMu (Go mutexes are not re-entrant).
-	coreExited  atomic.Bool   // set when sing-box really dies
-	coreExitErr atomic.Value  // string: why it exited ("" = clean/stopped)
-	coreStopReq atomic.Bool   // user pressed stop, so the exit is expected
+	coreExited  atomic.Bool  // set when sing-box really dies
+	coreExitErr atomic.Value // string: why it exited ("" = clean/stopped)
+	coreStopReq atomic.Bool  // user pressed stop, so the exit is expected
 	nodes       []nodeEntry
 )
 
@@ -113,7 +113,7 @@ func dataDir() string {
 
 // ---------- custom wallpaper (stored in Data/, travels with the EXE) ----------
 
-func wallpaperFile() string  { return filepath.Join(dataDir(), "wallpaper.bin") }
+func wallpaperFile() string     { return filepath.Join(dataDir(), "wallpaper.bin") }
 func wallpaperTypeFile() string { return filepath.Join(dataDir(), "wallpaper.ctype") }
 
 func wallpaperHandler(w http.ResponseWriter, r *http.Request) {
@@ -159,6 +159,7 @@ func wallpaperHandler(w http.ResponseWriter, r *http.Request) {
 func sysInfo(w http.ResponseWriter, r *http.Request) {
 	host, _ := os.Hostname()
 	writeJSON(w, map[string]any{
+		"app": "MJ-Terminal", "version": AppVersion,
 		"os": runtime.GOOS, "arch": runtime.GOARCH, "numCPU": runtime.NumCPU(),
 		"hostname": host, "home": homeDir(), "exeDir": exeDir(), "dataDir": dataDir(),
 		"time": time.Now().Format("2006-01-02 15:04:05"),
@@ -1227,6 +1228,11 @@ func runServer(portFlag int, isDaemon bool) {
 	mux.HandleFunc("/api/proxytest", proxyTest)
 	mux.HandleFunc("/api/node", nodeControl)
 	mux.HandleFunc("/api/browser", openBrowser)
+	mux.HandleFunc("/api/update", updateStatusHandler)
+	mux.HandleFunc("/api/update/token", updateTokenHandler)
+	mux.HandleFunc("/api/update/check", updateCheckHandler)
+	mux.HandleFunc("/api/update/download", updateDownloadHandler)
+	mux.HandleFunc("/api/update/apply", updateApplyHandler)
 	srv := &http.Server{Handler: activityMiddleware(mux)}
 	mux.HandleFunc("/api/shutdown", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"ok": true, "message": "后台和节点一起退出"})
@@ -1252,6 +1258,32 @@ func runServer(portFlag int, isDaemon bool) {
 			coreMu.Unlock()
 			if err != nil {
 				fmt.Println("auto-start core:", err)
+			}
+		}()
+	}
+
+	// OTA leftovers: an MJ-System.exe.old next to us means a previous
+	// update already succeeded (we are the new binary and we are up),
+	// so it can go.
+	go func() {
+		time.Sleep(8 * time.Second)
+		if self, err := os.Executable(); err == nil {
+			_ = os.Remove(self + ".old")
+		}
+	}()
+
+	// OTA: when a token is configured, silently check on daemon start
+	// and pre-download a newer release; applying still waits for the
+	// user to click in 设置 -> 软件更新.
+	if isDaemon && readUpdateToken() != "" {
+		go func() {
+			time.Sleep(20 * time.Second)
+			checkUpdate()
+			upd.mu.Lock()
+			avail := upd.Phase == "available"
+			upd.mu.Unlock()
+			if avail {
+				downloadUpdate()
 			}
 		}()
 	}
@@ -1284,7 +1316,14 @@ func main() {
 	port := flag.Int("port", 0, "port to listen on (0 = daemon port range)")
 	noOpen := flag.Bool("no-open", false, "run the server in this process (dev/test)")
 	daemon := flag.Bool("daemon", false, "run as the hidden background daemon")
+	applyUpdate := flag.Bool("apply-update", false, "internal: OTA takeover from the old binary")
+	updateTarget := flag.String("update-target", "", "internal: exe path to replace with -apply-update")
 	flag.Parse()
+
+	if *applyUpdate {
+		runApplyUpdate(*updateTarget)
+		return
+	}
 
 	if *daemon || *noOpen || runtime.GOOS != "windows" {
 		runServer(*port, *daemon)
