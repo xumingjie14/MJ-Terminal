@@ -24,6 +24,10 @@ func platformWindowRect(hwnd uint64) (int32, int32, int32, int32, bool) {
 	return 0, 0, 0, 0, false
 }
 
+func platformWindowZoomed(hwnd uint64) bool {
+	return false
+}
+
 func platformPlaceWindow(hwnd uint64, l, t, r, b int32) bool {
 	return false
 }

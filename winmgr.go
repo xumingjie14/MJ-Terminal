@@ -201,6 +201,84 @@ const (
 	placeSideInset   = 28
 )
 
+// ---------- v0.23: phone-width landing in small-window mode ----------
+//
+// The user often runs the MJ desktop as a small floating window next
+// to other apps (QQ and friends). A web app opened at the v0.21
+// proportional size is then squeezed into the little desktop, and
+// its desktop-layout page is barely usable. So when the desktop
+// shell is in "small-window mode" at the moment of landing, the new
+// window lands at phone width instead: most sites key their mobile
+// layout off the viewport width, so ~400px gets the phone version of
+// the page. Height and vertical position keep the usual proportions
+// (0.85 / 0.065) so the menu bar and Dock stay clear exactly as
+// before. This is still launch-time only -- the placed flag rules
+// everything after -- and it does NOT touch the in-system UI or the
+// browser's user agent; those are separate, later decisions.
+
+// phoneModeMaxDesktopWidth: a desktop shell narrower than this is in
+// small-window mode even when maximized (a maximized-but-narrow
+// desktop, e.g. snapped to half a small screen, is still small).
+const phoneModeMaxDesktopWidth = 1200
+
+// phoneWidth is the landed width in phone mode, matching a large
+// phone's CSS viewport.
+const phoneWidth = 400
+
+// placePhoneMode reports whether a landing should use the phone
+// width: the desktop shell is not maximized (the user's floating-
+// window way of working), or it is narrower than
+// phoneModeMaxDesktopWidth even though maximized.
+func placePhoneMode(l, r int32, shellZoomed bool) bool {
+	return !shellZoomed || (r-l) < phoneModeMaxDesktopWidth
+}
+
+// placeTargetRectPhone computes the phone-mode landing rectangle:
+// phoneWidth wide, horizontally centered on the desktop, with the
+// usual height/top proportions. On a desktop narrower than the
+// phone width plus a small margin, the width degrades to the
+// desktop width minus 32, floored at the smaller of 280 and 90% of
+// the desktop width, so the result can never be zero, negative or
+// wider than the desktop.
+func placeTargetRectPhone(l, t, r, b int32) (int32, int32, int32, int32) {
+	w, h := r-l, b-t
+	tw := int32(phoneWidth)
+	if w < phoneWidth+32 {
+		tw = w - 32
+		floor := int32(280)
+		if m := w * 90 / 100; m < floor {
+			floor = m
+		}
+		if tw < floor {
+			tw = floor
+		}
+		if tw < 1 {
+			tw = 1
+		}
+		if tw > w {
+			tw = w
+		}
+	}
+	th := int32(float64(h) * placeHeightFrac)
+	tt := t + int32(float64(h)*placeTopFrac)
+	tl := l + (w-tw)/2
+	return tl, tt, tl + tw, tt + th
+}
+
+// placeTargetRectAuto picks the landing rectangle for a new window:
+// phone mode (and its rectangle) when placePhoneMode says so, the
+// untouched v0.21 logic otherwise. Phone mode takes priority over
+// the v0.21 small-desktop inset fallback -- a floating desktop that
+// is small is exactly the case phone mode exists for.
+func placeTargetRectAuto(l, t, r, b int32, shellZoomed bool) (int32, int32, int32, int32, bool) {
+	if placePhoneMode(l, r, shellZoomed) {
+		pl, pt, pr, pb := placeTargetRectPhone(l, t, r, b)
+		return pl, pt, pr, pb, true
+	}
+	pl, pt, pr, pb := placeTargetRect(l, t, r, b)
+	return pl, pt, pr, pb, false
+}
+
 // placeTargetRect computes where a landed window goes. Normally
 // that is the proportional rectangle described above: 62% x 85% of
 // the desktop, horizontally centered, with 6.5% of the desktop
@@ -281,7 +359,11 @@ func tryPlaceExtWindow(hwnd uint64) {
 	if !ok {
 		return
 	}
-	tl, tt, tr, tb := placeTargetRect(sl, st, sr, sb)
+	// v0.23: the shell's maximized state is read here, at landing
+	// time, and only for the shell -- whether the external window
+	// itself is maximized stays platformPlaceWindow's business (it
+	// restores it first, as before).
+	tl, tt, tr, tb, phone := placeTargetRectAuto(sl, st, sr, sb, platformWindowZoomed(shell))
 	if !platformPlaceWindow(hwnd, tl, tt, tr, tb) {
 		return
 	}
@@ -290,7 +372,15 @@ func tryPlaceExtWindow(hwnd uint64) {
 		e2.placed = true
 	}
 	extMu.Unlock()
-	logf("winmgr", "info", "外部窗口落位：%s → %d×%d", e.App, tr-tl, tb-tt)
+	if phone {
+		name := e.App
+		if e.Title != "" {
+			name = e.Title
+		}
+		logf("winmgr", "info", "外部窗口落位（小窗手机宽）：%s → %d×%d", name, tr-tl, tb-tt)
+	} else {
+		logf("winmgr", "info", "外部窗口落位：%s → %d×%d", e.App, tr-tl, tb-tt)
+	}
 }
 
 // extWinListHandler serves GET /api/extwin: every registered external

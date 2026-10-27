@@ -164,6 +164,18 @@ func platformWindowRect(hwnd uint64) (int32, int32, int32, int32, bool) {
 	return rc.Left, rc.Top, rc.Right, rc.Bottom, true
 }
 
+// platformWindowZoomed reports whether the window is maximized.
+// v0.23 reads this only for the desktop shell window, at landing
+// time, to decide small-window (phone-width) mode.
+func platformWindowZoomed(hwnd uint64) bool {
+	h := uintptr(hwnd)
+	if r, _, _ := procIsWindow.Call(h); r == 0 {
+		return false
+	}
+	z, _, _ := procIsZoomed.Call(h)
+	return z != 0
+}
+
 // platformPlaceWindow moves/resizes the window to the given screen
 // rectangle. A maximized window is restored first (SetWindowPos on a
 // zoomed window only edits its restore geometry, which is not what
