@@ -99,6 +99,11 @@ func accelHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err == nil {
 			setAccel(body.Enabled)
+			if body.Enabled {
+				logf("system", "info", "全局加速：开")
+			} else {
+				logf("system", "info", "全局加速：关")
+			}
 			// Turning it on should also bring the node up, so the
 			// acceleration is real immediately, not just a flag.
 			if body.Enabled && len(nodes) > 0 {

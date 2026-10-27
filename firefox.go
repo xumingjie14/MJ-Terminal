@@ -52,6 +52,13 @@ type ffState struct {
 var ffSt = ffState{Phase: "idle"}
 
 func (s *ffState) set(phase, msg string) {
+	// Mirror terminal install states into the diagnostics hub (v0.22).
+	switch phase {
+	case "error":
+		logf("firefox", "error", "Firefox 组件：%s", msg)
+	case "ready":
+		logf("firefox", "info", "Firefox 组件：%s", msg)
+	}
 	s.mu.Lock()
 	s.Phase, s.Message = phase, msg
 	s.mu.Unlock()
@@ -142,6 +149,7 @@ func ffDownloadHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"ok": true, "message": "已经在下载了"})
 		return
 	}
+	logf("firefox", "info", "开始下载 Firefox 组件")
 	go runFFInstall()
 	writeJSON(w, map[string]any{"ok": true, "message": "开始下载"})
 }
@@ -366,6 +374,7 @@ func ffOpenHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := launchFirefox(body.Proxy, body.AppMode, strings.TrimSpace(body.URL)); err != nil {
+		logf("firefox", "error", "打开 Firefox 失败：%v", err)
 		writeJSON(w, map[string]any{"error": err.Error()})
 		return
 	}
@@ -376,5 +385,6 @@ func ffOpenHandler(w http.ResponseWriter, r *http.Request) {
 	if body.AppMode {
 		kind += " · 应用化"
 	}
+	logf("firefox", "info", "已打开 Firefox（%s）", kind)
 	writeJSON(w, map[string]any{"ok": true, "mode": kind})
 }

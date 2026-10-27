@@ -107,6 +107,7 @@ func trackBrowserLaunch(app, targetURL, browserPath string, before map[uint64]bo
 				extMu.Lock()
 				extWins[hwnd] = &extWindow{HWND: hwnd, App: app, URL: targetURL, Shell: shell, pid: pid}
 				extMu.Unlock()
+				logf("winmgr", "info", "已登记外部窗口：%s", app)
 				// 丙: stamp the unified AppUserModelID (best effort).
 				platformSetAppID(hwnd)
 				// v0.20: land the new window inside the desktop's
@@ -119,7 +120,7 @@ func trackBrowserLaunch(app, targetURL, browserPath string, before map[uint64]bo
 			}
 			time.Sleep(300 * time.Millisecond)
 		}
-		fmt.Println("winmgr: launched window never appeared, not registered:", app, targetURL)
+		logf("winmgr", "warn", "打开的窗口一直没出现，未能登记：%s", app)
 	}()
 }
 
@@ -289,6 +290,7 @@ func tryPlaceExtWindow(hwnd uint64) {
 		e2.placed = true
 	}
 	extMu.Unlock()
+	logf("winmgr", "info", "外部窗口落位：%s → %d×%d", e.App, tr-tl, tb-tt)
 }
 
 // extWinListHandler serves GET /api/extwin: every registered external
@@ -347,7 +349,8 @@ func extWinFocusHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"ok": true})
 }
 
-// extWinNote is a tiny helper for log lines in platform files.
+// extWinNote is a tiny helper for log lines in platform files; as of
+// v0.22 they go into the diagnostics hub like everything else.
 func extWinNote(format string, args ...any) {
-	fmt.Println("winmgr: " + strings.TrimSpace(fmt.Sprintf(format, args...)))
+	logf("winmgr", "warn", "%s", strings.TrimSpace(fmt.Sprintf(format, args...)))
 }

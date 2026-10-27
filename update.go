@@ -45,7 +45,7 @@ import (
 // AppVersion is the single source of truth for the running version.
 // The CI workflow must publish the Release with the matching tag
 // (v + AppVersion) and update.json.
-const AppVersion = "0.21"
+const AppVersion = "0.22"
 
 const updateRepo = "xumingjie14/MJ-Terminal"
 const updateZipName = "MJ-System-64bit.zip"
@@ -93,6 +93,15 @@ func (u *updateStatus) set(phase, msg string) {
 	u.mu.Lock()
 	u.Phase, u.Message = phase, msg
 	u.mu.Unlock()
+	// Mirror terminal update states into the diagnostics hub (v0.22):
+	// every check/download failure and every success lands there.
+	// Messages never contain the update token itself.
+	switch phase {
+	case "error":
+		logf("update", "error", "软件更新：%s", msg)
+	case "available", "uptodate", "ready":
+		logf("update", "info", "软件更新：%s", msg)
+	}
 }
 
 func (u *updateStatus) snapshot() map[string]any {
@@ -434,6 +443,7 @@ func updateDownloadHandler(w http.ResponseWriter, r *http.Request) {
 func updateApplyHandler(w http.ResponseWriter, r *http.Request) {
 	upd.mu.Lock()
 	phase := upd.Phase
+	latest := upd.Latest
 	upd.mu.Unlock()
 	if phase != "ready" {
 		writeJSON(w, map[string]any{"error": "更新包还没准备好，先检查并下载更新"})
@@ -447,9 +457,11 @@ func updateApplyHandler(w http.ResponseWriter, r *http.Request) {
 	updater := exec.Command(stagedExePath(), "-apply-update", "-update-target", self)
 	updater.Dir = updateDir()
 	if err := updater.Start(); err != nil {
+		logf("update", "error", "启动更新程序失败：%v", err)
 		writeJSON(w, map[string]any{"error": "启动更新程序失败：" + err.Error()})
 		return
 	}
+	logf("update", "info", "开始应用更新（v%s → v%s），守护进程交接退出", AppVersion, latest)
 	writeJSON(w, map[string]any{"ok": true, "message": "正在更新，桌面会自动重开"})
 	// The updater also asks us to shut down over HTTP; exiting here as
 	// well makes the handover robust if that call races.

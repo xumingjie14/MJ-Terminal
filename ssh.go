@@ -144,13 +144,20 @@ func sshSaveHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := os.WriteFile(filepath.Join(sshKeysDir(), name), []byte(strings.TrimSpace(body.KeyData)), 0o600); err != nil {
+			logf("ssh", "error", "私钥文件保存失败：%s", name)
 			writeJSON(w, map[string]any{"error": "密钥保存失败：" + err.Error()})
 			return
 		}
+		logf("ssh", "info", "已保存私钥文件：%s（内容不记入日志）", name)
 		body.Conn.KeyFile = name
 	}
 	list := sshLoadConns()
 	if body.Delete {
+		for _, c := range list {
+			if c.ID == body.Conn.ID {
+				logf("ssh", "info", "已删除 SSH 连接：%s（%s@%s:%d）", c.Name, c.User, c.Host, c.Port)
+			}
+		}
 		out := list[:0]
 		for _, c := range list {
 			if c.ID != body.Conn.ID {
@@ -183,8 +190,16 @@ func sshSaveHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := sshSaveConns(list); err != nil {
+		logf("ssh", "error", "SSH 连接保存失败：%v", err)
 		writeJSON(w, map[string]any{"error": "保存失败：" + err.Error()})
 		return
+	}
+	if !body.Delete {
+		c := body.Conn
+		if c.Port <= 0 {
+			c.Port = 22
+		}
+		logf("ssh", "info", "已保存 SSH 连接：%s（%s@%s:%d）", c.Name, c.User, c.Host, c.Port)
 	}
 	writeJSON(w, map[string]any{"ok": true, "connections": sshLoadConns(), "keys": sshKeyNames()})
 }
@@ -200,6 +215,7 @@ func sshKeyDelHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = os.Remove(filepath.Join(sshKeysDir(), name))
+	logf("ssh", "info", "已删除私钥文件：%s", name)
 	writeJSON(w, map[string]any{"ok": true, "keys": sshKeyNames()})
 }
 
@@ -216,6 +232,7 @@ func hostKeyCallback() ssh.HostKeyCallback {
 					if f[1]+" "+f[2] == want {
 						return nil
 					}
+					logf("ssh", "error", "服务器指纹不一致，已拦截连接：%s（记录 %s，实际 %s）", hostport, f[1], key.Type())
 					return fmt.Errorf("服务器指纹和记录的不一致（记录 %s，实际 %s）——如果不是你自己重装/换的服务器，不要继续", f[1], key.Type())
 				}
 			}
@@ -225,7 +242,9 @@ func hostKeyCallback() ssh.HostKeyCallback {
 			return err
 		}
 		defer f.Close()
-		_, err = fmt.Fprintf(f, "%s %s\n", hostport, want)
+		if _, err = fmt.Fprintf(f, "%s %s\n", hostport, want); err == nil {
+			logf("ssh", "info", "首次连接，已记录服务器指纹：%s（%s）", hostport, key.Type())
+		}
 		return err
 	}
 }
@@ -391,11 +410,19 @@ func sshWSHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer ws.Close()
+	via := "直连"
+	if target.Proxy {
+		via = "走节点"
+	}
 	client, err := dialSSH(*target, q.Get("password"), q.Get("passphrase"))
 	if err != nil {
+		// Only host + result go into the log -- never the password or
+		// passphrase from the query string.
+		logf("ssh", "error", "SSH 连接失败：%s@%s:%d（%s）：%v", target.User, target.Host, target.Port, via, err)
 		_ = ws.WriteMessage(websocket.TextMessage, []byte("\r\n连接失败："+err.Error()+"\r\n"))
 		return
 	}
+	logf("ssh", "info", "SSH 已连接：%s@%s:%d（%s，%s）", target.User, target.Host, target.Port, target.Name, via)
 	sshLiveSet(id, client)
 	defer sshLiveDrop(id, client)
 
@@ -470,6 +497,7 @@ func sshWSHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = sess.Close()
 	<-done
+	logf("ssh", "info", "SSH 会话结束：%s@%s:%d", target.User, target.Host, target.Port)
 }
 
 // ---------- SFTP (rides the live terminal connection) ----------
@@ -505,6 +533,7 @@ func sftpListHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	ents, err := sc.ReadDir(p)
 	if err != nil {
+		logf("ssh", "warn", "SFTP 读目录失败：%s：%v", p, err)
 		writeJSON(w, map[string]any{"error": "读目录失败：" + err.Error()})
 		return
 	}
@@ -537,9 +566,11 @@ func sftpMkdirHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer sc.Close()
 	if err := sc.Mkdir(b.Path); err != nil {
+		logf("ssh", "warn", "SFTP 建目录失败：%s：%v", b.Path, err)
 		writeJSON(w, map[string]any{"error": "建目录失败：" + err.Error()})
 		return
 	}
+	logf("ssh", "info", "SFTP 已建目录：%s", b.Path)
 	writeJSON(w, map[string]any{"ok": true})
 }
 
@@ -559,9 +590,11 @@ func sftpDeleteHandler(w http.ResponseWriter, r *http.Request) {
 		derr = sc.Remove(b.Path)
 	}
 	if derr != nil {
+		logf("ssh", "warn", "SFTP 删除失败：%s：%v", b.Path, derr)
 		writeJSON(w, map[string]any{"error": "删除失败：" + derr.Error()})
 		return
 	}
+	logf("ssh", "info", "SFTP 已删除：%s", b.Path)
 	writeJSON(w, map[string]any{"ok": true})
 }
 
@@ -587,15 +620,19 @@ func sftpUploadHandler(w http.ResponseWriter, r *http.Request) {
 	remote := path.Join(dir, filepath.Base(hdr.Filename))
 	rf, err := sc.Create(remote)
 	if err != nil {
+		logf("ssh", "warn", "SFTP 上传建文件失败：%s：%v", remote, err)
 		writeJSON(w, map[string]any{"error": "远程建文件失败：" + err.Error()})
 		return
 	}
-	if _, err := io.Copy(rf, file); err != nil {
+	n, err := io.Copy(rf, file)
+	if err != nil {
 		_ = rf.Close()
+		logf("ssh", "warn", "SFTP 上传写入失败：%s：%v", remote, err)
 		writeJSON(w, map[string]any{"error": "写入失败：" + err.Error()})
 		return
 	}
 	_ = rf.Close()
+	logf("ssh", "info", "SFTP 已上传：%s（%d 字节）", remote, n)
 	writeJSON(w, map[string]any{"ok": true, "path": remote})
 }
 

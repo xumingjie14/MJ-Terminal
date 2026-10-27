@@ -633,12 +633,16 @@ func nodeControl(w http.ResponseWriter, r *http.Request) {
 	if body.Action == "clear" {
 		nodes = nil
 		persistLinks()
+		logf("node", "info", "已清空全部节点")
 		writeJSON(w, nodeListJSON())
 		return
 	}
 	if strings.TrimSpace(body.Link) != "" {
 		n, err := parseShareLink(body.Link)
 		if err != nil {
+			// Deliberately no error detail here: URL parse errors can
+			// echo the raw link (credentials included) back.
+			logf("node", "error", "节点链接解析失败（链接内容不记入日志）")
 			writeJSON(w, map[string]any{"error": "节点链接解析失败: " + err.Error()})
 			return
 		}
@@ -653,17 +657,26 @@ func nodeControl(w http.ResponseWriter, r *http.Request) {
 		nodes = append(nodes, *n)
 		persistLinks()
 		if err := genConfig(); err != nil {
+			logf("node", "error", "生成核心配置失败：%v", err)
 			writeJSON(w, map[string]any{"error": "生成配置失败: " + err.Error()})
 			return
 		}
+		logf("node", "info", "已添加节点：%s（%s %s:%d）", n.Name, n.Type, n.Server, n.Port)
 		resp := nodeListJSON()
 		resp["message"] = "已添加节点：" + n.Name
 		writeJSON(w, resp)
 		return
 	}
 	if strings.TrimSpace(body.SubURL) != "" {
+		// Log only the subscription's host: full subscription URLs
+		// carry tokens and must never land in the log.
+		subHost := body.SubURL
+		if u, perr := url.Parse(body.SubURL); perr == nil && u.Host != "" {
+			subHost = u.Host
+		}
 		links, err := fetchSubscription(body.SubURL)
 		if err != nil {
+			logf("node", "error", "订阅拉取失败：%s", subHost)
 			writeJSON(w, map[string]any{"error": "订阅拉取失败: " + err.Error()})
 			return
 		}
@@ -676,15 +689,18 @@ func nodeControl(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if len(parsed) == 0 {
+			logf("node", "warn", "订阅 %s 里没解析出可用节点（共 %d 条链接）", subHost, len(links))
 			writeJSON(w, map[string]any{"error": fmt.Sprintf("订阅里没解析出可用节点（共 %d 条链接）", len(links))})
 			return
 		}
 		nodes = parsed
 		persistLinks()
 		if err := genConfig(); err != nil {
+			logf("node", "error", "生成核心配置失败：%v", err)
 			writeJSON(w, map[string]any{"error": "生成配置失败: " + err.Error()})
 			return
 		}
+		logf("node", "info", "订阅导入成功：%s 共 %d 个节点", subHost, len(parsed))
 		resp := nodeListJSON()
 		resp["message"] = fmt.Sprintf("订阅导入成功：%d 个节点", len(parsed))
 		writeJSON(w, resp)
@@ -848,6 +864,7 @@ func startCoreLocked() error {
 	checkOut, checkErr := checkCmd.CombinedOutput()
 	cancel()
 	if checkErr != nil {
+		logf("core", "error", "sing-box 配置校验没过：%s", strings.TrimSpace(string(checkOut)))
 		return fmt.Errorf("sing-box 配置校验没过：%v；输出：%s", checkErr, strings.TrimSpace(string(checkOut)))
 	}
 	// 2) Start with stdout/stderr captured to core/sing-box.log.
@@ -874,6 +891,9 @@ func startCoreLocked() error {
 		coreExited.Store(true)
 		if waitErr != nil && !coreStopReq.Load() {
 			coreExitErr.Store(waitErr.Error())
+			logf("core", "error", "sing-box 异常退出：%v；日志末尾：%s", waitErr, coreLogTail())
+		} else if waitErr == nil && !coreStopReq.Load() {
+			logf("core", "warn", "sing-box 已退出（非用户手动停止）")
 		}
 	}()
 	// 3) Wait briefly until the proxy port really accepts connections,
@@ -882,6 +902,7 @@ func startCoreLocked() error {
 	for time.Now().Before(deadline) {
 		if conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", proxyPort), 300*time.Millisecond); err == nil {
 			_ = conn.Close()
+			logf("core", "info", "核心已启动，本地代理 127.0.0.1:%d 在监听", proxyPort)
 			return nil
 		}
 		exited := coreExited.Load()
@@ -899,6 +920,7 @@ func stopCoreLocked() {
 	if coreCmd != nil && coreCmd.Process != nil && !coreExited.Load() {
 		coreStopReq.Store(true)
 		_ = coreCmd.Process.Kill()
+		logf("core", "info", "核心进程已停止")
 	}
 	coreCmd = nil
 }
@@ -927,6 +949,7 @@ func coreControl(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"running": false, "message": "已停止，sing-box 已就位"})
 	case "start":
 		if err := startCoreLocked(); err != nil {
+			logf("core", "error", "核心启动失败：%v", err)
 			writeJSON(w, map[string]any{"running": false, "message": err.Error()})
 			return
 		}
@@ -1005,10 +1028,12 @@ func proxyTest(w http.ResponseWriter, r *http.Request) {
 		if exitErr != "" {
 			msg += "，退出原因：" + exitErr + "；日志末尾：" + coreLogTail()
 		}
+		logf("node", "warn", "节点自检未通过（阶段 core）：节点没在运行")
 		writeJSON(w, map[string]any{"ok": false, "stage": "core", "message": msg})
 		return
 	}
 	if conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", proxyPort), 2*time.Second); err != nil {
+		logf("node", "warn", "节点自检未通过（阶段 port）：%d 端口连不上：%v", proxyPort, err)
 		writeJSON(w, map[string]any{"ok": false, "stage": "port", "message": fmt.Sprintf("进程在，但 %d 端口连不上：%v", proxyPort, err)})
 		return
 	} else {
@@ -1016,9 +1041,11 @@ func proxyTest(w http.ResponseWriter, r *http.Request) {
 	}
 	// Through the node to Google, the same path Chrome will take.
 	if err := socks5Connect("www.google.com", 443); err != nil {
+		logf("node", "warn", "节点自检未通过（阶段 node）：经节点连 Google:443 失败：%v", err)
 		writeJSON(w, map[string]any{"ok": false, "stage": "node", "message": "本地代理通，但经节点连 Google:443 失败：" + err.Error() + "；多半是这个节点连不上/握手失败，换个节点试。sing-box 日志末尾：" + coreLogTail()})
 		return
 	}
+	logf("node", "info", "节点自检通过：本地代理正常，经节点能连到 Google:443")
 	writeJSON(w, map[string]any{"ok": true, "stage": "done", "message": "自检通过：本地代理正常，经节点能连到 Google:443，Chrome 走节点打开就能上"})
 }
 
@@ -1107,6 +1134,18 @@ func launchIsolatedBrowser(proxy bool, target string, appMode bool) error {
 	if err := exec.Command(browser, args...).Start(); err != nil {
 		return fmt.Errorf("浏览器打开失败: %w", err)
 	}
+	host := target
+	if u, perr := url.Parse(target); perr == nil && u.Host != "" {
+		host = u.Host
+	}
+	mode := "直连"
+	if proxy {
+		mode = "走节点"
+	}
+	if appMode {
+		mode += " · 应用模式"
+	}
+	logf("browser", "info", "打开隔离浏览器：%s（%s）", host, mode)
 	// Unified window management (v0.18 乙+丙): register this external
 	// window with the daemon so the Stage Manager can switch to it and
 	// the taskbar groups it with the rest. No-op off Windows.
@@ -1125,6 +1164,7 @@ func openBrowser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := launchIsolatedBrowser(body.Proxy, body.URL, false); err != nil {
+		logf("browser", "error", "打开隔离浏览器失败：%v", err)
 		writeJSON(w, map[string]any{"error": err.Error()})
 		return
 	}
@@ -1178,8 +1218,8 @@ var webAppRenames = map[string][2]string{
 	"https://fed-liquidity-mingjieofficial-7844s-projects.vercel.app/#/macro": {"美联储流动性", "铭杰工作站"},
 }
 
-func appsPath() string        { return filepath.Join(dataDir(), "apps.txt") }
-func tombstonePath() string   { return filepath.Join(dataDir(), "apps-deleted.txt") }
+func appsPath() string      { return filepath.Join(dataDir(), "apps.txt") }
+func tombstonePath() string { return filepath.Join(dataDir(), "apps-deleted.txt") }
 func isBundledURL(u string) bool {
 	for _, a := range bundledWebApps {
 		if a.URL == u {
@@ -1353,10 +1393,13 @@ func openWebAppHandler(w http.ResponseWriter, r *http.Request) {
 		if err := launchIsolatedBrowser(true, u, true); err == nil {
 			writeJSON(w, map[string]any{"ok": true, "mode": "走节点"})
 			return
+		} else {
+			logf("browser", "warn", "网站应用走节点打开失败，降级直连：%v", err)
 		}
 		mode = "直连（节点启动失败，已降级）"
 	}
 	if err := launchIsolatedBrowser(false, u, true); err != nil {
+		logf("browser", "error", "网站应用打开失败：%v", err)
 		writeJSON(w, map[string]any{"error": err.Error()})
 		return
 	}
@@ -1462,6 +1505,11 @@ func openShellWindow(url string, proxy bool) error {
 	before := platformSnapshotWindows(browser)
 	if err := exec.Command(browser, args...).Start(); err != nil {
 		return err
+	}
+	if proxy {
+		logf("browser", "info", "桌面窗口已打开（走节点）")
+	} else {
+		logf("browser", "info", "桌面窗口已打开（直连）")
 	}
 	trackBrowserLaunch("铭杰工作站", "", browser, before, true)
 	return nil
@@ -1625,9 +1673,13 @@ func runServer(portFlag int, isDaemon bool) {
 	mux.HandleFunc("/api/update/apply", updateApplyHandler)
 	mux.HandleFunc("/api/accel", accelHandler)
 	mux.HandleFunc("/api/openshell", shellOpenHandler)
-	srv := &http.Server{Handler: activityMiddleware(mux)}
+	mux.HandleFunc("/api/diag/status", diagStatusHandler)
+	mux.HandleFunc("/api/diag/logs", diagLogsHandler)
+	mux.HandleFunc("/api/diag/export", diagExportHandler)
+	srv := &http.Server{Handler: activityMiddleware(diagMiddleware(mux))}
 	mux.HandleFunc("/api/shutdown", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"ok": true, "message": "后台和节点一起退出"})
+		logf("system", "info", "用户从设置退出系统，守护进程关闭")
 		go func() {
 			time.Sleep(300 * time.Millisecond)
 			coreMu.Lock()
@@ -1639,6 +1691,8 @@ func runServer(portFlag int, isDaemon bool) {
 	})
 
 	fmt.Println("MJ Light System daemon:", url)
+	daemonPort = actualPort
+	logf("system", "info", "守护进程启动：版本 v%s · %s/%s · 监听 %s", AppVersion, runtime.GOOS, runtime.GOARCH, url)
 	go func() { _ = srv.Serve(ln) }()
 
 	// Coming up in the background: if nodes are already saved, bring the
@@ -1649,7 +1703,7 @@ func runServer(portFlag int, isDaemon bool) {
 			err := startCoreLocked()
 			coreMu.Unlock()
 			if err != nil {
-				fmt.Println("auto-start core:", err)
+				logf("core", "error", "启动时自动拉起核心失败：%v", err)
 			}
 		}()
 	}
@@ -1691,6 +1745,7 @@ func runServer(portFlag int, isDaemon bool) {
 				running := coreRunningLocked()
 				coreMu.Unlock()
 				if !running && time.Now().Unix()-lastActivity.Load() > 30*60 {
+					logf("system", "info", "空闲超过 30 分钟且节点未运行，守护进程自动退出")
 					coreMu.Lock()
 					stopCoreLocked()
 					coreMu.Unlock()
