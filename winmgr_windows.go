@@ -23,25 +23,28 @@ var (
 	shell32  = syscall.NewLazyDLL("shell32.dll")
 	ole32    = syscall.NewLazyDLL("ole32.dll")
 
-	procEnumWindows                = user32.NewProc("EnumWindows")
-	procGetWindowThreadProcessId   = user32.NewProc("GetWindowThreadProcessId")
-	procIsWindow                   = user32.NewProc("IsWindow")
-	procIsWindowVisible            = user32.NewProc("IsWindowVisible")
-	procIsIconic                   = user32.NewProc("IsIconic")
-	procGetWindowTextW             = user32.NewProc("GetWindowTextW")
-	procGetWindowTextLengthW       = user32.NewProc("GetWindowTextLengthW")
-	procShowWindow                 = user32.NewProc("ShowWindow")
-	procSetForegroundWindow        = user32.NewProc("SetForegroundWindow")
-	procGetForegroundWindow        = user32.NewProc("GetForegroundWindow")
-	procBringWindowToTop           = user32.NewProc("BringWindowToTop")
-	procAttachThreadInput          = user32.NewProc("AttachThreadInput")
-	procGetCurrentThreadId         = kernel32.NewProc("GetCurrentThreadId")
-	procOpenProcess                = kernel32.NewProc("OpenProcess")
-	procCloseHandle                = kernel32.NewProc("CloseHandle")
-	procQueryFullProcessImageNameW = kernel32.NewProc("QueryFullProcessImageNameW")
+	procEnumWindows                 = user32.NewProc("EnumWindows")
+	procGetWindowThreadProcessId    = user32.NewProc("GetWindowThreadProcessId")
+	procIsWindow                    = user32.NewProc("IsWindow")
+	procIsWindowVisible             = user32.NewProc("IsWindowVisible")
+	procIsIconic                    = user32.NewProc("IsIconic")
+	procGetWindowTextW              = user32.NewProc("GetWindowTextW")
+	procGetWindowTextLengthW        = user32.NewProc("GetWindowTextLengthW")
+	procShowWindow                  = user32.NewProc("ShowWindow")
+	procGetWindowRect               = user32.NewProc("GetWindowRect")
+	procIsZoomed                    = user32.NewProc("IsZoomed")
+	procSetWindowPos                = user32.NewProc("SetWindowPos")
+	procSetForegroundWindow         = user32.NewProc("SetForegroundWindow")
+	procGetForegroundWindow         = user32.NewProc("GetForegroundWindow")
+	procBringWindowToTop            = user32.NewProc("BringWindowToTop")
+	procAttachThreadInput           = user32.NewProc("AttachThreadInput")
+	procGetCurrentThreadId          = kernel32.NewProc("GetCurrentThreadId")
+	procOpenProcess                 = kernel32.NewProc("OpenProcess")
+	procCloseHandle                 = kernel32.NewProc("CloseHandle")
+	procQueryFullProcessImageNameW  = kernel32.NewProc("QueryFullProcessImageNameW")
 	procSHGetPropertyStoreForWindow = shell32.NewProc("SHGetPropertyStoreForWindow")
-	procCoInitializeEx             = ole32.NewProc("CoInitializeEx")
-	procCoUninitialize             = ole32.NewProc("CoUninitialize")
+	procCoInitializeEx              = ole32.NewProc("CoInitializeEx")
+	procCoUninitialize              = ole32.NewProc("CoUninitialize")
 )
 
 // EnumWindows takes a C callback; syscall.NewCallback slots are a
@@ -139,6 +142,49 @@ func platformClaimWindow(browserPath string, before, claimed map[uint64]bool) (u
 		}
 	}
 	return 0, 0, false
+}
+
+// ---------- v0.20: one-shot landing placement ----------
+
+type wmRect struct {
+	Left, Top, Right, Bottom int32
+}
+
+// platformWindowRect returns the window's screen rectangle.
+func platformWindowRect(hwnd uint64) (int32, int32, int32, int32, bool) {
+	h := uintptr(hwnd)
+	if r, _, _ := procIsWindow.Call(h); r == 0 {
+		return 0, 0, 0, 0, false
+	}
+	var rc wmRect
+	r, _, _ := procGetWindowRect.Call(h, uintptr(unsafe.Pointer(&rc)))
+	if r == 0 {
+		return 0, 0, 0, 0, false
+	}
+	return rc.Left, rc.Top, rc.Right, rc.Bottom, true
+}
+
+// platformPlaceWindow moves/resizes the window to the given screen
+// rectangle. A maximized window is restored first (SetWindowPos on a
+// zoomed window only edits its restore geometry, which is not what
+// landing means). Z-order and activation are left alone: the window
+// has just opened and is already the foreground one; landing only
+// fixes WHERE it opened. Called exactly once per registration --
+// later user moves/maximizes are never corrected.
+func platformPlaceWindow(hwnd uint64, l, t, r, b int32) bool {
+	h := uintptr(hwnd)
+	if x, _, _ := procIsWindow.Call(h); x == 0 {
+		return false
+	}
+	if z, _, _ := procIsZoomed.Call(h); z != 0 {
+		procShowWindow.Call(h, 9) // SW_RESTORE
+	}
+	const swpNoZOrder = 0x0004
+	const swpNoActivate = 0x0010
+	res, _, _ := procSetWindowPos.Call(h, 0,
+		uintptr(l), uintptr(t), uintptr(r-l), uintptr(b-t),
+		swpNoZOrder|swpNoActivate)
+	return res != 0
 }
 
 // platformWindowTitle reports the window's current title and whether
