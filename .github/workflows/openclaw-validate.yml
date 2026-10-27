@@ -52,6 +52,9 @@ jobs:
             (Join-Path $component "state\logs"),
             (Join-Path $component "state\workspace"),
             (Join-Path $component "workspace"),
+            (Join-Path $component "appdata"),
+            (Join-Path $component "appdata\Local"),
+            (Join-Path $component "appdata\Roaming"),
             (Join-Path $component "tmp"),
             (Join-Path $component "tmp\node-compile-cache"),
             $logs, $results, $buildTmp,
@@ -87,14 +90,47 @@ jobs:
           function Set-OcEnv {
             # Linux 报告已验证的 env 清单（指向给定组件根；TEMP/TMP 只影响
             # 本 pwsh 进程及其子进程，即被托管的网关进程树）
+            # run #3 起追加 APPDATA/LOCALAPPDATA 进程级重定向：堵住源码里
+            # 读 process.env.LOCALAPPDATA 的路径（如 sqlite snapshot staging
+            # 的 resolvePrivateSqliteSnapshotStagingRoot）。注意：gateway
+            # state-owner 锁路径是 os.homedir() 写死拼 AppData\Local\OpenClaw，
+            # 不读这两个变量，堵不住的那部分靠收尾事后清理，见 DESIGN.md。
             param([string]$Root)
             $env:OPENCLAW_STATE_DIR     = Join-Path $Root "state"
             $env:OPENCLAW_CONFIG_PATH   = Join-Path $Root "state\openclaw.json"
             $env:OPENCLAW_WORKSPACE_DIR = Join-Path $Root "state\workspace"
             $env:NODE_COMPILE_CACHE     = Join-Path $Root "tmp\node-compile-cache"
+            $env:LOCALAPPDATA = Join-Path $Root "appdata\Local"
+            $env:APPDATA      = Join-Path $Root "appdata\Roaming"
+            foreach ($d in @($env:LOCALAPPDATA, $env:APPDATA, (Join-Path $Root "tmp"))) {
+              New-Item -ItemType Directory -Force -Path $d | Out-Null
+            }
             $env:TEMP = Join-Path $Root "tmp"
             $env:TMP  = Join-Path $Root "tmp"
             $env:PATH = (Join-Path $Root "runtime") + ";" + $env:PATH
+          }
+
+          function Get-ListenerTreePids {
+            # 按监听端口反查 OwningProcess 作为种子，再按父子关系展开进程树。
+            # run #2 教训：跨步骤不能靠上一步的 $proc 对象，也不能只靠命令行
+            # 字符串扫描（实际 node 进程的命令行形态/快照时机都会让它落空）。
+            param([int]$Port)
+            $owners = @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+                        Select-Object -ExpandProperty OwningProcess -Unique)
+            if (-not $owners -or $owners.Count -eq 0) { return @() }
+            $all = Get-CimInstance Win32_Process
+            $set = New-Object System.Collections.Generic.HashSet[int]
+            foreach ($o in $owners) { [void]$set.Add([int]$o) }
+            $grew = $true
+            while ($grew) {
+              $grew = $false
+              foreach ($p in $all) {
+                if ($set.Contains([int]$p.ParentProcessId) -and -not $set.Contains([int]$p.ProcessId)) {
+                  [void]$set.Add([int]$p.ProcessId); $grew = $true
+                }
+              }
+            }
+            return @($set)
           }
 
           function Get-OcTreePids {
@@ -150,9 +186,10 @@ jobs:
           }
 
           function Wait-GatewayHealth {
-            # 轮询 /health，预算 120 秒；返回 @{ ok; seconds }
-            param([datetime]$Start)
-            $deadline = (Get-Date).AddSeconds(120)
+            # 轮询 /health，默认预算 120 秒（冒烟步可传更短的独立预算）；
+            # 返回 @{ ok; seconds }
+            param([datetime]$Start, [int]$TimeoutSec = 120)
+            $deadline = (Get-Date).AddSeconds($TimeoutSec)
             while ((Get-Date) -lt $deadline) {
               try {
                 $r = Invoke-WebRequest -Uri "http://127.0.0.1:18789/health" -TimeoutSec 3 -UseBasicParsing
@@ -205,6 +242,11 @@ jobs:
           $nodeExe    = Join-Path $runtimeDir "node.exe"
           $npm        = Join-Path $runtimeDir "npm.cmd"
           $env:npm_config_cache = Join-Path $env:BUILD_TMP "npm-cache"
+          # run #3：安装脚本也是 openclaw 进程的一部分，同样给进程级
+          # APPDATA/LOCALAPPDATA 重定向（只影响本步 pwsh 及其子进程）
+          $env:LOCALAPPDATA = Join-Path $comp "appdata\Local"
+          $env:APPDATA      = Join-Path $comp "appdata\Roaming"
+          New-Item -ItemType Directory -Force -Path $env:LOCALAPPDATA, $env:APPDATA | Out-Null
 
           # 运行时钉死（run #1 教训）：本步先把便携 runtime 顶到 PATH 最前面
           # （后续步骤另有 GITHUB_PATH 与 Set-OcEnv 双保险）。npm.cmd 本身虽走
@@ -357,6 +399,18 @@ jobs:
             Write-Host "launcher cmd pid = $($proc.Id)"
             $proc.Id | Set-Content (Join-Path $env:LOGS "gateway-cmd-pid.txt") -Encoding utf8
             $res = Wait-GatewayHealth -Start $start
+            # run #3：把网关 PID 与端口写进组件外的运行状态文件，供后续
+            # 步骤（各自独立的 pwsh 进程）按端口反查时对照。gatewayPid 以
+            # 18789 的实际监听 OwningProcess 为准，launcherPid 是 cmd 垫片。
+            $listener = Get-NetTCPConnection -LocalPort ([int]$env:GATEWAY_PORT) -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+            $gatewayPid = if ($listener) { [int]$listener.OwningProcess } else { "" }
+            @(
+              "port=$env:GATEWAY_PORT"
+              "launcherPid=$($proc.Id)"
+              "gatewayPid=$gatewayPid"
+              "root=$comp"
+              "healthOk=$($res.ok)"
+            ) | Set-Content (Join-Path $env:LOGS "gateway.pid") -Encoding utf8
             if ($res.ok) {
               Add-Result "02-gateway-boot" "网关原生启动并监听 18789" "pass" "启动到 /health 200 用时 $($res.seconds)s（预算 120s）" $outLog
             } else {
@@ -384,15 +438,26 @@ jobs:
             return
           }
 
-          $healthy = $false
-          try {
-            $h0 = Invoke-WebRequest -Uri "http://127.0.0.1:18789/health" -TimeoutSec 3 -UseBasicParsing
-            $healthy = ($h0.StatusCode -eq 200)
-          } catch { $healthy = $false }
-          if (-not $healthy) {
-            Add-Result "03-smoke" "status / doctor / Control UI" "skip" "网关未就绪（见 02），本项跳过"
+          # run #2 根因：这里原本只做一次 3 秒的单发 /health 请求就判
+          # “未就绪”——02 步明明是轮询到 200 才收尾，单发请求赶上一次
+          # 瞬时失败/连接重置就会误判 skip。run #3 改为：先用独立预算
+          # （30s）自己轮询 /health，再按端口反查监听进程作为佐证，
+          # 启动步写下的 gateway.pid 只作对照，不作唯一依据。
+          $poll = Wait-GatewayHealth -Start (Get-Date) -TimeoutSec 30
+          $listener = Get-NetTCPConnection -LocalPort ([int]$env:GATEWAY_PORT) -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+          $ownerPid = if ($listener) { [int]$listener.OwningProcess } else { $null }
+          $pidFile = Join-Path $env:LOGS "gateway.pid"
+          $pidNote = "无 gateway.pid"
+          if (Test-Path $pidFile) {
+            $pidLine = (Get-Content $pidFile | Where-Object { $_ -like "gatewayPid=*" }) -join ""
+            if ($pidLine) { $pidNote = "启动步记录 $pidLine" }
+          }
+          if (-not $poll.ok) {
+            $listenState = if ($listener) { "18789 Listen 存在，OwningProcess=$ownerPid" } else { "18789 无 Listen" }
+            Add-Result "03-smoke" "status / doctor / Control UI" "skip" "独立轮询 30s 后 /health 仍未通（用时 $($poll.seconds)s）；当时端口状态：$listenState；$pidNote"
             return
           }
+          Write-Host "smoke readiness: /health ok after $($poll.seconds)s; listener owner pid = $ownerPid; $pidNote"
 
           & $bin gateway status *> (Join-Path $env:LOGS "status.txt")
           $statusCode = $LASTEXITCODE
@@ -409,14 +474,27 @@ jobs:
           try { $healthCode = (Invoke-WebRequest -Uri "http://127.0.0.1:18789/health" -TimeoutSec 5 -UseBasicParsing).StatusCode } catch { $healthCode = 0 }
 
           $ok = $statusOk -and $doctorOk -and ($uiCode -eq 200) -and ($healthCode -eq 200)
-          Add-Result "03-smoke" "status / doctor / Control UI" $(if ($ok) { "pass" } else { "fail" }) "status exit=$statusCode 命中关键行=$statusOk；doctor exit=$doctorCode（无 API key 的预期警告不算失败，输出已落盘）；Control UI GET / = $uiCode；GET /health = $healthCode" $doctorFile
+          Add-Result "03-smoke" "status / doctor / Control UI" $(if ($ok) { "pass" } else { "fail" }) "status exit=$statusCode 命中关键行=$statusOk；doctor exit=$doctorCode（无 API key 的预期警告不算失败，输出已落盘）；Control UI GET / = $uiCode；GET /health = $healthCode；端口监听 OwningProcess=$ownerPid" $doctorFile
 
       - name: Measure - gateway process-tree RSS and component sizes
         shell: pwsh
         run: |
           . $env:LIB
           $comp = $env:COMPONENT
-          $pids = Get-OcTreePids -Root $comp
+          # run #3：进程定位改按监听端口反查（18789 的 OwningProcess 为
+          # 种子展开进程树）。run #2 这里用的是 Get-OcTreePids 的命令行
+          # 字符串扫描，02 的 $proc 对象又只活在 02 步自己的 pwsh 进程
+          # 里、传不过来，结果明明网关刚通过 health 却扫出 0 个进程。
+          $pids = Get-ListenerTreePids -Port ([int]$env:GATEWAY_PORT)
+          $listener = Get-NetTCPConnection -LocalPort ([int]$env:GATEWAY_PORT) -State Listen -ErrorAction SilentlyContinue
+          $ownerPids = @($listener | Select-Object -ExpandProperty OwningProcess -Unique)
+          $listenState = if ($ownerPids.Count -gt 0) { "18789 Listen 存在，OwningProcess=$($ownerPids -join ',')" } else { "18789 无 Listen" }
+          $pidFile = Join-Path $env:LOGS "gateway.pid"
+          $pidNote = "无 gateway.pid"
+          if (Test-Path $pidFile) {
+            $pidLine = (Get-Content $pidFile | Where-Object { $_ -like "gatewayPid=*" }) -join ""
+            if ($pidLine) { $pidNote = "启动步记录 $pidLine" }
+          }
           $rssBytes = 0
           foreach ($p in $pids) {
             $proc = Get-Process -Id $p -ErrorAction SilentlyContinue
@@ -429,10 +507,14 @@ jobs:
           }
           $total = [math]::Round((($sizes.Values | Measure-Object -Sum).Sum), 1)
           ($sizes | ConvertTo-Json) | Set-Content (Join-Path $env:LOGS "sizes.json") -Encoding utf8
-          $detail = "进程树 $($pids.Count) 个进程，RSS 合计 ${rssMB} MB；体积 runtime=$($sizes.runtime) MB，app=$($sizes.app) MB，state=$($sizes.state) MB，workspace=$($sizes.workspace) MB，tmp=$($sizes.tmp) MB；组件总计 $total MB"
-          Write-Host $detail
-          if ($pids.Count -gt 0) { Add-Result "04-resources" "进程树 RSS 与组件体积" "pass" $detail }
-          else { Add-Result "04-resources" "进程树 RSS 与组件体积" "skip" "未找到在跑的网关进程（RSS 未测）；$detail" }
+          $sizeDetail = "体积 runtime=$($sizes.runtime) MB，app=$($sizes.app) MB，state=$($sizes.state) MB，workspace=$($sizes.workspace) MB，tmp=$($sizes.tmp) MB；组件总计 $total MB"
+          Write-Host "listener state: $listenState; $pidNote; tree pids: $($pids.Count)"
+          if ($pids.Count -gt 0) {
+            Add-Result "04-resources" "进程树 RSS 与组件体积" "pass" "按端口反查到进程树 $($pids.Count) 个进程（$listenState），RSS 合计 ${rssMB} MB；$sizeDetail"
+          } else {
+            # 查不到就老实记 skip 并附当时端口状态，绝不报 0 MB 的假数字
+            Add-Result "04-resources" "进程树 RSS 与组件体积" "skip" "按端口反查不到网关进程，RSS 未测（不报 0 MB）；当时端口状态：$listenState；$pidNote；$sizeDetail"
+          }
 
       - name: Leak audit - post-run snapshot and diff
         shell: pwsh
@@ -463,10 +545,37 @@ jobs:
           # 与 openclaw/node/npm 名字相关的算“可疑真泄漏”，其余标注为 runner 自身噪声待人工区分
           $suspects = @($newItems | Where-Object { $_ -match "openclaw|node|npm|claw" })
           $noise    = @($newItems | Where-Object { $_ -notmatch "openclaw|node|npm|claw" })
-          $detail = "组件外新增共 $($newItems.Count) 项；可疑（openclaw/node 相关）$($suspects.Count) 项：$($suspects -join ', ')；其余 $($noise.Count) 项疑似 runner 噪声（完整清单见 leak-diff.txt）"
+          # run #3：可疑新增项必须把内容物列清楚（相对路径|大小），
+          # 用来定性到底是空目录还是有数据（如 state-owner 锁文件）。
+          $contentsFile = Join-Path $env:LOGS "leak-new-items-contents.txt"
+          $contentLines = @()
+          foreach ($item in $suspects) {
+            $parts = $item -split "/", 2
+            $full = Join-Path $targets[$parts[0]] $parts[1]
+            $contentLines += "## $item -> $full"
+            if (Test-Path $full -PathType Leaf) {
+              $fi = Get-Item $full
+              $contentLines += ("{0}|{1}" -f $parts[1], $fi.Length)
+            } elseif (Test-Path $full) {
+              $entries = @(Get-ChildItem $full -Recurse -Force -ErrorAction SilentlyContinue)
+              if ($entries.Count -eq 0) { $contentLines += "(empty directory)" }
+              foreach ($e in $entries) {
+                $rel = $e.FullName.Substring($full.Length).TrimStart('\')
+                $sz = if ($e.PSIsContainer) { "<dir>" } else { $e.Length }
+                $contentLines += ("{0}|{1}" -f $rel, $sz)
+              }
+            } else {
+              $contentLines += "(not present at audit time)"
+            }
+          }
+          if ($contentLines.Count -eq 0) { $contentLines = @("(no suspect new items)") }
+          $contentLines | Set-Content $contentsFile -Encoding utf8
+          $compact = @($contentLines | Where-Object { $_ -match "\|\d+$" } | Select-Object -First 3)
+          $compactTxt = if ($compact.Count -gt 0) { "；新增项内容（前 $($compact.Count) 个文件）：$($compact -join '；')；完整清单见 leak-new-items-contents.txt" } else { "" }
+          $detail = "组件外新增共 $($newItems.Count) 项；可疑（openclaw/node 相关）$($suspects.Count) 项：$($suspects -join ', ')；其余 $($noise.Count) 项疑似 runner 噪声（完整清单见 leak-diff.txt）$compactTxt"
           Write-Host $detail
           if ($suspects.Count -eq 0) { Add-Result "05-leak-audit" "泄漏审计（组件外新增项）" "pass" $detail (Join-Path $env:LOGS "leak-diff.txt") }
-          else { Add-Result "05-leak-audit" "泄漏审计（组件外新增项）" "fail" $detail (Join-Path $env:LOGS "leak-diff.txt") }
+          else { Add-Result "05-leak-audit" "泄漏审计（组件外新增项）" "fail" $detail $contentsFile }
 
       - name: Relocation test - move copy, rewrite JSON first, boot copy
         shell: pwsh
@@ -542,9 +651,24 @@ jobs:
           }
 
       - name: Final - kill trees, verify state readable
+        if: always()
         shell: pwsh
         run: |
           . $env:LIB
+          # run #3：本步不再被 03/04 的 skip/fail 连带跳过（run #2 里它
+          # 根本没执行、结论只能写“前置连带”）。执行门槛只看两件事：
+          # 06 挪位步是否留下过结果、组件 state 是否存在；不满足就由
+          # 本步自己记 fail 并写明原因。
+          $relocResult = Join-Path $env:RESULTS_DIR "06-relocation.json"
+          $stateExists = Test-Path (Join-Path $env:COMPONENT "state")
+          if (-not (Test-Path $relocResult)) {
+            Add-Result "07-state-after-kill" "强杀后状态可读" "fail" "本步未做校验：06 挪位步没有留下结果文件（是否跑过=否）；组件 state 存在=$stateExists。原因在此明示，不再记为连带跳过。" (Join-Path $env:LOGS "sqlite-list.txt")
+            return
+          }
+          if (-not $stateExists) {
+            Add-Result "07-state-after-kill" "强杀后状态可读" "fail" "本步未做校验：06 挪位步已跑过，但组件 state 目录不存在（$env:COMPONENT\state），无状态可验。" (Join-Path $env:LOGS "sqlite-list.txt")
+            return
+          }
           Stop-OcTree -Root $env:COMPONENT
           Stop-OcTree -Root $env:COPY_ROOT
           Start-Sleep -Seconds 2
@@ -565,8 +689,37 @@ jobs:
           Copy-Item (Join-Path $state "logs\openclaw.log") (Join-Path $env:LOGS "openclaw-filelog.log") -ErrorAction SilentlyContinue
           Copy-Item (Join-Path $env:COPY_ROOT "state\logs\openclaw.log") (Join-Path $env:LOGS "openclaw-filelog-copy.log") -ErrorAction SilentlyContinue
 
+          # run #3 尾巴一兜底（产品堵法在验证侧的对应动作）：gateway
+          # state-owner 锁目录是 os.homedir() 写死路径，env 重定向堵不住；
+          # 到这一步两棵进程树都已强杀，才可以事后清理。仅当基线快照里
+          # 本来没有 OpenClaw、且现在存在时才删，删前清单留档；基线已有
+          # 的绝不碰。注意：05 的审计结论记录的是运行期真实写入，本步
+          # 清理不回改 05 的结果。
+          $cleanupLog = Join-Path $env:LOGS "leak-cleanup.txt"
+          $realOpenClaw = Join-Path $env:LOCALAPPDATA "OpenClaw"
+          $baselineFile = Join-Path $env:LOGS "leak-before-localappdata.txt"
+          $baselineHad = $false
+          if (Test-Path $baselineFile) {
+            $baselineNames = @((Get-Content $baselineFile) | ForEach-Object { ($_ -split "\|")[0] })
+            $baselineHad = $baselineNames -contains "OpenClaw"
+          }
+          $cleanupTxt = "基线已有 OpenClaw=$baselineHad；当前存在=$(Test-Path $realOpenClaw)；未执行清理"
+          if ((-not $baselineHad) -and (Test-Path $realOpenClaw)) {
+            $beforeEntries = @(Get-ChildItem $realOpenClaw -Recurse -Force -ErrorAction SilentlyContinue |
+              ForEach-Object { "{0}|{1}" -f $_.FullName.Substring($realOpenClaw.Length).TrimStart('\'), $(if ($_.PSIsContainer) { "<dir>" } else { $_.Length }) })
+            @("target=$realOpenClaw", "entries before cleanup=$($beforeEntries.Count)") + $beforeEntries |
+              Set-Content $cleanupLog -Encoding utf8
+            Remove-Item $realOpenClaw -Recurse -Force -ErrorAction SilentlyContinue
+            $stillThere = Test-Path $realOpenClaw
+            "removed=$(-not $stillThere)" | Add-Content $cleanupLog -Encoding utf8
+            $cleanupTxt = "已在进程树全停后清理本次新增的 $realOpenClaw（清理前 $($beforeEntries.Count) 项，清理后仍存在=$stillThere；清单见 leak-cleanup.txt）"
+          } else {
+            $cleanupTxt | Set-Content $cleanupLog -Encoding utf8
+          }
+          Write-Host "leak cleanup: $cleanupTxt"
+
           $ok = $cfgOk -and ($sqlNonZero -ge 1)
-          Add-Result "07-state-after-kill" "强杀后状态可读" $(if ($ok) { "pass" } else { "fail" }) "openclaw.json 可解析=$cfgOk（$cfgBytes 字节）；SQLite/DB 文件共 $($sqlFiles.Count) 个，非零 $sqlNonZero 个（清单见 sqlite-list.txt）" (Join-Path $env:LOGS "sqlite-list.txt")
+          Add-Result "07-state-after-kill" "强杀后状态可读" $(if ($ok) { "pass" } else { "fail" }) "openclaw.json 可解析=$cfgOk（$cfgBytes 字节）；SQLite/DB 文件共 $($sqlFiles.Count) 个，非零 $sqlNonZero 个（清单见 sqlite-list.txt）；LOCALAPPDATA\OpenClaw 事后清理：$cleanupTxt" (Join-Path $env:LOGS "sqlite-list.txt")
 
       - name: Summary - write step summary and merged results
         if: always()
