@@ -891,7 +891,7 @@ function bind(id){
      agMsg='处理中…'; paintAgent(byId(cur));
      const r=await post('/api/servermon/agent',{id:cur,action:action,password:G('sm-cred').value,passphrase:G('sm-cred').value});
      if(r.error){ agMsg=r.error; }
-     else if(action==='install'){ agMsg='已安装（'+(r.method==='systemd'?'systemd 定时':r.method==='cron'?'crontab 定时':'已写入')+'）：服务器开始每分钟记录'; }
+     else if(action==='install'){ const ml={'systemd':'systemd 定时（开机自启已确认）','systemd+cron':'systemd + crontab 双保险（开机自启）','cron':'crontab 定时（开机自启）','systemd-nolinger':'systemd 定时（linger 未开，重启后需登录才恢复）'}; agMsg='已安装（'+(ml[r.method]||'已写入')+'）：服务器开始每分钟记录'; }
      else if(action==='sync'){ agMsg='已同步：补入历史 '+(r.points||0)+' 点，补记流量 ↓ '+fmtB(r.addIn||0)+' · ↑ '+fmtB(r.addOut||0); if(range!=='live') loadHist(); }
      else if(action==='uninstall'){ agMsg='已卸载，服务器上的采集脚本和记录已删除'; }
      refresh();
@@ -906,9 +906,10 @@ function bind(id){
      }
      const lastTxt=s.agentLast?new Date(s.agentLast*1000).toLocaleString():'暂无';
      const syncTxt=s.agentSync?new Date(s.agentSync*1000).toLocaleString():'还没同步过';
-     el.innerHTML=`<div class="sm-row"><span>状态</span><span><span class="sdot on" style="display:inline-block;vertical-align:1px;margin-right:7px"></span>已安装 · 服务器最近样本 ${lastTxt}</span></div><div class="sm-row"><span>上次同步</span><span>${syncTxt}（面板开着时每 5 分钟自动同步）</span></div><div class="row" style="margin-top:8px"><button class="btn gray" id="sm-ag-sync">立即同步</button><button class="btn gray" id="sm-ag-uninstall">卸载</button><span class="tag" id="sm-ag-msg">${esc(agMsg)}</span></div>`;
+     el.innerHTML=`<div class="sm-row"><span>状态</span><span><span class="sdot on" style="display:inline-block;vertical-align:1px;margin-right:7px"></span>已安装 · 服务器最近样本 ${lastTxt}</span></div><div class="sm-row"><span>上次同步</span><span>${syncTxt}（面板开着时每 5 分钟自动同步）</span></div><div class="row" style="margin-top:8px"><button class="btn gray" id="sm-ag-sync">立即同步</button><button class="btn gray" id="sm-ag-reinstall">重新安装/加固自启</button><button class="btn gray" id="sm-ag-uninstall">卸载</button><span class="tag" id="sm-ag-msg">${esc(agMsg)}</span></div>`;
      const sb=G('sm-ag-sync'); if(sb) sb.onclick=()=>agentAct('sync');
      const ub=G('sm-ag-uninstall'); if(ub) ub.onclick=()=>agentAct('uninstall');
+     const rb=G('sm-ag-reinstall'); if(rb) rb.onclick=()=>agentAct('install');
    }
    function paintMain(){
      const M=G('sm-main'); if(!M) return;

@@ -197,15 +197,47 @@ func monAgentInstall(cl *ssh.Client) (string, error) {
 		}
 		return "", err
 	}
+	// A systemd *user* timer only starts at boot (e.g. after the
+	// server's nightly reboot) when lingering is on for the user --
+	// so verify it, and if it cannot be confirmed, plant a crontab
+	// entry as well: the system cron service always starts at boot.
 	out2, _ := monExec(cl, "systemctl --user daemon-reload 2>/dev/null; systemctl --user enable --now mjmon.timer 2>&1; loginctl enable-linger $USER 2>/dev/null; systemctl --user is-active mjmon.timer 2>/dev/null", 30*time.Second)
-	if strings.Contains(out2, "active") {
-		return "systemd", nil
+	sysd := strings.Contains(out2, "active")
+	linger := false
+	if sysd {
+		outL, _ := monExec(cl, "loginctl show-user $USER -p Linger 2>/dev/null", 15*time.Second)
+		linger = strings.Contains(outL, "Linger=yes")
 	}
-	out3, _ := monExec(cl, "(crontab -l 2>/dev/null | grep -v mjmon; echo '* * * * * $HOME/.mjmon/collect.sh >/dev/null 2>&1 # mjmon') | crontab - && echo MJ-CRON-OK", 30*time.Second)
-	if strings.Contains(out3, "MJ-CRON-OK") {
+	cronOK := false
+	if !sysd || !linger {
+		out3, _ := monExec(cl, "(crontab -l 2>/dev/null | grep -v mjmon; echo '* * * * * $HOME/.mjmon/collect.sh >/dev/null 2>&1 # mjmon') | crontab - && echo MJ-CRON-OK", 30*time.Second)
+		cronOK = strings.Contains(out3, "MJ-CRON-OK")
+	}
+	switch {
+	case sysd && linger:
+		return "systemd", nil
+	case sysd && cronOK:
+		return "systemd+cron", nil
+	case cronOK:
 		return "cron", nil
+	case sysd:
+		return "systemd-nolinger", nil
 	}
 	return "manual", fmt.Errorf("脚本已写入 ~/.mjmon，但 systemd 用户定时器和 crontab 都不可用")
+}
+
+func monAgentMethodLabel(m string) string {
+	switch m {
+	case "systemd":
+		return "systemd 定时器（开机自启已确认）"
+	case "systemd+cron":
+		return "systemd + crontab 双保险（开机自启）"
+	case "cron":
+		return "crontab（系统 cron 开机自启）"
+	case "systemd-nolinger":
+		return "systemd 定时器（linger 未开：重启后需登录一次才恢复采集）"
+	}
+	return m
 }
 
 func monAgentUninstall(cl *ssh.Client) error {
@@ -450,7 +482,7 @@ func monAgentHandler(w http.ResponseWriter, r *http.Request) {
 			m.Installed, m.Method = true, method
 			monAgentMu.Unlock()
 			monAgentSave(body.ID)
-			logf("servermon", "info", "服务器采集已安装 %s（定时 %s）：每分钟一条，存服务器 ~/.mjmon", c.Name, method)
+			logf("servermon", "info", "服务器采集已安装 %s（%s）：每分钟一条，存服务器 ~/.mjmon", c.Name, monAgentMethodLabel(method))
 			writeJSON(w, map[string]any{"ok": true, "method": method})
 			return
 		}
