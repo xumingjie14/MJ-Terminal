@@ -1,0 +1,577 @@
+# OpenClaw（小龙虾）便携组件 — Windows 组装验证
+#
+# 目的：在 GitHub Actions windows-latest 上，用与 Linux 机制验证
+# （~/workspace/openclaw-portable-test/REPORT.md）完全相同的版本组合与
+# provisioning 纪律，把便携组件在 Windows 原生（不用 WSL2）组装出来并
+# 做启动冒烟，回答“Windows 原生到底跑不跑得起来”。
+#
+# 安全边界：仅 workflow_dispatch 手动触发；不发布 Release；不使用任何
+# API key、不接任何渠道；权限最小化（contents: read）。
+# 结论双通道：$GITHUB_STEP_SUMMARY 的结论表 + logs/ artifact（保留 7 天）。
+# 组件本体（约 900 MB）不上传。
+
+name: openclaw-validate
+
+"on":
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "24.22.1"
+  OPENCLAW_VERSION: "2026.10.8"
+  GATEWAY_PORT: "18789"
+
+jobs:
+  validate:
+    name: Windows portable assembly + boot smoke
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup paths, component skeleton and helper library
+        shell: pwsh
+        run: |
+          $component = Join-Path $env:GITHUB_WORKSPACE "component"
+          $logs      = Join-Path $env:GITHUB_WORKSPACE "logs"
+          $results   = Join-Path $logs "results"
+          $buildTmp  = Join-Path $env:RUNNER_TEMP "oc-build"
+          $qualifier = Split-Path $env:GITHUB_WORKSPACE -Qualifier
+          $copyRoot  = "$qualifier\oc-copy"
+          $lib       = Join-Path $env:GITHUB_WORKSPACE "validate-lib.ps1"
+
+          # 组件布局（与 Linux 验证同一结构；workspace/ 为布局占位，
+          # OPENCLAW_WORKSPACE_DIR 沿用已验证的 state\workspace，见 DESIGN.md）
+          foreach ($d in @(
+            $component,
+            (Join-Path $component "runtime"),
+            (Join-Path $component "app"),
+            (Join-Path $component "state"),
+            (Join-Path $component "state\logs"),
+            (Join-Path $component "state\workspace"),
+            (Join-Path $component "workspace"),
+            (Join-Path $component "tmp"),
+            (Join-Path $component "tmp\node-compile-cache"),
+            $logs, $results, $buildTmp,
+            (Join-Path $buildTmp "npm-cache")
+          )) { New-Item -ItemType Directory -Force -Path $d | Out-Null }
+
+          # 跨步共享路径（GITHUB_ENV 注入后续步骤；本步内同步赋值）
+          "COMPONENT=$component"   | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "LOGS=$logs"             | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "RESULTS_DIR=$results"   | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "BUILD_TMP=$buildTmp"    | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "COPY_ROOT=$copyRoot"    | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "LIB=$lib"               | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $env:COMPONENT = $component; $env:LOGS = $logs; $env:RESULTS_DIR = $results
+          $env:BUILD_TMP = $buildTmp; $env:COPY_ROOT = $copyRoot; $env:LIB = $lib
+
+          # 公共函数库（运行时生成于工作区，不依赖仓库内任何脚本文件）
+          $libBody = @'
+          function Add-Result {
+            # 每项检查把结论落成一个小 JSON，汇总步统一收。Status: pass / fail / skip
+            param([string]$Id, [string]$Name, [string]$Status, [string]$Detail, [string]$LogFile = "")
+            $obj = [ordered]@{ id = $Id; name = $Name; status = $Status; detail = $Detail; log = $LogFile }
+            $path = Join-Path $env:RESULTS_DIR ("{0}.json" -f $Id)
+            ($obj | ConvertTo-Json -Compress) | Set-Content -Path $path -Encoding utf8
+            Write-Host ("[{0}] {1} -> {2} :: {3}" -f $Id, $Name, $Status, $Detail)
+          }
+
+          function Set-OcEnv {
+            # Linux 报告已验证的 env 清单（指向给定组件根；TEMP/TMP 只影响
+            # 本 pwsh 进程及其子进程，即被托管的网关进程树）
+            param([string]$Root)
+            $env:OPENCLAW_STATE_DIR     = Join-Path $Root "state"
+            $env:OPENCLAW_CONFIG_PATH   = Join-Path $Root "state\openclaw.json"
+            $env:OPENCLAW_WORKSPACE_DIR = Join-Path $Root "state\workspace"
+            $env:NODE_COMPILE_CACHE     = Join-Path $Root "tmp\node-compile-cache"
+            $env:TEMP = Join-Path $Root "tmp"
+            $env:TMP  = Join-Path $Root "tmp"
+            $env:PATH = (Join-Path $Root "runtime") + ";" + $env:PATH
+          }
+
+          function Get-OcTreePids {
+            # 以“命令行含组件根路径”的进程为种子，按父子关系展开整棵进程树
+            param([string]$Root)
+            $all = Get-CimInstance Win32_Process
+            $set = New-Object System.Collections.Generic.HashSet[int]
+            foreach ($p in $all) {
+              if ($p.CommandLine -and ($p.CommandLine -like "*$Root*")) { [void]$set.Add([int]$p.ProcessId) }
+            }
+            $grew = $true
+            while ($grew) {
+              $grew = $false
+              foreach ($p in $all) {
+                if ($set.Contains([int]$p.ParentProcessId) -and -not $set.Contains([int]$p.ProcessId)) {
+                  [void]$set.Add([int]$p.ProcessId); $grew = $true
+                }
+              }
+            }
+            return @($set)
+          }
+
+          function Stop-OcTree {
+            param([string]$Root)
+            foreach ($round in 1..2) {
+              foreach ($pidToKill in (Get-OcTreePids -Root $Root)) {
+                Stop-Process -Id $pidToKill -Force -ErrorAction SilentlyContinue
+              }
+              Start-Sleep -Seconds 1
+            }
+          }
+
+          function Get-DirSizeMB {
+            param([string]$Path)
+            if (-not (Test-Path $Path)) { return 0 }
+            $sum = (Get-ChildItem -Path $Path -Recurse -File -ErrorAction SilentlyContinue |
+                    Measure-Object -Property Length -Sum).Sum
+            if (-not $sum) { return 0 }
+            return [math]::Round($sum / 1MB, 1)
+          }
+
+          function Save-DirSnapshot {
+            # 顶层快照：每行 "Name|LastWriteTime|Length"；目录不存在写 __MISSING__
+            param([string]$Path, [string]$OutFile)
+            if (Test-Path $Path) {
+              $lines = Get-ChildItem -Path $Path -Force -ErrorAction SilentlyContinue |
+                ForEach-Object { "{0}|{1}|{2}" -f $_.Name, $_.LastWriteTime.ToString("s"), $_.Length }
+              if ($lines) { $lines | Sort-Object | Set-Content -Path $OutFile -Encoding utf8 }
+              else { "" | Set-Content -Path $OutFile -Encoding utf8 }
+            } else {
+              "__MISSING__" | Set-Content -Path $OutFile -Encoding utf8
+            }
+          }
+
+          function Wait-GatewayHealth {
+            # 轮询 /health，预算 120 秒；返回 @{ ok; seconds }
+            param([datetime]$Start)
+            $deadline = (Get-Date).AddSeconds(120)
+            while ((Get-Date) -lt $deadline) {
+              try {
+                $r = Invoke-WebRequest -Uri "http://127.0.0.1:18789/health" -TimeoutSec 3 -UseBasicParsing
+                if ($r.StatusCode -eq 200) {
+                  return @{ ok = $true; seconds = [math]::Round(((Get-Date) - $Start).TotalSeconds, 1) }
+                }
+              } catch { Start-Sleep -Seconds 2 }
+            }
+            return @{ ok = $false; seconds = [math]::Round(((Get-Date) - $Start).TotalSeconds, 1) }
+          }
+          '@
+          $libBody | Set-Content -Path $lib -Encoding utf8
+
+          Write-Host "component : $component"
+          Write-Host "copy root : $copyRoot"
+          Write-Host "node      : v$env:NODE_VERSION (win-x64 portable zip)"
+          Write-Host "openclaw  : $env:OPENCLAW_VERSION (npm local prefix install)"
+
+      - name: Download portable Node (official win-x64 zip)
+        shell: pwsh
+        run: |
+          . $env:LIB
+          $comp = $env:COMPONENT
+          $zip  = Join-Path $env:BUILD_TMP "node.zip"
+          $url  = "https://nodejs.org/dist/v$env:NODE_VERSION/node-v$env:NODE_VERSION-win-x64.zip"
+          try {
+            Invoke-WebRequest -Uri $url -OutFile $zip
+            Write-Host ("node zip bytes: {0}" -f (Get-Item $zip).Length)
+            Expand-Archive -Path $zip -DestinationPath (Join-Path $env:BUILD_TMP "node-x") -Force
+            $inner = Join-Path $env:BUILD_TMP "node-x\node-v$env:NODE_VERSION-win-x64"
+            Copy-Item -Path (Join-Path $inner "*") -Destination (Join-Path $comp "runtime") -Recurse -Force
+            $nodeExe = Join-Path $comp "runtime\node.exe"
+            if (-not (Test-Path $nodeExe)) { throw "node.exe missing after extract" }
+            $nodeV = (& $nodeExe -v).Trim()
+            Write-Host "node -v = $nodeV"
+            if ($nodeV -ne "v$env:NODE_VERSION") { throw "node version mismatch: $nodeV" }
+            $nodeV | Set-Content (Join-Path $env:LOGS "node-version.txt") -Encoding utf8
+          } catch {
+            Add-Result "01-assembly" "组装（Node + OpenClaw）" "fail" "Node 便携包组装失败：$($_.Exception.Message)" (Join-Path $env:LOGS "node-version.txt")
+            exit 1
+          }
+
+      - name: Install OpenClaw via npm (local prefix, pinned)
+        shell: pwsh
+        run: |
+          . $env:LIB
+          $comp = $env:COMPONENT
+          $app  = Join-Path $comp "app"
+          $npm  = Join-Path $comp "runtime\npm.cmd"
+          $env:npm_config_cache = Join-Path $env:BUILD_TMP "npm-cache"
+
+          # 版本钉死：与 Linux 验证同一组合（Linux 侧 ^2026.10.8 解析结果即 2026.10.8）
+          $pkg = [ordered]@{ dependencies = [ordered]@{ openclaw = $env:OPENCLAW_VERSION } }
+          ($pkg | ConvertTo-Json) | Set-Content (Join-Path $app "package.json") -Encoding utf8
+
+          $registries = @("https://registry.npmjs.org/", "https://registry.npmmirror.com/")
+          $usedRegistry = ""; $installSec = 0; $installed = $false
+          foreach ($reg in $registries) {
+            if (Test-Path (Join-Path $app "node_modules"))     { Remove-Item (Join-Path $app "node_modules") -Recurse -Force }
+            if (Test-Path (Join-Path $app "package-lock.json")) { Remove-Item (Join-Path $app "package-lock.json") -Force }
+            $tag = if ($reg -like "*npmmirror*") { "npmmirror" } else { "official" }
+            $installLog = Join-Path $env:LOGS "npm-install-$tag.log"
+            Write-Host "npm install via $reg ..."
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
+            Push-Location $app
+            & $npm install --no-audit --no-fund --loglevel=warn --registry $reg *> $installLog
+            $code = $LASTEXITCODE
+            Pop-Location
+            $sw.Stop(); $installSec = [math]::Round($sw.Elapsed.TotalSeconds, 1)
+            Write-Host "npm exit=$code in ${installSec}s (registry $reg)"
+            if ($code -eq 0) { $installed = $true; $usedRegistry = $reg; break }
+          }
+          if (-not $installed) {
+            Add-Result "01-assembly" "组装（Node + OpenClaw）" "fail" "npm install 两个源都失败（官方源与 npmmirror 各一次）；最后一次耗时 ${installSec}s" (Join-Path $env:LOGS "npm-install-npmmirror.log")
+            exit 1
+          }
+
+          # install-scripts 被拦/警告摘录（Linux 侧 npm 11.19 出现过），并记录 install-scripts 清单
+          Select-String -Path (Join-Path $env:LOGS "npm-install-*.log") -Pattern "install-scripts|build scripts" -ErrorAction SilentlyContinue |
+            ForEach-Object { $_.Line } | Set-Content (Join-Path $env:LOGS "npm-install-scripts-warnings.txt") -Encoding utf8
+          Push-Location $app
+          & $npm install-scripts ls *> (Join-Path $env:LOGS "npm-install-scripts-ls.txt")
+          Pop-Location
+
+          $ocBin = Join-Path $app "node_modules\.bin\openclaw.cmd"
+          try {
+            $ocV = (& $ocBin --version 2>&1 | Out-String).Trim()
+          } catch { $ocV = "" }
+          Write-Host "openclaw --version = $ocV"
+          $ocV | Set-Content (Join-Path $env:LOGS "openclaw-version.txt") -Encoding utf8
+          if ($ocV -notlike "*$env:OPENCLAW_VERSION*") {
+            Add-Result "01-assembly" "组装（Node + OpenClaw）" "fail" "openclaw --version 异常：'$ocV'" (Join-Path $env:LOGS "openclaw-version.txt")
+            exit 1
+          }
+          $warnCount = 0
+          $wf = Join-Path $env:LOGS "npm-install-scripts-warnings.txt"
+          if (Test-Path $wf) { $warnCount = @(Get-Content $wf | Where-Object { $_ -ne "" }).Count }
+          Add-Result "01-assembly" "组装（Node + OpenClaw）" "pass" "node v$env:NODE_VERSION；openclaw $ocV；npm 安装 ${installSec}s；registry=$usedRegistry；install-scripts 警告 $warnCount 条（详见日志）" (Join-Path $env:LOGS "npm-install-scripts-warnings.txt")
+
+      - name: Provisioning (config first) and leak baseline snapshot
+        shell: pwsh
+        run: |
+          . $env:LIB
+          $comp  = $env:COMPONENT
+          $state = Join-Path $comp "state"
+          try {
+            # 纪律：启动任何 openclaw 进程之前，先把配置写好——
+            # gateway.mode=local（缺它网关会拒绝启动）+ logging.file 指向组件内绝对路径
+            $logFile = Join-Path $state "logs\openclaw.log"
+            $cfg = [ordered]@{
+              gateway = [ordered]@{ port = 18789; mode = "local" }
+              logging = [ordered]@{ file = $logFile }
+            }
+            $cfgPath = Join-Path $state "openclaw.json"
+            ($cfg | ConvertTo-Json -Depth 5) | Set-Content $cfgPath -Encoding utf8
+            Get-Content $cfgPath | Tee-Object -FilePath (Join-Path $env:LOGS "provisioned-config.json")
+          } catch {
+            Add-Result "02-gateway-boot" "网关原生启动并监听 18789" "fail" "provisioning 写配置失败：$($_.Exception.Message)"
+            exit 1
+          }
+
+          # 泄漏基线：网关/CLI 活动开始前的顶层快照（后快照在冒烟之后做）
+          $targets = [ordered]@{
+            "userprofile-openclaw" = (Join-Path $env:USERPROFILE ".openclaw")
+            "localappdata"         = $env:LOCALAPPDATA
+            "appdata"              = $env:APPDATA
+            "temp"                 = $env:TEMP
+          }
+          foreach ($k in $targets.Keys) {
+            Save-DirSnapshot -Path $targets[$k] -OutFile (Join-Path $env:LOGS "leak-before-$k.txt")
+            Write-Host "baseline $k = $($targets[$k])"
+          }
+
+      - name: Start gateway (foreground run, script-hosted) and wait for health
+        shell: pwsh
+        run: |
+          . $env:LIB
+          $comp = $env:COMPONENT
+          Set-OcEnv -Root $comp
+          $bin    = Join-Path $comp "app\node_modules\.bin\openclaw.cmd"
+          $outLog = Join-Path $env:LOGS "gateway-stdout.log"
+          $errLog = Join-Path $env:LOGS "gateway-stderr.log"
+          try {
+            $start = Get-Date
+            # 托管方式：gateway 前台 run（不用 openclaw 自带 daemon/schtasks 安装模式）
+            $proc = Start-Process -FilePath "cmd.exe" `
+              -ArgumentList "/c `"$bin`" gateway run --port $env:GATEWAY_PORT --bind loopback --verbose" `
+              -RedirectStandardOutput $outLog -RedirectStandardError $errLog `
+              -PassThru -WindowStyle Hidden
+            Write-Host "launcher cmd pid = $($proc.Id)"
+            $proc.Id | Set-Content (Join-Path $env:LOGS "gateway-cmd-pid.txt") -Encoding utf8
+            $res = Wait-GatewayHealth -Start $start
+            if ($res.ok) {
+              Add-Result "02-gateway-boot" "网关原生启动并监听 18789" "pass" "启动到 /health 200 用时 $($res.seconds)s（预算 120s）" $outLog
+            } else {
+              $tail = ""
+              if (Test-Path $errLog) { $tail = ((Get-Content $errLog -Tail 3 -ErrorAction SilentlyContinue) -join " / ") }
+              Add-Result "02-gateway-boot" "网关原生启动并监听 18789" "fail" "120s 内 /health 未通；stderr 尾部：$tail" $errLog
+            }
+          } catch {
+            Add-Result "02-gateway-boot" "网关原生启动并监听 18789" "fail" "启动过程异常：$($_.Exception.Message)" $errLog
+          }
+
+      - name: Smoke - status, doctor, Control UI
+        shell: pwsh
+        run: |
+          . $env:LIB
+          $comp = $env:COMPONENT
+          Set-OcEnv -Root $comp
+          $bin = Join-Path $comp "app\node_modules\.bin\openclaw.cmd"
+
+          $healthy = $false
+          try {
+            $h0 = Invoke-WebRequest -Uri "http://127.0.0.1:18789/health" -TimeoutSec 3 -UseBasicParsing
+            $healthy = ($h0.StatusCode -eq 200)
+          } catch { $healthy = $false }
+          if (-not $healthy) {
+            Add-Result "03-smoke" "status / doctor / Control UI" "skip" "网关未就绪（见 02），本项跳过"
+            return
+          }
+
+          & $bin gateway status *> (Join-Path $env:LOGS "status.txt")
+          $statusCode = $LASTEXITCODE
+          $statusTxt = Get-Content (Join-Path $env:LOGS "status.txt") -Raw -ErrorAction SilentlyContinue
+          $statusOk = ($statusTxt -match "Listening") -or ($statusTxt -match "Connectivity check: ok")
+
+          & $bin doctor *> (Join-Path $env:LOGS "doctor.txt")
+          $doctorCode = $LASTEXITCODE
+          $doctorFile = Join-Path $env:LOGS "doctor.txt"
+          $doctorOk = (Test-Path $doctorFile) -and ((Get-Item $doctorFile).Length -gt 0)
+
+          $uiCode = 0; $healthCode = 0
+          try { $uiCode     = (Invoke-WebRequest -Uri "http://127.0.0.1:18789/"       -TimeoutSec 5 -UseBasicParsing).StatusCode } catch { $uiCode = 0 }
+          try { $healthCode = (Invoke-WebRequest -Uri "http://127.0.0.1:18789/health" -TimeoutSec 5 -UseBasicParsing).StatusCode } catch { $healthCode = 0 }
+
+          $ok = $statusOk -and $doctorOk -and ($uiCode -eq 200) -and ($healthCode -eq 200)
+          Add-Result "03-smoke" "status / doctor / Control UI" $(if ($ok) { "pass" } else { "fail" }) "status exit=$statusCode 命中关键行=$statusOk；doctor exit=$doctorCode（无 API key 的预期警告不算失败，输出已落盘）；Control UI GET / = $uiCode；GET /health = $healthCode" $doctorFile
+
+      - name: Measure - gateway process-tree RSS and component sizes
+        shell: pwsh
+        run: |
+          . $env:LIB
+          $comp = $env:COMPONENT
+          $pids = Get-OcTreePids -Root $comp
+          $rssBytes = 0
+          foreach ($p in $pids) {
+            $proc = Get-Process -Id $p -ErrorAction SilentlyContinue
+            if ($proc) { $rssBytes += $proc.WorkingSet64 }
+          }
+          $rssMB = [math]::Round($rssBytes / 1MB, 0)
+          $sizes = [ordered]@{}
+          foreach ($part in @("runtime", "app", "state", "workspace", "tmp")) {
+            $sizes[$part] = Get-DirSizeMB (Join-Path $comp $part)
+          }
+          $total = [math]::Round((($sizes.Values | Measure-Object -Sum).Sum), 1)
+          ($sizes | ConvertTo-Json) | Set-Content (Join-Path $env:LOGS "sizes.json") -Encoding utf8
+          $detail = "进程树 $($pids.Count) 个进程，RSS 合计 ${rssMB} MB；体积 runtime=$($sizes.runtime) MB，app=$($sizes.app) MB，state=$($sizes.state) MB，workspace=$($sizes.workspace) MB，tmp=$($sizes.tmp) MB；组件总计 $total MB"
+          Write-Host $detail
+          if ($pids.Count -gt 0) { Add-Result "04-resources" "进程树 RSS 与组件体积" "pass" $detail }
+          else { Add-Result "04-resources" "进程树 RSS 与组件体积" "skip" "未找到在跑的网关进程（RSS 未测）；$detail" }
+
+      - name: Leak audit - post-run snapshot and diff
+        shell: pwsh
+        run: |
+          . $env:LIB
+          $targets = [ordered]@{
+            "userprofile-openclaw" = (Join-Path $env:USERPROFILE ".openclaw")
+            "localappdata"         = $env:LOCALAPPDATA
+            "appdata"              = $env:APPDATA
+            "temp"                 = $env:TEMP
+          }
+          foreach ($k in $targets.Keys) {
+            Save-DirSnapshot -Path $targets[$k] -OutFile (Join-Path $env:LOGS "leak-after-$k.txt")
+          }
+          function Get-SnapNames([string]$file) {
+            if (-not (Test-Path $file)) { return @() }
+            $lines = @(Get-Content $file | Where-Object { $_ -ne "" })
+            if ($lines -contains "__MISSING__") { return @() }
+            return @($lines | ForEach-Object { ($_ -split "\|")[0] })
+          }
+          $newItems = @()
+          foreach ($k in $targets.Keys) {
+            $before = Get-SnapNames (Join-Path $env:LOGS "leak-before-$k.txt")
+            $after  = Get-SnapNames (Join-Path $env:LOGS "leak-after-$k.txt")
+            foreach ($n in $after) { if ($n -notin $before) { $newItems += "$k/$n" } }
+          }
+          $newItems | Set-Content (Join-Path $env:LOGS "leak-diff.txt") -Encoding utf8
+          # 与 openclaw/node/npm 名字相关的算“可疑真泄漏”，其余标注为 runner 自身噪声待人工区分
+          $suspects = @($newItems | Where-Object { $_ -match "openclaw|node|npm|claw" })
+          $noise    = @($newItems | Where-Object { $_ -notmatch "openclaw|node|npm|claw" })
+          $detail = "组件外新增共 $($newItems.Count) 项；可疑（openclaw/node 相关）$($suspects.Count) 项：$($suspects -join ', ')；其余 $($noise.Count) 项疑似 runner 噪声（完整清单见 leak-diff.txt）"
+          Write-Host $detail
+          if ($suspects.Count -eq 0) { Add-Result "05-leak-audit" "泄漏审计（组件外新增项）" "pass" $detail (Join-Path $env:LOGS "leak-diff.txt") }
+          else { Add-Result "05-leak-audit" "泄漏审计（组件外新增项）" "fail" $detail (Join-Path $env:LOGS "leak-diff.txt") }
+
+      - name: Relocation test - move copy, rewrite JSON first, boot copy
+        shell: pwsh
+        run: |
+          . $env:LIB
+          $comp = $env:COMPONENT
+          $copy = $env:COPY_ROOT
+
+          # 先停原网关，等端口释放
+          Stop-OcTree -Root $comp
+          $deadline = (Get-Date).AddSeconds(30); $free = $false
+          while ((Get-Date) -lt $deadline) {
+            $lst = Get-NetTCPConnection -LocalPort 18789 -State Listen -ErrorAction SilentlyContinue
+            if (-not $lst) { $free = $true; break }
+            Start-Sleep -Seconds 2
+          }
+          Write-Host "port 18789 free after stop: $free"
+
+          if (Test-Path $copy) { Remove-Item $copy -Recurse -Force }
+          $copyLog = Join-Path $env:LOGS "robocopy.log"
+          robocopy $comp $copy /E /MT:16 /NFL /NDL /NJH /NJS *> $copyLog
+          $rc = $LASTEXITCODE
+          Write-Host "robocopy exit=$rc"
+          if ($rc -ge 8) {
+            Add-Result "06-relocation" "挪位副本启动（先改 JSON 再启动）" "fail" "整夹复制失败 robocopy exit=$rc" $copyLog
+            return
+          }
+          $copyMB = Get-DirSizeMB $copy
+
+          try {
+            # 纪律（Linux 报告 Q4）：启动副本的任何 openclaw 进程之前，
+            # 由脚本直接改 JSON 里的 logging.file 绝对路径；绝不用 openclaw CLI 改
+            $cfgPath = Join-Path $copy "state\openclaw.json"
+            $cfgObj = Get-Content $cfgPath -Raw | ConvertFrom-Json
+            $cfgObj.logging.file = Join-Path $copy "state\logs\openclaw.log"
+            ($cfgObj | ConvertTo-Json -Depth 10) | Set-Content $cfgPath -Encoding utf8
+            Write-Host "copy logging.file rewritten to $($cfgObj.logging.file)"
+            (Get-Content $cfgPath -Raw) | Set-Content (Join-Path $env:LOGS "copy-config-after-rewrite.json") -Encoding utf8
+          } catch {
+            Add-Result "06-relocation" "挪位副本启动（先改 JSON 再启动）" "fail" "副本配置改写失败：$($_.Exception.Message)"
+            return
+          }
+
+          Set-OcEnv -Root $copy
+          $bin    = Join-Path $copy "app\node_modules\.bin\openclaw.cmd"
+          $outLog = Join-Path $env:LOGS "gateway-copy-stdout.log"
+          $errLog = Join-Path $env:LOGS "gateway-copy-stderr.log"
+          try {
+            $start = Get-Date
+            $proc = Start-Process -FilePath "cmd.exe" `
+              -ArgumentList "/c `"$bin`" gateway run --port $env:GATEWAY_PORT --bind loopback --verbose" `
+              -RedirectStandardOutput $outLog -RedirectStandardError $errLog `
+              -PassThru -WindowStyle Hidden
+            Write-Host "copy launcher cmd pid = $($proc.Id)"
+            $res = Wait-GatewayHealth -Start $start
+            $uiCode = 0
+            if ($res.ok) {
+              try { $uiCode = (Invoke-WebRequest -Uri "http://127.0.0.1:18789/" -TimeoutSec 5 -UseBasicParsing).StatusCode } catch { $uiCode = 0 }
+            }
+            if ($res.ok -and $uiCode -eq 200) {
+              Add-Result "06-relocation" "挪位副本启动（先改 JSON 再启动）" "pass" "副本路径 $copy（$copyMB MB）；启动到 /health 200 用时 $($res.seconds)s；Control UI = $uiCode" $outLog
+            } else {
+              Add-Result "06-relocation" "挪位副本启动（先改 JSON 再启动）" "fail" "副本 120s 内未就绪（health ok=$($res.ok)，UI=$uiCode），耗时 $($res.seconds)s" $errLog
+            }
+          } catch {
+            Add-Result "06-relocation" "挪位副本启动（先改 JSON 再启动）" "fail" "副本启动异常：$($_.Exception.Message)" $errLog
+          } finally {
+            Stop-OcTree -Root $copy
+          }
+
+      - name: Final - kill trees, verify state readable
+        shell: pwsh
+        run: |
+          . $env:LIB
+          Stop-OcTree -Root $env:COMPONENT
+          Stop-OcTree -Root $env:COPY_ROOT
+          Start-Sleep -Seconds 2
+
+          $state = Join-Path $env:COMPONENT "state"
+          $cfgPath = Join-Path $state "openclaw.json"
+          $cfgOk = $false; $cfgBytes = 0
+          if (Test-Path $cfgPath) {
+            $cfgBytes = (Get-Item $cfgPath).Length
+            try { $null = (Get-Content $cfgPath -Raw | ConvertFrom-Json); $cfgOk = ($cfgBytes -gt 0) } catch { $cfgOk = $false }
+          }
+          $sqlFiles = @(Get-ChildItem $state -Recurse -File -Include *.sqlite, *.sqlite3, *.db -ErrorAction SilentlyContinue)
+          $sqlFiles | ForEach-Object { "{0} {1} bytes" -f $_.FullName, $_.Length } |
+            Set-Content (Join-Path $env:LOGS "sqlite-list.txt") -Encoding utf8
+          $sqlNonZero = @($sqlFiles | Where-Object { $_.Length -gt 0 }).Count
+
+          # 网关自己的文件日志收进 artifact 的 logs/
+          Copy-Item (Join-Path $state "logs\openclaw.log") (Join-Path $env:LOGS "openclaw-filelog.log") -ErrorAction SilentlyContinue
+          Copy-Item (Join-Path $env:COPY_ROOT "state\logs\openclaw.log") (Join-Path $env:LOGS "openclaw-filelog-copy.log") -ErrorAction SilentlyContinue
+
+          $ok = $cfgOk -and ($sqlNonZero -ge 1)
+          Add-Result "07-state-after-kill" "强杀后状态可读" $(if ($ok) { "pass" } else { "fail" }) "openclaw.json 可解析=$cfgOk（$cfgBytes 字节）；SQLite/DB 文件共 $($sqlFiles.Count) 个，非零 $sqlNonZero 个（清单见 sqlite-list.txt）" (Join-Path $env:LOGS "sqlite-list.txt")
+
+      - name: Summary - write step summary and merged results
+        if: always()
+        shell: pwsh
+        run: |
+          if (-not $env:RESULTS_DIR) {
+            $env:LOGS = Join-Path $env:GITHUB_WORKSPACE "logs"
+            $env:RESULTS_DIR = Join-Path $env:LOGS "results"
+          }
+          $catalog = [ordered]@{
+            "01-assembly"        = "组装（Node + OpenClaw）"
+            "02-gateway-boot"    = "网关原生启动并监听 18789"
+            "03-smoke"           = "status / doctor / Control UI"
+            "04-resources"       = "进程树 RSS 与组件体积"
+            "05-leak-audit"      = "泄漏审计（组件外新增项）"
+            "06-relocation"      = "挪位副本启动（先改 JSON 再启动）"
+            "07-state-after-kill" = "强杀后状态可读"
+          }
+          $rows = @(); $failures = @(); $merged = @()
+          foreach ($id in $catalog.Keys) {
+            $f = Join-Path $env:RESULTS_DIR "$id.json"
+            if (Test-Path $f) {
+              $r = Get-Content $f -Raw | ConvertFrom-Json
+              $merged += $r
+              $st = $r.status; $det = [string]$r.detail
+              if ($st -eq "fail") { $failures += $r }
+            } else {
+              $st = "fail"; $det = "未执行（前置步骤失败或被跳过）"
+              $failures += [pscustomobject]@{ id = $id; log = "" }
+            }
+            $det = $det -replace "\|", "/"
+            $rows += "| $($catalog[$id]) | $st | $det |"
+          }
+          $sb = [System.Text.StringBuilder]::new()
+          [void]$sb.AppendLine("## OpenClaw Windows 便携组装验证 — 结论")
+          [void]$sb.AppendLine("")
+          [void]$sb.AppendLine("版本组合：Node v$env:NODE_VERSION（win-x64 便携 zip，nodejs.org 官方）+ OpenClaw $env:OPENCLAW_VERSION（npm 本地 prefix 安装）。无 API key、无渠道接入。")
+          [void]$sb.AppendLine("")
+          [void]$sb.AppendLine("| 检查项 | 结果 | 数字/备注 |")
+          [void]$sb.AppendLine("|---|---|---|")
+          foreach ($row in $rows) { [void]$sb.AppendLine($row) }
+          if ($failures.Count -gt 0) {
+            [void]$sb.AppendLine("")
+            [void]$sb.AppendLine("### 失败摘录")
+            foreach ($r in $failures) {
+              if ($r.log -and (Test-Path $r.log)) {
+                $hits = Select-String -Path $r.log -Pattern "error|fail|exception" -CaseSensitive:$false -ErrorAction SilentlyContinue | Select-Object -Last 5
+                $lines = if ($hits) { @($hits | ForEach-Object { $_.Line }) } else { @(Get-Content $r.log -Tail 5 -ErrorAction SilentlyContinue) }
+                if ($lines.Count -gt 0) {
+                  [void]$sb.AppendLine("")
+                  [void]$sb.AppendLine("**$($r.id)**（$($r.log)）")
+                  [void]$sb.AppendLine('```')
+                  foreach ($l in $lines) { [void]$sb.AppendLine($l) }
+                  [void]$sb.AppendLine('```')
+                }
+              }
+            }
+          }
+          [void]$sb.AppendLine("")
+          [void]$sb.AppendLine("原始日志见本次运行的 artifact：openclaw-win-validate-logs（保留 7 天）。")
+          $sb.ToString() | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          ($merged | ConvertTo-Json -Depth 5) | Set-Content (Join-Path $env:LOGS "results.json") -Encoding utf8
+          Write-Host $sb.ToString()
+          if ($failures.Count -gt 0) {
+            Write-Host "VALIDATION RESULT: FAILED ($($failures.Count) item(s))"
+            exit 1
+          }
+          Write-Host "VALIDATION RESULT: ALL PASS (skips excluded)"
+
+      - name: Upload logs artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: openclaw-win-validate-logs
+          path: logs/
+          retention-days: 7
+          if-no-files-found: warn
