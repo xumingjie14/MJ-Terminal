@@ -215,6 +215,7 @@ func diagStatusMap() map[string]any {
 		"nodeConnected":  coreUp && nodeN > 0,
 		"nodeCount":      nodeN,
 		"accelEnabled":   accelEnabled(),
+		"openclaw":       map[string]any{"installed": ocInstalled(), "running": ocRunning()},
 		"extWindows":     extN,
 		"sshConnections": len(sshLoadConns()),
 		"sshLive":        live,

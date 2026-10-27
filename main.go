@@ -1677,6 +1677,12 @@ func runServer(portFlag int, isDaemon bool) {
 	mux.HandleFunc("/api/apps/install", appsInstallHandler)
 	mux.HandleFunc("/api/apps/launch", appsLaunchHandler)
 	mux.HandleFunc("/api/apps/uninstall", appsUninstallHandler)
+	mux.HandleFunc("/api/openclaw/status", ocStatusHandler)
+	mux.HandleFunc("/api/openclaw/install", ocInstallHandler)
+	mux.HandleFunc("/api/openclaw/start", ocStartHandler)
+	mux.HandleFunc("/api/openclaw/stop", ocStopHandler)
+	mux.HandleFunc("/api/openclaw/uninstall", ocUninstallHandler)
+	mux.HandleFunc("/api/openclaw/console", ocConsoleHandler)
 	mux.HandleFunc("/api/diag/status", diagStatusHandler)
 	mux.HandleFunc("/api/diag/logs", diagLogsHandler)
 	mux.HandleFunc("/api/diag/export", diagExportHandler)
@@ -1686,6 +1692,7 @@ func runServer(portFlag int, isDaemon bool) {
 		logf("system", "info", "用户从设置退出系统，守护进程关闭")
 		go func() {
 			time.Sleep(300 * time.Millisecond)
+			ocStopForShutdown()
 			coreMu.Lock()
 			stopCoreLocked()
 			coreMu.Unlock()
@@ -1748,8 +1755,9 @@ func runServer(portFlag int, isDaemon bool) {
 				coreMu.Lock()
 				running := coreRunningLocked()
 				coreMu.Unlock()
-				if !running && time.Now().Unix()-lastActivity.Load() > 30*60 {
+				if !running && !ocRunning() && time.Now().Unix()-lastActivity.Load() > 30*60 {
 					logf("system", "info", "空闲超过 30 分钟且节点未运行，守护进程自动退出")
+					ocStopForShutdown()
 					coreMu.Lock()
 					stopCoreLocked()
 					coreMu.Unlock()

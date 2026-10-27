@@ -38,7 +38,7 @@
 
 给后续开发的硬性约定（v0.22 起执行）：
 
-- **新功能必须接入统一日志中枢**：守护进程里的统一入口是 `diag.go` 的 `logf(module, level, format, args...)`。关键事件（启动/停止/连接成败/任务完成）和全部错误都要记；级别用 `info` / `warn` / `error`；模块名用现成这套：`system`、`core`、`node`、`browser`、`winmgr`、`ssh`、`update`、`firefox`、`apps`（v0.24 登记，应用商店）、`api`——新模块先在本节登记名字再用，不要各起一套。
+- **新功能必须接入统一日志中枢**：守护进程里的统一入口是 `diag.go` 的 `logf(module, level, format, args...)`。关键事件（启动/停止/连接成败/任务完成）和全部错误都要记；级别用 `info` / `warn` / `error`；模块名用现成这套：`system`、`core`、`node`、`browser`、`winmgr`、`ssh`、`update`、`firefox`、`apps`（v0.24 登记，应用商店）、`openclaw`（v0.25 登记，小龙虾组件）、`api`——新模块先在本节登记名字再用，不要各起一套。
 - 接口层已有自动捕获：非 2xx 的接口响应由中间件自动记进中枢（方法、路径、状态码、简短错误）。但 handler 内部以 HTTP 200 + `{"error": ...}` 形式返回的失败中间件看不见，必须在失败点自己 `logf` 一条。
 - **脱敏红线（任何情况下不许破）**：密码、私钥内容与私钥口令、更新令牌、完整节点分享链接、订阅地址的敏感部分，一律不得写进日志。SSH 只记目标主机与结果；节点只记名字/类型/服务器:端口；订阅只记域名。
 - sing-box 自己的输出仍在 `core/sing-box.log`，与中枢日志分开；核心的启停与报错摘要会同步进中枢，控制台里看摘要、导出包里两份都有。
@@ -58,6 +58,21 @@
 
 首批货架（2026-10-27 逐个实测）：Telegram 7.3.3（官方便携）、SumatraPDF 3.6.1（官方便携）、Notepad++ 8.9.8.1（官方便携）、VLC 3.0.24（官方绿色包）、Everything 1.4.1.1028（官方便携）、KeePassXC 2.8.0（官方绿色包，哈希与官方 DIGEST 文件核对一致）、ShareX 21.0.0（官方便携）。
 
+## 小龙虾组件（v0.25 起）
+
+桌面内置「小龙虾」应用：把 AI 助手 OpenClaw 做成**按需下载的便携组件**（与 Firefox 组件同一套路：Release 上的 `MJ-OpenClaw.zip` + `openclaw.json` 清单，体积与 SHA-256 钉死，校验不过拒绝安装；下载走节点加速通道）。组件装在 EXE 旁的 `Data/openclaw/`，布局为 `runtime/`（便携 Node）、`app/`（OpenClaw 本体）、`state/`（配置/SQLite/日志/工作区）、`tmp/`、`appdata/`——压缩包只含 runtime 与 app，状态由守护进程在首次启动时在本机建好，所以整夹拷到另一台电脑也能用。
+
+托管纪律（2026-10-27 便携验证定版，改动前先读验证报告）：
+
+- **先写配置再启进程**：首次启动前守护进程直接写 `state/openclaw.json`——`gateway.mode=local`（缺它网关拒绝启动）、`logging.file` 指向组件内绝对路径（该路径是绝对的，**每次启动前都核对，组件被挪过位置就改写**，且直接改 JSON 不用 openclaw CLI 改）、`gateway.port=18789`。网关自身不保存令牌（无令牌时它只生成一次性临时令牌，谁都读不回来），所以 provisioning 同时生成一个随机令牌以 `gateway.auth`（mode=token）写入配置，页面从配置读回展示/复制；**令牌与任何 API Key 永不进日志**（脱敏红线同样适用）。
+- **只用前台托管**：守护进程以 `gateway run --port 18789 --bind loopback` 拉起网关并托管（Windows 上进程入 Job Object、关句柄即整树回收；其他平台用进程组），**绝不用 `gateway install`**（Windows 上那是注册计划任务，违背免安装原则）。网关意外退出只在页面标明退出码，v1 不自动重启。
+- **出站可走节点**：页面开关「模型流量走本地节点」默认开；开且核心在跑（或能按已保存节点拉起）时给网关子进程注入 `HTTP(S)_PROXY=127.0.0.1:2080`；拉不起则直连启动并在页面与日志中明示「本次直连」，不静默。网关的 stdout/stderr 进组件内 `state/logs/gateway-process.log`，中枢只记生命周期事件（模块 `openclaw`）。
+- **已知残留与清理**：网关的 state-owner 锁目录在 Windows 上是源码写死的 `%LOCALAPPDATA%\OpenClaw`（不读环境变量、无开关；另有读环境变量的路径已由进程级 APPDATA/LOCALAPPDATA 重定向挡进组件 `appdata/`）。守护进程在首次启动前记录基线（组件内 `.mj-lock-baseline.json`：该目录原本是否存在），停止时在进程全停、端口释放后，**仅当基线为原本不存在时才删除它**，清理结果记入日志。
+- **退出联动**：设置→退出系统、空闲自动退出、OTA 交接退出都会先停网关再退守护进程；小龙虾在跑时空闲自动退出不触发。
+- **定位**：约 630 MB 体积、约 1 GB 内存的重型组件，且权限高（能操作电脑、收发消息），只建议在自己的电脑上用；模型 API Key 由用户在小龙虾自己的控制台里自备，本程序不提供 Key 与渠道的配置界面（v1）。
+
+构建时 CI 在 windows-latest 上用便携 Node v24.22.1（PATH 钉死 + `--scripts-prepend-node-path=true` + 版本护栏，验证 run #1 的教训）以 npm 本地 prefix 方式组装 OpenClaw 2026.10.8，产物即组件包与清单，随 Release 一起发布。
+
 ## Firefox 组件与谷歌同步（v0.16 起）
 
 桌面上有两个浏览器，分工不同：
@@ -69,7 +84,7 @@
 
 ## 自动构建
 
-源码推送到 `main` 后，GitHub Actions 自动完成构建并更新 Release 中的 `MJ-System-64bit.zip` 与 `update.json`：
+源码推送到 `main` 后，GitHub Actions 自动完成构建并更新 Release 中的 `MJ-System-64bit.zip` 与 `update.json`，以及按需组件的包与清单（`MJ-Firefox.zip` / `firefox.json`、`MJ-OpenClaw.zip` / `openclaw.json`）：
 
 - Go 构建单文件 EXE（内嵌桌面页面与 sing-box 核心）
 - sing-box 使用官方 1.14.4 版 `windows-amd64-legacy-windows-7` 构建，构建时自动从 SagerNet 官方 Release 下载并校验嵌入
