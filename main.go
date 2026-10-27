@@ -1666,6 +1666,7 @@ func runServer(portFlag int, isDaemon bool) {
 	mux.HandleFunc("/api/servermon/sample", servermonSampleHandler)
 	mux.HandleFunc("/api/servermon/history", servermonHistoryHandler)
 	mux.HandleFunc("/api/servermon/exec", servermonExecHandler)
+	mux.HandleFunc("/api/servermon/agent", monAgentHandler)
 	mux.HandleFunc("/assets/xterm.js", assetHandler("js"))
 	mux.HandleFunc("/assets/xterm.css", assetHandler("css"))
 	mux.HandleFunc("/assets/xterm-fit.js", assetHandler("fit"))

@@ -851,7 +851,7 @@ function bind(id){
    function barHTML(p){return `<div class="sm-bar"><i class="${pctCls(p)}" style="width:${Math.min(100,p||0)}%"></i></div>`}
    function overviewHTML(){
      if(!servers.length) return `<h3>服务器监控</h3><p class="mut" style="margin-top:8px">还没有服务器连接。先去 <b style="color:#fff">SSH</b> 应用里新建一个连接（推荐用密钥登录，监控就能自动采样），这里会自动出现。</p><div class="row" style="margin-top:12px"><button class="btn" onclick="openApp('ssh')">打开 SSH 应用</button></div>`;
-     return `<div class="sm-sec" style="margin-top:0">全部服务器<span class="mut" style="font-weight:400;font-size:12px">${servers.filter(x=>x.snap&&x.snap.ok).length} / ${servers.length} 在线</span></div><div class="sm-ov">`+servers.map(sv=>{const s=sv.snap,u=sv.usage||{};return `<div class="sm-ovc" data-id="${sv.conn.id}"><div style="display:flex;align-items:center;gap:7px;font-weight:600;font-size:13.5px">${dotOf(s)}<span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(sv.conn.name||sv.conn.host)}</span></div><div class="mut" style="font-size:11.5px;margin-top:2px">${esc(sv.conn.user)}@${esc(sv.conn.host)}${sv.engine?' · 后台采样中':''}</div>${s&&s.ok?`<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;margin-top:10px;font-size:12.5px;font-variant-numeric:tabular-nums"><span>CPU <b>${s.cpuPct.toFixed(0)}%</b></span><span>内存 <b>${s.memPct.toFixed(0)}%</b></span><span>↓ <b>${fmtRate(s.rxRate)}</b></span><span>↑ <b>${fmtRate(s.txRate)}</b></span><span>本月 <b>${fmtB((u.monthRx||0)+(u.monthTx||0))}</b></span><span>运行 <b>${fmtUp(s.uptimeSec)}</b></span></div>`:`<p class="mut" style="margin-top:10px;font-size:12.5px">${s?esc(s.err||'离线'):'等待采样…点开查看'}</p>`}</div>`}).join('')+`</div><p class="mut" style="margin-top:12px;font-size:12px">点一台服务器看详情：历史曲线、流量统计、服务状态、命令行都在详情里。</p>`;
+     return `<div class="sm-sec" style="margin-top:0">全部服务器<span class="mut" style="font-weight:400;font-size:12px">${servers.filter(x=>x.snap&&x.snap.ok).length} / ${servers.length} 在线</span></div><div class="sm-ov">`+servers.map(sv=>{const s=sv.snap,u=sv.usage||{};return `<div class="sm-ovc" data-id="${sv.conn.id}"><div style="display:flex;align-items:center;gap:7px;font-weight:600;font-size:13.5px">${dotOf(s)}<span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(sv.conn.name||sv.conn.host)}</span></div><div class="mut" style="font-size:11.5px;margin-top:2px">${esc(sv.conn.user)}@${esc(sv.conn.host)}${sv.engine?' · 后台采样中':''}${s&&s.agent?' · 服务器采集':''}</div>${s&&s.ok?`<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;margin-top:10px;font-size:12.5px;font-variant-numeric:tabular-nums"><span>CPU <b>${s.cpuPct.toFixed(0)}%</b></span><span>内存 <b>${s.memPct.toFixed(0)}%</b></span><span>↓ <b>${fmtRate(s.rxRate)}</b></span><span>↑ <b>${fmtRate(s.txRate)}</b></span><span>本月 <b>${fmtB((u.monthRx||0)+(u.monthTx||0))}</b></span><span>运行 <b>${fmtUp(s.uptimeSec)}</b></span></div>`:`<p class="mut" style="margin-top:10px;font-size:12.5px">${s?esc(s.err||'离线'):'等待采样…点开查看'}</p>`}</div>`}).join('')+`</div><p class="mut" style="margin-top:12px;font-size:12px">点一台服务器看详情：历史曲线、流量统计、服务状态、命令行都在详情里。</p>`;
    }
    function detailHTML(sv){
      const c=sv.conn;
@@ -873,6 +873,8 @@ function bind(id){
      <div class="sm-card" id="sm-svc"></div>
      <div class="sm-sec">命令行</div>
      <div class="sm-card"><div class="row"><button class="btn gray" data-cmd="systemctl restart sing-box">重启 sing-box</button><button class="btn gray" data-cmd="journalctl -u sing-box -n 50 --no-pager">sing-box 日志</button><button class="btn gray" data-cmd="df -h">磁盘占用</button><button class="btn gray" data-cmd="free -m">内存</button><button class="btn gray" data-cmd="uptime">运行时间</button></div><div class="row" style="margin-top:8px"><input class="txt" id="sm-cmd" placeholder="输入命令回车执行（一次性命令；交互程序请去 SSH 终端）" autocomplete="off"><button class="btn" id="sm-run">执行</button></div><div class="sm-cmdout" id="sm-out" style="margin-top:8px;display:none"></div></div>
+     <div class="sm-sec">服务器采集（电脑关机也记录）</div>
+     <div class="sm-card" id="sm-agent"></div>
      <div class="sm-sec">监控设置</div>
      <div class="sm-card">
        <div class="sm-row"><span>后台采样（面板关着也每分钟采）</span><label class="sm-sw"><input type="checkbox" id="sm-c-bg"><i></i></label></div>
@@ -881,8 +883,32 @@ function bind(id){
        <div class="sm-row"><span>流量告警（用到配额百分之多少，0 = 关）</span><input class="sm-num" id="sm-c-traf" type="number" min="0" max="99" step="1"></div>
        <div class="sm-row"><span>服务停止时告警（进控制台）</span><label class="sm-sw"><input type="checkbox" id="sm-c-svc"><i></i></label></div>
        <div class="row" style="margin-top:10px"><button class="btn" id="sm-c-save">保存设置</button><span class="tag" id="sm-c-msg"></span></div>
-       <p class="mut" style="font-size:12px;margin-top:8px">流量统计是终端机按采样累计的（关机时段不计），和服务器商账单会有小出入；历史曲线保留 30 天。</p>
+       <p class="mut" style="font-size:12px;margin-top:8px">流量统计是终端机按采样累计的，和服务器商账单会有小出入；历史曲线保留 30 天。装了服务器采集后，关机时段的数据会从服务器自动补回来。</p>
      </div>`;
+   }
+   let agMsg='';
+   async function agentAct(action){
+     agMsg='处理中…'; paintAgent(byId(cur));
+     const r=await post('/api/servermon/agent',{id:cur,action:action,password:G('sm-cred').value,passphrase:G('sm-cred').value});
+     if(r.error){ agMsg=r.error; }
+     else if(action==='install'){ agMsg='已安装（'+(r.method==='systemd'?'systemd 定时':r.method==='cron'?'crontab 定时':'已写入')+'）：服务器开始每分钟记录'; }
+     else if(action==='sync'){ agMsg='已同步：补入历史 '+(r.points||0)+' 点，补记流量 ↓ '+fmtB(r.addIn||0)+' · ↑ '+fmtB(r.addOut||0); if(range!=='live') loadHist(); }
+     else if(action==='uninstall'){ agMsg='已卸载，服务器上的采集脚本和记录已删除'; }
+     refresh();
+   }
+   function paintAgent(sv){
+     const el=G('sm-agent'); if(!el||!sv) return;
+     const s=sv.snap||{};
+     if(!s.agent){
+       el.innerHTML=`<p style="font-size:12.5px;line-height:1.65">把一个小采集脚本装到服务器上：每分钟把 CPU、内存、流量记一条到服务器本地（<code>~/.mjmon</code>），<b>采集本身不联网、不耗服务器流量</b>。这样电脑关机、退出终端机的时段也不会断档，下次打开自动把缺失的历史和流量补回来。安装方式：写入脚本并设定时任务（优先 systemd 用户定时器，没有就用 crontab），不需要 root。</p><div class="row" style="margin-top:8px"><button class="btn" id="sm-ag-install">安装服务器采集</button><span class="tag" id="sm-ag-msg">${esc(agMsg)}</span></div>`;
+       const b=G('sm-ag-install'); if(b) b.onclick=()=>agentAct('install');
+       return;
+     }
+     const lastTxt=s.agentLast?new Date(s.agentLast*1000).toLocaleString():'暂无';
+     const syncTxt=s.agentSync?new Date(s.agentSync*1000).toLocaleString():'还没同步过';
+     el.innerHTML=`<div class="sm-row"><span>状态</span><span><span class="sdot on" style="display:inline-block;vertical-align:1px;margin-right:7px"></span>已安装 · 服务器最近样本 ${lastTxt}</span></div><div class="sm-row"><span>上次同步</span><span>${syncTxt}（面板开着时每 5 分钟自动同步）</span></div><div class="row" style="margin-top:8px"><button class="btn gray" id="sm-ag-sync">立即同步</button><button class="btn gray" id="sm-ag-uninstall">卸载</button><span class="tag" id="sm-ag-msg">${esc(agMsg)}</span></div>`;
+     const sb=G('sm-ag-sync'); if(sb) sb.onclick=()=>agentAct('sync');
+     const ub=G('sm-ag-uninstall'); if(ub) ub.onclick=()=>agentAct('uninstall');
    }
    function paintMain(){
      const M=G('sm-main'); if(!M) return;
@@ -914,6 +940,7 @@ function bind(id){
      const s=sv.snap, u=sv.usage||{}, cfg=sv.cfg||{};
      const st=G('sm-status'); if(!st) return;
      st.innerHTML=s?(s.ok?'<span class="tag" style="color:#30d158">● 在线</span>':'<span class="tag" style="color:#ff453a">● 离线</span>'):'<span class="tag">未采样</span>';
+     paintAgent(sv);
      if(!s){ G('sm-msg').textContent='等待采样…（密钥连接会自动开始）'; return; }
      if(!s.ok){ G('sm-msg').textContent=s.err||'采样失败'; return; }
      G('sm-msg').textContent=s.liveClient?'（借用 SSH 终端的连接采样）':'';

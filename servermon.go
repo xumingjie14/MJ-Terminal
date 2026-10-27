@@ -64,6 +64,9 @@ type monSample struct {
 	Ports      []string     `json:"ports"`
 	Top        []monProc    `json:"top"`
 	LiveClient bool         `json:"liveClient"` // sampled via the user's open terminal
+	Agent      bool         `json:"agent"`      // server-side collector installed
+	AgentLast  int64        `json:"agentLast"`  // newest sample ts on the server
+	AgentSync  int64        `json:"agentSync"`  // last successful pull (unix)
 }
 
 type monCfg struct {
@@ -180,7 +183,7 @@ func monGetUsage(id string) *monUsage {
 
 // ---------- sampling ----------
 
-const monProbeCmd = `echo ==UP==; cat /proc/uptime; echo ==STAT==; head -n 1 /proc/stat; echo ==MEM==; grep -E '^(MemTotal|MemAvailable):' /proc/meminfo; echo ==NET==; cat /proc/net/dev; echo ==DISK==; df -P / | tail -n 1; echo ==LOAD==; cat /proc/loadavg; echo ==SVC==; for s in sing-box xray hysteria-server hysteria nginx docker; do if systemctl is-active --quiet $s 2>/dev/null || pgrep -x $s >/dev/null 2>&1; then echo "$s on"; else echo "$s off"; fi; done; echo ==PORTS==; (ss -tlnH 2>/dev/null || netstat -tln 2>/dev/null) | head -n 40; echo ==PS==; ps -eo comm,%cpu,%mem --sort=-%mem 2>/dev/null | head -n 7; echo ==END==`
+const monProbeCmd = `echo ==UP==; cat /proc/uptime; echo ==STAT==; head -n 1 /proc/stat; echo ==MEM==; grep -E '^(MemTotal|MemAvailable):' /proc/meminfo; echo ==NET==; cat /proc/net/dev; echo ==DISK==; df -P / | tail -n 1; echo ==LOAD==; cat /proc/loadavg; echo ==SVC==; for s in sing-box xray hysteria-server hysteria nginx docker; do if systemctl is-active --quiet $s 2>/dev/null || pgrep -x $s >/dev/null 2>&1; then echo "$s on"; else echo "$s off"; fi; done; echo ==PORTS==; (ss -tlnH 2>/dev/null || netstat -tln 2>/dev/null) | head -n 40; echo ==PS==; ps -eo comm,%cpu,%mem --sort=-%mem 2>/dev/null | head -n 7; echo ==AGENT==; if [ -f "$HOME/.mjmon/collect.sh" ]; then echo installed=1; LF=$(ls "$HOME/.mjmon"/data-*.tsv 2>/dev/null | tail -n 1); if [ -n "$LF" ]; then tail -n 1 "$LF" | awk '{print "last="$1}'; fi; cat "$HOME/.mjmon"/data-*.tsv 2>/dev/null | wc -l | awk '{print "lines="$1}'; else echo installed=0; fi; echo ==END==`
 
 func monExec(cl *ssh.Client, cmd string, timeout time.Duration) (string, error) {
 	type res struct {
@@ -393,6 +396,26 @@ func monTakeSample(st *monServerState, c sshConn) *monSample {
 			mem, _ := strconv.ParseFloat(f[2], 64)
 			s.Top = append(s.Top, monProc{Name: f[0], CPU: cpu, Mem: mem})
 		}
+	}
+
+	// server-side collector status
+	{
+		var aLines int
+		for _, ln := range strings.Split(strings.TrimSpace(secs["AGENT"]), "\n") {
+			f := strings.Fields(ln)
+			if len(f) != 1 {
+				continue
+			}
+			switch {
+			case f[0] == "installed=1":
+				s.Agent = true
+			case strings.HasPrefix(f[0], "last="):
+				s.AgentLast, _ = strconv.ParseInt(f[0][5:], 10, 64)
+			case strings.HasPrefix(f[0], "lines="):
+				aLines, _ = strconv.Atoi(f[0][6:])
+			}
+		}
+		monAgentSetProbe(c.ID, s.Agent, s.AgentLast, aLines)
 	}
 
 	// deltas (cpu %, rates, usage accumulation)
@@ -620,6 +643,17 @@ func monEngineLoop(st *monServerState, c sshConn) {
 				lastHist = time.Now()
 			}
 			monEvaluate(st, c, cfg, s)
+			if s.Agent {
+				monAgentMu.Lock()
+				due := time.Now().Unix()-monAgentTry[c.ID] > 300
+				if due {
+					monAgentTry[c.ID] = time.Now().Unix()
+				}
+				monAgentMu.Unlock()
+				if due {
+					go monAgentSync(c.ID, "", "")
+				}
+			}
 		} else {
 			if wasOnline {
 				logf("servermon", "warn", "服务器采样失败：%s：%s", c.Name, s.Err)
@@ -689,6 +723,14 @@ func servermonListHandler(w http.ResponseWriter, r *http.Request) {
 		monUsageMu.Lock()
 		ucopy := *u
 		monUsageMu.Unlock()
+		if snap != nil {
+			cp := *snap
+			am := monAgentGet(c.ID)
+			cp.Agent = am.Installed
+			cp.AgentLast = am.LastTs
+			cp.AgentSync = am.LastSync
+			snap = &cp
+		}
 		out = append(out, item{Conn: c, Cfg: monGetCfg(c.ID), Usage: &ucopy, Snap: snap, Engine: eng})
 	}
 	writeJSON(w, map[string]any{"servers": out})
