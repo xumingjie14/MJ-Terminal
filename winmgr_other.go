@@ -20,6 +20,14 @@ func platformWindowTitle(hwnd uint64) (string, bool) {
 	return "", false
 }
 
+func platformWindowRect(hwnd uint64) (int32, int32, int32, int32, bool) {
+	return 0, 0, 0, 0, false
+}
+
+func platformPlaceWindow(hwnd uint64, l, t, r, b int32) bool {
+	return false
+}
+
 func platformFocusWindow(hwnd uint64) bool {
 	return false
 }
