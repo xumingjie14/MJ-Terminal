@@ -13,6 +13,11 @@ on:
       - 'proc_other.go'
       - 'index.html'
       - 'go.mod'
+      - 'go.sum'
+      - 'ssh.go'
+      - 'winmgr.go'
+      - 'winmgr_windows.go'
+      - 'winmgr_other.go'
       - '.github/workflows/build.yml'
 
 permissions:
@@ -26,7 +31,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.23.x'
+          go-version: '1.26.x'
 
       - name: Fetch sing-box core (official v1.14.4, legacy Windows 7 build)
         shell: pwsh
@@ -52,7 +57,7 @@ jobs:
           (Get-Item "MJ-System-64bit.zip").Length
           $hash = (Get-FileHash "MJ-System-64bit.zip" -Algorithm SHA256).Hash.ToLower()
           $size = (Get-Item "MJ-System-64bit.zip").Length
-          $manifest = [ordered]@{ version = "0.18"; file = "MJ-System-64bit.zip"; size = $size; sha256 = $hash }
+          $manifest = [ordered]@{ version = "0.19"; file = "MJ-System-64bit.zip"; size = $size; sha256 = $hash }
           $json = $manifest | ConvertTo-Json -Compress
           [IO.File]::WriteAllText((Join-Path $PWD "update.json"), $json, (New-Object System.Text.UTF8Encoding $false))
           Get-Content "update.json"
@@ -84,14 +89,14 @@ jobs:
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.18
-          name: 铭杰终端机 v0.18（64 位单文件版 · 窗口统一）
+          tag_name: v0.19
+          name: 铭杰终端机 v0.19（64 位单文件版 · SSH）
           body: |
             64 位单文件版：解压后运行 MJ-System.exe（需 64 位 Windows）。
             第一次运行会自动释放内置 sing-box 核心，数据保存在 EXE 旁的 Data/ 文件夹（节点、网站应用、桌面布局都在里面，跟着文件夹走）。
             应用内更新：v0.6 起在「设置 → 软件更新」里完成，仓库公开、免令牌。
-            近版功能：网站应用化（真实图标、双击打开、文件夹分组）、软件内全局加速、台前调度（左侧实时缩略图）。
-            本版 v0.18：窗口统一——台前调度可统一调度从桌面打开的独立软件窗口（点选即切到最前）；桌面与软件窗口共用同一身份标记，Windows 任务栏合并为一颗按钮（依宿主任务栏设置尽力而为）。
+            近版功能：网站应用化（真实图标、双击打开、文件夹分组）、软件内全局加速、台前调度（左侧实时缩略图）、窗口统一（外部应用统一调度）。
+            本版 v0.19：内置 SSH 应用——桌面里直接开远程终端；连接列表与私钥保存在 Data/ssh、跟着文件夹走；服务器指纹首次记录、之后每次连接校验，对不上会拦住；密码与私钥口令不落盘、只在连接时输入；每条连接可单独设置走节点（默认直连）；自带 SFTP 文件面板（浏览/上传/下载/新建文件夹/删除），共用终端连接、不用重复输密码。
             MJ-Firefox.zip / firefox.json 是 Firefox 组件的安装包与校验清单，由程序按需下载，手动使用主程序时不用管。
             update.json 是给程序自动更新用的校验清单（版本/大小/SHA-256），手动下载时不用管它。
           files: |
