@@ -18,6 +18,15 @@ package main
 // under a single MJ Terminal button. Best effort: whether grouping
 // actually happens depends on the host's taskbar settings.
 //
+// v0.20 adds one-shot landing placement: a freshly registered
+// external window is fitted ONCE into the desktop shell window's
+// rectangle (inset so the menu bar and Dock stay visible), because
+// apps kept opening maximized on top of the whole desktop. After
+// that single placement the window is the user's -- never corrected
+// again. True embedding was explicitly rejected by the user: the
+// window stays an independent host window, it just starts out
+// inside the terminal's territory.
+//
 // The OS-specific parts (EnumWindows hunting, SetForegroundWindow,
 // SHGetPropertyStoreForWindow) live in winmgr_windows.go, with no-op
 // stubs in winmgr_other.go so this file stays platform-neutral.
@@ -46,6 +55,7 @@ type extWindow struct {
 
 	pid       uint32
 	lastTitle string // title at last AppID stamp; a change triggers a re-stamp
+	placed    bool   // v0.20: one-shot landing placement already done
 }
 
 var (
@@ -99,6 +109,12 @@ func trackBrowserLaunch(app, targetURL, browserPath string, before map[uint64]bo
 				extMu.Unlock()
 				// 丙: stamp the unified AppUserModelID (best effort).
 				platformSetAppID(hwnd)
+				// v0.20: land the new window inside the desktop's
+				// rectangle, once. The shell window itself is the
+				// frame everything lands in, so it is never placed.
+				if !shell {
+					tryPlaceExtWindow(hwnd)
+				}
 				return
 			}
 			time.Sleep(300 * time.Millisecond)
@@ -111,8 +127,11 @@ func trackBrowserLaunch(app, targetURL, browserPath string, before map[uint64]bo
 // refreshes titles. A title change usually means the page finished
 // loading (or a popup took over the window), so the AppID is
 // re-stamped for those windows -- Chrome can replace a window's
-// identity as it navigates. Caller must hold extMu.
-func pruneExtWindowsLocked() (restamp []uint64) {
+// identity as it navigates. It also collects external windows whose
+// one-shot landing placement (v0.20) has not happened yet -- e.g. the
+// window was claimed a moment before the desktop shell registered,
+// so there was no frame to land in. Caller must hold extMu.
+func pruneExtWindowsLocked() (restamp, place []uint64) {
 	for h, e := range extWins {
 		title, alive := platformWindowTitle(h)
 		if !alive {
@@ -126,8 +145,106 @@ func pruneExtWindowsLocked() (restamp []uint64) {
 				restamp = append(restamp, h)
 			}
 		}
+		if !e.Shell && !e.placed {
+			place = append(place, h)
+		}
 	}
-	return restamp
+	return restamp, place
+}
+
+// ---------- v0.20: one-shot landing placement ----------
+//
+// External apps are launched with --start-maximized and Chrome also
+// restores its own remembered geometry, so a window opened from the
+// desktop used to splat over the WHOLE screen, hiding the menu bar
+// and the Dock. The user asked for the window to open "inside the
+// terminal" while staying a real external window. So: exactly once,
+// when a window is first registered, it is fitted into the desktop
+// shell window's rectangle, inset per the constants below. After
+// that the user may drag or maximize it freely -- the daemon never
+// touches its geometry again. A window that is closed and reopened
+// is a new registration and lands again.
+
+// Landing insets in physical pixels, sized from the desktop's own
+// chrome (index.html): the menu bar is 38px tall, the floating Dock
+// occupies roughly the bottom 90px once its hover magnification is
+// counted. The insets leave a breathing gap on top of that.
+const (
+	placeTopInset    = 50  // menu bar (38) + gap
+	placeBottomInset = 106 // Dock zone (~90) + gap
+	placeSideInset   = 28
+)
+
+// placeTargetRect computes where a landed window goes: the shell
+// rectangle shrunk by the landing insets. On a small desktop window
+// the insets converge proportionally so they can never eat the whole
+// area; if the result would still be degenerate, the window simply
+// gets 92% of the shell, centered.
+func placeTargetRect(l, t, r, b int32) (int32, int32, int32, int32) {
+	w, h := r-l, b-t
+	side := int32(placeSideInset)
+	if m := w / 12; m < side {
+		side = m
+	}
+	if side < 0 {
+		side = 0
+	}
+	top := int32(placeTopInset)
+	if m := h / 10; m < top {
+		top = m
+	}
+	bottom := int32(placeBottomInset)
+	if m := h / 5; m < bottom {
+		bottom = m
+	}
+	tw, th := w-2*side, h-top-bottom
+	if tw < 240 || th < 180 {
+		tw, th = w*92/100, h*92/100
+		return l + (w-tw)/2, t + (h-th)/2, l + (w+tw)/2, t + (h+th)/2
+	}
+	return l + side, t + top, r - side, b - bottom
+}
+
+// tryPlaceExtWindow performs the one-shot placement for a registered
+// external window. It ALWAYS moves the window to the computed target
+// rectangle (rather than keeping a geometry that happens to fit):
+// launch geometry is inconsistent by construction -- --start-
+// maximized, Chrome's remembered position, per-app quirks -- and one
+// predictable landing spot is what the user asked for. When the
+// desktop shell is not registered (view closed) placement is skipped
+// silently; prune retries it on the next /api/extwin poll, and if
+// the view never opens the window simply stays where it opened.
+func tryPlaceExtWindow(hwnd uint64) {
+	extMu.Lock()
+	e, ok := extWins[hwnd]
+	if !ok || e.Shell || e.placed {
+		extMu.Unlock()
+		return
+	}
+	var shell uint64
+	for h, o := range extWins {
+		if o.Shell {
+			shell = h
+			break
+		}
+	}
+	extMu.Unlock()
+	if shell == 0 {
+		return
+	}
+	sl, st, sr, sb, ok := platformWindowRect(shell)
+	if !ok {
+		return
+	}
+	tl, tt, tr, tb := placeTargetRect(sl, st, sr, sb)
+	if !platformPlaceWindow(hwnd, tl, tt, tr, tb) {
+		return
+	}
+	extMu.Lock()
+	if e2, ok := extWins[hwnd]; ok {
+		e2.placed = true
+	}
+	extMu.Unlock()
 }
 
 // extWinListHandler serves GET /api/extwin: every registered external
@@ -137,7 +254,7 @@ func pruneExtWindowsLocked() (restamp []uint64) {
 // is registered so it carries the unified AppID like the others.
 func extWinListHandler(w http.ResponseWriter, r *http.Request) {
 	extMu.Lock()
-	restamp := pruneExtWindowsLocked()
+	restamp, place := pruneExtWindowsLocked()
 	list := make([]*extWindow, 0, len(extWins))
 	for _, e := range extWins {
 		cp := *e
@@ -147,6 +264,11 @@ func extWinListHandler(w http.ResponseWriter, r *http.Request) {
 	// Re-stamp outside the lock: the COM call can be slowish.
 	for _, h := range restamp {
 		platformSetAppID(h)
+	}
+	// Same for the one-shot landing placement: window moves do not
+	// belong inside the registry lock.
+	for _, h := range place {
+		tryPlaceExtWindow(h)
 	}
 	sort.Slice(list, func(i, j int) bool {
 		if list[i].App != list[j].App {
