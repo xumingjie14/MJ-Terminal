@@ -112,6 +112,15 @@ a{color:#64d2ff}
 .ditem:hover .dlabel{opacity:1}
 .ddot{width:4px;height:4px;border-radius:50%;background:rgba(255,255,255,.85);opacity:0}
 .ddot.on{opacity:1}
+/* ---------- external app windows in the stage strip (v0.18 窗口统一·乙) ---------- */
+#extstrip{position:fixed;left:10px;bottom:104px;z-index:25;width:148px;display:flex;flex-direction:column;gap:8px}
+#extstrip.hidden{display:none}
+#extstrip .extlab{font-size:11px;color:rgba(255,255,255,.88);text-shadow:0 1px 4px rgba(0,0,0,.85);padding:0 2px}
+.extcard{display:flex;align-items:center;gap:8px;width:100%;padding:9px 10px;border-radius:13px;background:var(--glass);border:1px solid var(--glass-brd);backdrop-filter:blur(24px) saturate(170%);-webkit-backdrop-filter:blur(24px) saturate(170%);box-shadow:0 10px 26px rgba(0,0,0,.42);cursor:pointer;color:#fff;text-align:left;font:inherit}
+.extcard:hover{background:rgba(74,74,88,.62)}
+.extcard .et{min-width:0;flex:1}
+.extcard .et b{display:block;font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.extcard .et span{display:block;font-size:11px;opacity:.75;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 </style>
 </head>
 <body>
@@ -132,6 +141,7 @@ a{color:#64d2ff}
 
 <div id="icons"></div>
 <div id="wins"></div>
+<div id="extstrip" class="hidden"></div>
 <div id="ctxmenu" class="hidden"></div>
 <div id="folderpop" class="hidden"></div>
 
@@ -297,7 +307,27 @@ function toggleStage(on){
 }
 function updateStageUI(){
  const b=document.getElementById('mb-stage'); if(b) b.classList.toggle('on',stageOn());
+ refreshExtStrip();
 }
+/* ----- external app windows in the stage strip (v0.18 窗口统一·乙) -----
+   The daemon registers the independent Chrome app windows it launches
+   (YouTube, X, ...). With Stage Manager on they appear as static icon
+   cards in a group at the left, under the in-system thumbnails;
+   clicking one asks the daemon to bring that real window to front. */
+async function refreshExtStrip(){
+ const box=document.getElementById('extstrip'); if(!box) return;
+ if(!stageOn()){ box.classList.add('hidden'); box.innerHTML=''; return; }
+ let list=[];
+ try{ const r=await api('/api/extwin'); list=(r.windows||[]).filter(x=>!x.shell); }catch(e){}
+ if(!list.length){ box.classList.add('hidden'); box.innerHTML=''; return; }
+ box.innerHTML=`<div class="extlab">外部应用 · 点一下切过去</div>`+list.map(x=>`<button class="extcard" data-hwnd="${x.hwnd}">${webIconHTML({name:x.app,url:x.url||''},true)}<span class="et"><b>${esc(x.app||'应用')}</b><span>${esc(x.title||x.url||'')}</span></span></button>`).join('');
+ box.classList.remove('hidden');
+ box.querySelectorAll('.extcard').forEach(c=>c.onclick=async()=>{
+   const r=await api('/api/extwin/focus',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hwnd:Number(c.dataset.hwnd)})}).catch(()=>null);
+   if(!r||r.error) refreshExtStrip(); /* window closed or focus failed: re-sync the strip */
+ });
+}
+setInterval(refreshExtStrip,4000);
 APPS.forEach(a=>{
  const it=document.createElement('div');it.className='ditem';
  it.innerHTML=`<span class="dlabel">${a.n}</span><button class="dockbtn">${appIcon(a)}</button><span class="ddot" id="ddot-${a.id}"></span>`;
