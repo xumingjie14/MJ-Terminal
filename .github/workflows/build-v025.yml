@@ -1,0 +1,177 @@
+name: build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'main.go'
+      - 'update.go'
+      - 'accel.go'
+      - 'firefox.go'
+      - 'proc_windows.go'
+      - 'proc_other.go'
+      - 'index.html'
+      - 'go.mod'
+      - 'go.sum'
+      - 'ssh.go'
+      - 'winmgr.go'
+      - 'winmgr_windows.go'
+      - 'winmgr_other.go'
+      - 'diag.go'
+      - 'apps.go'
+      - 'apps.json'
+      - 'openclaw.go'
+      - 'openclaw_windows.go'
+      - 'openclaw_other.go'
+      - '.github/workflows/build.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+
+      - name: Fetch sing-box core (official v1.14.4, legacy Windows 7 build)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/SagerNet/sing-box/releases/download/v1.14.4/sing-box-1.14.4-windows-amd64-legacy-windows-7.zip" -OutFile "singbox.zip"
+          $len = (Get-Item "singbox.zip").Length
+          Write-Host "singbox.zip bytes: $len"
+          if ($len -ne 27010034) { throw "sing-box zip size mismatch: $len" }
+
+      - name: Build single-file EXE (windows/amd64)
+        shell: pwsh
+        run: |
+          $env:GOOS = "windows"
+          $env:GOARCH = "amd64"
+          $env:CGO_ENABLED = "0"
+          go build -trimpath -ldflags "-H windowsgui -s -w" -o MJ-System.exe .
+          (Get-Item "MJ-System.exe").Length
+
+      - name: Package
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "MJ-System.exe" -DestinationPath "MJ-System-64bit.zip" -Force
+          (Get-Item "MJ-System-64bit.zip").Length
+          $hash = (Get-FileHash "MJ-System-64bit.zip" -Algorithm SHA256).Hash.ToLower()
+          $size = (Get-Item "MJ-System-64bit.zip").Length
+          $manifest = [ordered]@{ version = "0.25"; file = "MJ-System-64bit.zip"; size = $size; sha256 = $hash }
+          $json = $manifest | ConvertTo-Json -Compress
+          [IO.File]::WriteAllText((Join-Path $PWD "update.json"), $json, (New-Object System.Text.UTF8Encoding $false))
+          Get-Content "update.json"
+
+
+      - name: Package Firefox component (ESR 153.5.1 zh-CN, portable)
+        shell: pwsh
+        run: |
+          $ffver = "153.5.1esr"
+          $url = "https://download-installer.cdn.mozilla.net/pub/firefox/releases/$ffver/win64/zh-CN/Firefox%20Setup%20$ffver.exe"
+          Invoke-WebRequest -Uri $url -OutFile "ffsetup.exe"
+          $ilen = (Get-Item "ffsetup.exe").Length
+          Write-Host "ffsetup.exe bytes: $ilen"
+          if ($ilen -lt 50000000) { throw "Firefox installer too small: $ilen" }
+          $sevenZip = "C:\Program Files\7-Zip\7z.exe"
+          if (!(Test-Path $sevenZip)) { $sevenZip = "7z" }
+          & $sevenZip x "ffsetup.exe" "-offx" -y | Out-Null
+          if (!(Test-Path "ffx\core\firefox.exe")) { throw "firefox.exe not found after extract" }
+          New-Item -ItemType Directory -Force -Path "ffx\core\distribution" | Out-Null
+          [IO.File]::WriteAllText((Join-Path $PWD "ffx\core\distribution\policies.json"), '{ "policies": { "DisableAppUpdate": true } }', (New-Object System.Text.UTF8Encoding $false))
+          Compress-Archive -Path "ffx\core\*" -DestinationPath "MJ-Firefox.zip" -Force
+          $fhash = (Get-FileHash "MJ-Firefox.zip" -Algorithm SHA256).Hash.ToLower()
+          $fsize = (Get-Item "MJ-Firefox.zip").Length
+          $fman = [ordered]@{ version = $ffver; file = "MJ-Firefox.zip"; size = $fsize; sha256 = $fhash }
+          $fjson = $fman | ConvertTo-Json -Compress
+          [IO.File]::WriteAllText((Join-Path $PWD "firefox.json"), $fjson, (New-Object System.Text.UTF8Encoding $false))
+          Get-Content "firefox.json"
+
+      - name: Assemble OpenClaw component (portable Node v24.22.1 + OpenClaw 2026.10.8)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $ocVer = "2026.10.8"
+          $nodeVer = "24.22.1"
+          $stage = Join-Path $PWD "oc-stage"
+          $comp = Join-Path $stage "component"
+          $runtimeDir = Join-Path $comp "runtime"
+          $appDir = Join-Path $comp "app"
+          New-Item -ItemType Directory -Force -Path $runtimeDir, $appDir | Out-Null
+          # Portable Node: official win-x64 zip from nodejs.org, its
+          # contents land directly in component\runtime (node.exe at
+          # the runtime root), same layout as the validation runs.
+          $nodeZip = Join-Path $stage "node.zip"
+          Invoke-WebRequest -Uri "https://nodejs.org/dist/v$nodeVer/node-v$nodeVer-win-x64.zip" -OutFile $nodeZip
+          Write-Host "node zip bytes: $((Get-Item $nodeZip).Length)"
+          Expand-Archive -Path $nodeZip -DestinationPath (Join-Path $stage "node-x") -Force
+          Copy-Item -Path (Join-Path $stage "node-x\node-v$nodeVer-win-x64\*") -Destination $runtimeDir -Recurse -Force
+          $nodeExe = Join-Path $runtimeDir "node.exe"
+          if (!(Test-Path $nodeExe)) { throw "node.exe missing after extract" }
+          # Runtime pinning (validation run #1 died right here: install
+          # scripts resolved bare `node` to the runner's preinstalled
+          # Node 22 and OpenClaw's version check aborted the install).
+          # Same triple pinning as openclaw-validate.yml: PATH first,
+          # --scripts-prepend-node-path=true, absolute-path calls, and
+          # a fail-fast guard before installing anything.
+          $env:PATH = "$runtimeDir;$env:PATH"
+          $nodeV = (& $nodeExe -v).Trim()
+          Write-Host "node -v = $nodeV"
+          if ($nodeV -ne "v$nodeVer") { throw "node version mismatch: $nodeV" }
+          $resolvedNode = (Get-Command node -ErrorAction Stop).Source
+          if (-not ($resolvedNode -like "$runtimeDir*")) { throw "node resolves outside component runtime: $resolvedNode" }
+          $npm = Join-Path $runtimeDir "npm.cmd"
+          # npm local-prefix install of the pinned OpenClaw into
+          # component\app. The npm cache stays in the staging area,
+          # never inside the component; the zip ships runtime + app
+          # only (state is provisioned by the daemon at first start).
+          $env:npm_config_cache = Join-Path $stage "npm-cache"
+          $pkg = [ordered]@{ dependencies = [ordered]@{ openclaw = $ocVer } }
+          ($pkg | ConvertTo-Json) | Set-Content (Join-Path $appDir "package.json") -Encoding utf8
+          Push-Location $appDir
+          & $npm install --no-audit --no-fund --loglevel=warn --scripts-prepend-node-path=true --registry "https://registry.npmjs.org/"
+          $npmCode = $LASTEXITCODE
+          Pop-Location
+          if ($npmCode -ne 0) { throw "npm install failed: exit $npmCode" }
+          $ocBin = Join-Path $appDir "node_modules\.bin\openclaw.cmd"
+          if (!(Test-Path $ocBin)) { throw "openclaw entry shim missing after install: $ocBin" }
+          $ocEntry = Join-Path $appDir "node_modules\openclaw\openclaw.mjs"
+          if (!(Test-Path $ocEntry)) { throw "openclaw.mjs missing after install: $ocEntry" }
+          $ocV = (& $ocBin --version 2>&1 | Out-String).Trim()
+          Write-Host "openclaw --version = $ocV"
+          if ($ocV -notlike "*$ocVer*") { throw "openclaw version mismatch: $ocV" }
+          Compress-Archive -Path (Join-Path $comp "runtime"), (Join-Path $comp "app") -DestinationPath "MJ-OpenClaw.zip" -Force
+          $osize = (Get-Item "MJ-OpenClaw.zip").Length
+          Write-Host "MJ-OpenClaw.zip bytes: $osize"
+          if ($osize -lt 100000000) { throw "OpenClaw component zip implausibly small: $osize" }
+          $ohash = (Get-FileHash "MJ-OpenClaw.zip" -Algorithm SHA256).Hash.ToLower()
+          $oman = [ordered]@{ version = $ocVer; file = "MJ-OpenClaw.zip"; size = $osize; sha256 = $ohash }
+          $ojson = $oman | ConvertTo-Json -Compress
+          [IO.File]::WriteAllText((Join-Path $PWD "openclaw.json"), $ojson, (New-Object System.Text.UTF8Encoding $false))
+          Get-Content "openclaw.json"
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.25
+          name: 铭杰终端机 v0.25（64 位单文件版 · 小龙虾组件）
+          body: |
+            64 位单文件版：解压后运行 MJ-System.exe（需 64 位 Windows）。
+            第一次运行会自动释放内置 sing-box 核心，数据保存在 EXE 旁的 Data/ 文件夹（节点、网站应用、桌面布局都在里面，跟着文件夹走）。
+            应用内更新：v0.6 起在「设置 → 软件更新」里完成，仓库公开、免令牌。
+            近版功能：网站应用化（真实图标、双击打开、文件夹分组）、软件内全局加速、台前调度（左侧实时缩略图）、窗口统一（外部应用统一调度与开窗落位）、SSH 远程终端、内置调试控制台（状态与日志集中查看、一键导出诊断包）、小窗手机宽（终端未最大化或较窄时网站应用以手机宽打开）、应用商店（官方便携应用直下进 Data/apps，校验钉死）。
+            本版 v0.25：新增「小龙虾」——把 AI 助手 OpenClaw 做成终端内的按需下载组件：桌面点开「小龙虾」下载组件（约 630 MB，运行时 + 程序本体，校验钉死、下错拒绝安装），装进 EXE 旁的 Data/openclaw，状态和数据跟着文件夹走；守护进程托管它的网关启停（启动前会把配置与日志路径按当前位置写好，挪过文件夹也能起），页面上有状态、网关令牌（复制后粘进它的控制台登录）、打开控制台、停止与卸载；模型流量可以走本地节点（开关默认开，节点起不来会明示本次直连）。注意：它运行时约占 1 GB 内存、权限很大（能操作电脑、收发消息），只建议在自己的电脑上用，不要装到公用电脑；模型 API 需要你自备，在小龙虾自己的控制台页面里配置，本程序不提供 Key。
+            MJ-Firefox.zip / firefox.json 是 Firefox 组件的安装包与校验清单，MJ-OpenClaw.zip / openclaw.json 是小龙虾组件的安装包与校验清单，都由程序按需下载，手动使用主程序时不用管。
+            update.json 是给程序自动更新用的校验清单（版本/大小/SHA-256），手动下载时不用管它。
+          files: |
+            MJ-System-64bit.zip
+            update.json
+            MJ-Firefox.zip
+            firefox.json
+            MJ-OpenClaw.zip
+            openclaw.json
