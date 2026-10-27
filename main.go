@@ -1100,9 +1100,17 @@ func launchIsolatedBrowser(proxy bool, target string, appMode bool) error {
 	} else {
 		args = append(args, target)
 	}
+	// Window snapshot BEFORE the launch: the window manager finds the
+	// new window by diffing against it (Chrome hands off to a running
+	// instance, so the started process is not the window's owner).
+	before := platformSnapshotWindows(browser)
 	if err := exec.Command(browser, args...).Start(); err != nil {
 		return fmt.Errorf("浏览器打开失败: %w", err)
 	}
+	// Unified window management (v0.18 乙+丙): register this external
+	// window with the daemon so the Stage Manager can switch to it and
+	// the taskbar groups it with the rest. No-op off Windows.
+	trackBrowserLaunch(appNameForURL(target), target, browser, before, false)
 	return nil
 }
 
@@ -1446,7 +1454,17 @@ func openShellWindow(url string, proxy bool) error {
 		// never depends on the node being alive.
 		args = append(args, "--proxy-server=socks5://127.0.0.1:"+strconv.Itoa(proxyPort), "--proxy-bypass-list=127.0.0.1;localhost")
 	}
-	return exec.Command(browser, args...).Start()
+	// Register the desktop window too: it gets the unified
+	// AppUserModelID stamped （丙）, so the taskbar can group it with
+	// the external app windows. When this runs in the short-lived
+	// launcher (fallback path) the registration dies with the process
+	// and simply does nothing; the normal path runs in the daemon.
+	before := platformSnapshotWindows(browser)
+	if err := exec.Command(browser, args...).Start(); err != nil {
+		return err
+	}
+	trackBrowserLaunch("铭杰工作站", "", browser, before, true)
+	return nil
 }
 
 // shellOpenHandler runs in the DAEMON: it knows the real core state,
@@ -1583,6 +1601,8 @@ func runServer(portFlag int, isDaemon bool) {
 	mux.HandleFunc("/api/apps", webAppsHandler)
 	mux.HandleFunc("/api/apps/save", webAppSaveHandler)
 	mux.HandleFunc("/api/appopen", openWebAppHandler)
+	mux.HandleFunc("/api/extwin", extWinListHandler)
+	mux.HandleFunc("/api/extwin/focus", extWinFocusHandler)
 	mux.HandleFunc("/api/firefox", ffStatusHandler)
 	mux.HandleFunc("/api/firefox/download", ffDownloadHandler)
 	mux.HandleFunc("/api/firefox/open", ffOpenHandler)
