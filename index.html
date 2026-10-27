@@ -688,7 +688,7 @@ function bind(id){
      if(r.installed) t='已安装 Firefox '+(r.version||'')+(r.updateAvailable?(' · 有新版 '+(r.available||'')+' 可更新'):' · 已是最新');
      else t='未安装组件'+(r.available?(' · 可下载版本 '+(r.available||'')+'（约 '+Math.round((r.availableSize||0)/1048576)+' MB）'):'');
      info.textContent=t;
-     if(dl) dl.textContent=r.installed?(r.updateAvailable?'更新 Firefox 组件':'重新下载组件'):'下载 Firefox 组件（约 90 MB）';
+     if(dl) dl.textContent=r.installed?(r.updateAvailable?'更新 Firefox 组件':'重新下载组件'):('下载 Firefox 组件（约 '+Math.round((r.availableSize||0)/1048576)+' MB，走节点下载）');
      if(r.phase==='downloading'){ prog.textContent='下载中… '+((r.progress||0)/1048576).toFixed(1)+' / '+((r.size||0)/1048576).toFixed(1)+' MB'; if(!ffTimer) ffTimer=setInterval(paintFF,800); }
      else if(r.phase==='extracting'){ prog.textContent='正在释放组件…'; if(!ffTimer) ffTimer=setInterval(paintFF,800); }
      else { prog.textContent=r.message||''; if(ffTimer){ clearInterval(ffTimer); ffTimer=null; } }

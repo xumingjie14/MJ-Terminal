@@ -100,12 +100,7 @@ func ffInstalledVersion() string {
 func ffProfileDir() string { return filepath.Join(dataDir(), "FirefoxProfile") }
 
 func fetchFFManifest(ctx context.Context) (*ffManifest, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ffBase()+"/"+ffManifestName, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", "MJ-Terminal-Firefox/"+AppVersion)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := dlGet(ctx, ffBase()+"/"+ffManifestName, "MJ-Terminal-Firefox/"+AppVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -166,13 +161,7 @@ func runFFInstall() {
 	ffSt.mu.Unlock()
 	ffSt.set("downloading", "正在下载 Firefox 组件…")
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ffBase()+"/"+m.File, nil)
-	if err != nil {
-		ffSt.set("error", "下载失败："+err.Error())
-		return
-	}
-	req.Header.Set("User-Agent", "MJ-Terminal-Firefox/"+AppVersion)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := dlGet(ctx, ffBase()+"/"+m.File, "MJ-Terminal-Firefox/"+AppVersion)
 	if err != nil {
 		ffSt.set("error", "下载失败："+err.Error())
 		return

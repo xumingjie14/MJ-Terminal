@@ -45,7 +45,7 @@ import (
 // AppVersion is the single source of truth for the running version.
 // The CI workflow must publish the Release with the matching tag
 // (v + AppVersion) and update.json.
-const AppVersion = "0.16"
+const AppVersion = "0.17"
 
 const updateRepo = "xumingjie14/MJ-Terminal"
 const updateZipName = "MJ-System-64bit.zip"
@@ -161,7 +161,11 @@ func ghRequest(ctx context.Context, url, accept string, useToken bool) (*http.Re
 			req.Header.Set("Authorization", "Bearer "+tok)
 		}
 	}
-	return http.DefaultClient.Do(req)
+	resp, err := dlClient().Do(req)
+	if err != nil && proxyActive() {
+		resp, err = http.DefaultClient.Do(req)
+	}
+	return resp, err
 }
 
 // ghSend issues a GET, and if a stored token makes GitHub answer 401

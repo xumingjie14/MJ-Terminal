@@ -14,8 +14,11 @@ package main
 // Data/accel.txt and defaults to ON.
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,6 +51,40 @@ func coreRunningQuick() bool {
 // proxyActive reports whether in-app traffic can go through the node
 // right now: switch on AND core really running.
 func proxyActive() bool { return accelEnabled() && coreRunningQuick() }
+
+// dlClient serves the daemon's own downloads (app updates, the
+// Firefox component): while in-app acceleration is active they go
+// through the local node like the rest of the app's traffic —
+// direct connections to GitHub are painfully slow on some networks.
+func dlClient() *http.Client {
+	if proxyActive() {
+		proxyURL := &url.URL{Scheme: "http", Host: fmt.Sprintf("127.0.0.1:%d", proxyPort)}
+		return &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)}}
+	}
+	return http.DefaultClient
+}
+
+// dlGet GETs a URL through dlClient; if the proxied attempt fails
+// at transport level it retries once directly, so a misbehaving
+// node can never block a download outright.
+func dlGet(ctx context.Context, rawurl, ua string) (*http.Response, error) {
+	try := func(c *http.Client) (*http.Response, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawurl, nil)
+		if err != nil {
+			return nil, err
+		}
+		if ua != "" {
+			req.Header.Set("User-Agent", ua)
+		}
+		return c.Do(req)
+	}
+	proxied := proxyActive()
+	resp, err := try(dlClient())
+	if err != nil && proxied {
+		return try(http.DefaultClient)
+	}
+	return resp, err
+}
 
 func accelStatus() map[string]any {
 	en := accelEnabled()
