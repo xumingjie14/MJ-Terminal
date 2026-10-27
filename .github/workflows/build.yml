@@ -57,7 +57,7 @@ jobs:
           (Get-Item "MJ-System-64bit.zip").Length
           $hash = (Get-FileHash "MJ-System-64bit.zip" -Algorithm SHA256).Hash.ToLower()
           $size = (Get-Item "MJ-System-64bit.zip").Length
-          $manifest = [ordered]@{ version = "0.20"; file = "MJ-System-64bit.zip"; size = $size; sha256 = $hash }
+          $manifest = [ordered]@{ version = "0.21"; file = "MJ-System-64bit.zip"; size = $size; sha256 = $hash }
           $json = $manifest | ConvertTo-Json -Compress
           [IO.File]::WriteAllText((Join-Path $PWD "update.json"), $json, (New-Object System.Text.UTF8Encoding $false))
           Get-Content "update.json"
@@ -89,14 +89,14 @@ jobs:
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.20
-          name: 铭杰终端机 v0.20（64 位单文件版 · 窗口落位）
+          tag_name: v0.21
+          name: 铭杰终端机 v0.21（64 位单文件版 · 落位调小）
           body: |
             64 位单文件版：解压后运行 MJ-System.exe（需 64 位 Windows）。
             第一次运行会自动释放内置 sing-box 核心，数据保存在 EXE 旁的 Data/ 文件夹（节点、网站应用、桌面布局都在里面，跟着文件夹走）。
             应用内更新：v0.6 起在「设置 → 软件更新」里完成，仓库公开、免令牌。
             近版功能：网站应用化（真实图标、双击打开、文件夹分组）、软件内全局加速、台前调度（左侧实时缩略图）、窗口统一（外部应用统一调度）、SSH 远程终端。
-            本版 v0.20：窗口落位——从桌面打开的外部应用窗口会自动落在桌面范围内打开，菜单栏与 Dock 不会被遮挡；落位只在打开时发生一次，摆好后可自由拖动与最大化，程序不再干预。
+            本版 v0.21：按真机反馈把外部应用打开时的落位尺寸调小（约占桌面 62% 宽、85% 高），四周露出桌面与图标列，更贴合系统整体观感；落位仍只在打开时发生一次，摆好后可自由拖动与最大化，程序不再干预。
             MJ-Firefox.zip / firefox.json 是 Firefox 组件的安装包与校验清单，由程序按需下载，手动使用主程序时不用管。
             update.json 是给程序自动更新用的校验清单（版本/大小/SHA-256），手动下载时不用管它。
           files: |
