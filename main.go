@@ -1660,6 +1660,12 @@ func runServer(portFlag int, isDaemon bool) {
 	mux.HandleFunc("/api/ssh/sftp/upload", sftpUploadHandler)
 	mux.HandleFunc("/api/ssh/sftp/download", sftpDownloadHandler)
 	mux.HandleFunc("/ws/ssh", sshWSHandler)
+	mux.HandleFunc("/api/servermon", servermonListHandler)
+	mux.HandleFunc("/api/servermon/watch", servermonWatchHandler)
+	mux.HandleFunc("/api/servermon/config", servermonConfigHandler)
+	mux.HandleFunc("/api/servermon/sample", servermonSampleHandler)
+	mux.HandleFunc("/api/servermon/history", servermonHistoryHandler)
+	mux.HandleFunc("/api/servermon/exec", servermonExecHandler)
 	mux.HandleFunc("/assets/xterm.js", assetHandler("js"))
 	mux.HandleFunc("/assets/xterm.css", assetHandler("css"))
 	mux.HandleFunc("/assets/xterm-fit.js", assetHandler("fit"))
@@ -1700,6 +1706,8 @@ func runServer(portFlag int, isDaemon bool) {
 			os.Exit(0)
 		}()
 	})
+
+	monInit()
 
 	fmt.Println("MJ Light System daemon:", url)
 	daemonPort = actualPort

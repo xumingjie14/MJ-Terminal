@@ -155,6 +155,7 @@ func ffDownloadHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func runFFInstall() {
+	ensureCoreForDownload()
 	ffSt.set("downloading", "正在读取组件清单…")
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 	defer cancel()
@@ -167,7 +168,7 @@ func runFFInstall() {
 	ffSt.Size = m.Size
 	ffSt.Progress = 0
 	ffSt.mu.Unlock()
-	ffSt.set("downloading", "正在下载 Firefox 组件…")
+	ffSt.set("downloading", "正在下载 Firefox 组件（"+downloadRoute()+"）…")
 
 	resp, err := dlGet(ctx, ffBase()+"/"+m.File, "MJ-Terminal-Firefox/"+AppVersion)
 	if err != nil {

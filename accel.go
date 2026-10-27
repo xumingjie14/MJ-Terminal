@@ -86,6 +86,28 @@ func dlGet(ctx context.Context, rawurl, ua string) (*http.Response, error) {
 	return resp, err
 }
 
+// ensureCoreForDownload makes a best effort to have the node up
+// before a big download, so it can take the fast path through the
+// node instead of a slow direct connection. It respects the
+// acceleration switch: with the switch off, downloads stay direct.
+func ensureCoreForDownload() {
+	if !accelEnabled() || proxyActive() || len(nodes) == 0 {
+		return
+	}
+	coreMu.Lock()
+	_ = startCoreLocked()
+	coreMu.Unlock()
+}
+
+// downloadRoute names the route downloads will take right now, so
+// status messages can show the user which path is in use.
+func downloadRoute() string {
+	if proxyActive() {
+		return "走节点"
+	}
+	return "直连"
+}
+
 func accelStatus() map[string]any {
 	en := accelEnabled()
 	running := coreRunningQuick()

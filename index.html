@@ -66,11 +66,52 @@ body{font-family:-apple-system,"SF Pro Display","PingFang SC","Microsoft YaHei",
 .g-firefox{background:linear-gradient(160deg,#ff7139 0%,#e22865 55%,#9059ff 100%)}
 .g-ssh{background:linear-gradient(180deg,#3ddc84,#0d5136)}
 .g-console{background:linear-gradient(180deg,#48484f,#131316);color:#ffb340;font-family:ui-monospace,Consolas,monospace}
+.g-servermon{background:linear-gradient(180deg,#64d2ff,#0a4d8f)}
 /* ---------- debug console (v0.22) ---------- */
 .cschip{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:99px;background:rgba(255,255,255,.10);font-size:12px}
 .csdot{width:8px;height:8px;border-radius:50%;background:#636366;flex:none}
 .csdot.on{background:#30d158}.csdot.off{background:#ff453a}
 .csin{background:#1c1c22;border:1px solid rgba(255,255,255,.16);color:#fff;border-radius:8px;padding:6px 9px;font-size:12.5px;outline:none;font:inherit}
+.sm-wrap{display:flex;height:100%;min-height:0}
+.sm-side{width:176px;flex:none;border-right:1px solid rgba(255,255,255,.09);padding:10px 8px;overflow:auto;background:rgba(255,255,255,.03)}
+.sm-side .sm-hd{font-size:11px;font-weight:600;letter-spacing:.04em;opacity:.55;padding:2px 8px 6px}
+.sm-it{display:flex;align-items:center;gap:7px;padding:6px 8px;border-radius:8px;cursor:pointer;font-size:13px;color:#e8e8ed;min-width:0}
+.sm-it:hover{background:rgba(255,255,255,.06)}
+.sm-it.on{background:#0a84ff;color:#fff}
+.sm-it .nm{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sm-it .sub{display:block;font-size:11px;opacity:.65;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sdot{width:8px;height:8px;border-radius:50%;background:#636366;flex:none}
+.sdot.on{background:#30d158}.sdot.off{background:#ff453a}.sdot.idle{background:#ffd60a}
+.sm-main{flex:1;overflow:auto;padding:14px 16px;min-width:0}
+.sm-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:10px}
+.sm-tile{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.07);border-radius:12px;padding:10px 12px}
+.sm-tile .k{font-size:11.5px;opacity:.65}
+.sm-tile .v{font-size:19px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:2px}
+.sm-tile .s{font-size:11.5px;opacity:.65;font-variant-numeric:tabular-nums}
+.sm-sec{font-size:13px;font-weight:600;margin:16px 0 8px;opacity:.92;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.sm-card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:12px;padding:10px 12px}
+.sm-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 2px;border-bottom:1px solid rgba(255,255,255,.06);font-size:13px}
+.sm-row:last-child{border-bottom:0}
+.sm-bar{height:6px;border-radius:3px;background:rgba(255,255,255,.12);overflow:hidden;margin-top:6px}
+.sm-bar i{display:block;height:100%;border-radius:3px;background:#30d158;transition:width .4s}
+.sm-bar i.warn{background:#ffd60a}.sm-bar i.bad{background:#ff453a}
+canvas.sm-chart{width:100%;height:118px;display:block;cursor:crosshair}
+.sm-seg{display:inline-flex;background:rgba(255,255,255,.09);border-radius:9px;padding:2px;gap:2px}
+.sm-seg button{border:0;background:transparent;color:#e8e8ed;font:inherit;font-size:12px;padding:3px 10px;border-radius:7px;cursor:pointer}
+.sm-seg button.on{background:rgba(255,255,255,.88);color:#111;font-weight:600}
+.sm-sw{position:relative;width:38px;height:22px;flex:none;display:inline-block}
+.sm-sw input{opacity:0;width:0;height:0;position:absolute}
+.sm-sw i{position:absolute;inset:0;border-radius:99px;background:rgba(255,255,255,.22);transition:.15s;cursor:pointer}
+.sm-sw i:before{content:'';position:absolute;width:18px;height:18px;border-radius:50%;background:#fff;top:2px;left:2px;transition:.15s;box-shadow:0 1px 3px rgba(0,0,0,.4)}
+.sm-sw input:checked + i{background:#30d158}
+.sm-sw input:checked + i:before{transform:translateX(16px)}
+.sm-num{background:#1c1c22;border:1px solid rgba(255,255,255,.16);color:#fff;border-radius:7px;padding:4px 7px;font:inherit;font-size:12.5px;width:78px;outline:none;font-variant-numeric:tabular-nums}
+.sm-cmdout{background:#0b0e14;border-radius:10px;padding:8px 10px;font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.6;color:#d6e2f0;white-space:pre-wrap;word-break:break-all;max-height:170px;overflow:auto}
+.sm-ov{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
+.sm-ovc{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:12px;padding:12px;cursor:pointer}
+.sm-ovc:hover{background:rgba(255,255,255,.07)}
+.sm-tip{position:absolute;pointer-events:none;background:rgba(28,28,32,.95);border:1px solid rgba(255,255,255,.15);border-radius:8px;padding:5px 8px;font-size:11.5px;font-variant-numeric:tabular-nums;display:none;z-index:5;white-space:nowrap}
+
 .cl{display:flex;gap:8px;white-space:pre-wrap;word-break:break-all}
 .cl .ct{color:#8e8e93;flex:none}
 .cl .cm{color:#64d2ff;flex:none}
@@ -180,6 +221,7 @@ const APPS=[
  {id:'browser',e:'',g:'g-browser',glyph:'',n:'谷歌浏览器'},
  {id:'firefox',e:'🦊',g:'g-firefox',glyph:'🦊',n:'Firefox'},
  {id:'ssh',e:'🖥️',g:'g-ssh',glyph:'🖥️',n:'SSH'},
+ {id:'servermon',e:'🗄️',g:'g-servermon',glyph:'🗄️',n:'服务器'},
  {id:'console',e:'≡',g:'g-console',glyph:'≡',n:'控制台'},
  {id:'appstore',e:'🛍️',g:'g-store',glyph:'🛍️',n:'应用商店'},
  {id:'openclaw',e:'🦞',g:'g-openclaw',glyph:'🦞',n:'小龙虾'},
@@ -607,8 +649,9 @@ function render(id){
  if(id==='browser') b.innerHTML=`<h3>谷歌浏览器（独立窗口）</h3><p class="mut" style="margin-top:8px">这个浏览器和公用电脑自己的浏览器是分开的：独立档案存在 EXE 旁边的 Data 文件夹，历史、Cookie、登录都在你自己的档案里。<br><b style="color:#fff">走节点打开时，只有这个窗口的流量走节点</b>，不会改这台电脑的系统代理。</p><div class="row" style="margin-top:14px"><input class="txt" id="burl" value="https://www.google.com"></div><div class="row" style="margin-top:10px"><button class="btn" id="bproxy">🚀 走节点打开 Chrome</button><button class="btn gray" id="bdirect">直连打开 Chrome</button><button class="btn gray" id="btest">代理自检</button></div><p style="margin-top:12px"><span class="tag" id="bstatus">连不上时先点「代理自检」，它会告诉你卡在哪一步</span></p><hr style="border-color:rgba(255,255,255,.14);margin:18px 0"><h3>网站应用（钉到桌面）</h3><p class="mut" style="margin-top:6px">下面的网站已经钉在桌面右侧，点开就是<b style="color:#fff">应用化的干净窗口</b>：没有地址栏、没有标签页，像打开一个 App，自动走节点（全局加速开着时）。适合 X、YouTube 这种固定要去的网站。</p><div id="walist" class="mut" style="margin-top:10px">加载中…</div><div class="row" style="margin-top:12px"><input class="txt" id="waname" placeholder="名字，如 GitHub" style="max-width:150px"><input class="txt" id="waurl" placeholder="网址，如 https://github.com"></div><div class="row" style="margin-top:8px"><button class="btn" id="waadd">＋ 钉到桌面</button><span class="tag" id="wastatus"></span></div><hr style="border-color:rgba(255,255,255,.14);margin:18px 0"><h3>谷歌云同步（换电脑不丢登录）</h3><p class="mut" style="margin-top:6px">Chrome 的登录搬不了家（被那台电脑的 Windows 账户锁着），但<b style="color:#fff">开启谷歌同步</b>后，换一台电脑打开终端机，在隔离 Chrome 里登一次谷歌，密码、书签、历史就会同步回来，各网站的登录基本点一下就恢复。同步的开关在 Chrome 里面，下面这个按钮会直接把同步设置页在隔离 Chrome 中打开。</p><div class="row" style="margin-top:10px"><button class="btn" id="bsync">打开同步设置</button><span class="tag" id="bsyncst">打开后在 Chrome 里点「开启同步」并登录谷歌账户</span></div>`;
  if(id==='firefox') b.innerHTML=`<h3>Firefox（系统内浏览器 · 登录可搬家）</h3><p class="mut" style="margin-top:8px">这是装在咱们系统里面的 Firefox，用自己的档案（EXE 旁 Data/FirefoxProfile）。和 Chrome 不一样，<b style="color:#fff">Firefox 的登录、Cookie、历史都锁在档案自己身上</b>：把文件夹带到另一台电脑打开，登录状态样，这是专门用来装需要登录的网站的浏览器。建议进 Firefox 后给档案设一个<b style="color:#fff">主密码</b>（设置 → 隐私与安全 → 主密码），文件夹在别人手里也解不开。宿主机自己的 Firefox 与它互不相干。</p><p style="margin-top:12px"><span class="tag" id="ffinfo">组件状态读取中…</span></p><div class="row" style="margin-top:10px"><button class="btn" id="ffdl">下载 Firefox 组件</button><span class="tag" id="ffprog"></span></div><div class="row" style="margin-top:14px"><input class="txt" id="ffurl" placeholder="网址（留空开主页），如 https://github.com"></div><div class="row" style="margin-top:10px"><button class="btn" id="ffopen">🚀 走节点打开</button><button class="btn gray" id="ffopenapp">应用化打开（走节点）</button><button class="btn gray" id="ffopend">直连打开</button></div><p class="mut" style="margin-top:10px">应用化＝隐藏标签栏和地址栏的干净窗口，在 Firefox <b style="color:#fff">冷启动时</b>生效：Firefox 已经开着时，先关掉它再点应用化打开。Firefox 开着时再点打开，会提示已在运行——直接用那个窗口就行。</p><p style="margin-top:8px"><span class="tag" id="ffstatus"></span></p>`;
  if(id==='ssh') b.innerHTML=`<h3>SSH 远程终端</h3><p class="mut" style="margin-top:6px">连接、私钥、服务器指纹都存在 EXE 旁的 <b style="color:#fff">Data/ssh</b> 里，跟着文件夹走。密码和私钥口令只在连接时输入、<b style="color:#fff">不保存</b>。第一次连某台服务器会记下它的指纹，之后每次校验，对不上会拦住。</p><div class="row" style="margin-top:10px"><select id="sshconn" class="txt" style="max-width:250px"></select><button class="btn gray" id="sshnew">＋ 新建</button><button class="btn gray" id="sshedit">编辑</button><button class="btn gray" id="sshdel">删除</button></div><div id="sshform" style="display:none;margin-top:10px"><div class="row"><input class="txt" id="sf_name" placeholder="名字，如 新加坡服务器" style="max-width:170px"><input class="txt" id="sf_host" placeholder="主机 / IP"><input class="txt" id="sf_port" placeholder="端口" value="22" style="max-width:80px"><input class="txt" id="sf_user" placeholder="用户名" style="max-width:120px"></div><div class="row" style="margin-top:8px"><label class="mut">登录方式 <select id="sf_auth" class="txt"><option value="key">密钥</option><option value="password">密码</option></select></label><select id="sf_key" class="txt" style="max-width:170px"></select><label class="mut"><input type="checkbox" id="sf_proxy"> 走节点连接</label></div><div class="row" style="margin-top:8px"><input class="txt" id="sf_keyname" placeholder="新密钥名（导入时填，如 id_sg）" style="max-width:210px"></div><textarea id="sf_keydata" rows="3" style="width:100%;margin-top:6px" placeholder="粘贴私钥内容导入（可选，存进 Data/ssh/keys；已存的密钥在上面选）"></textarea><div class="row" style="margin-top:8px"><button class="btn" id="sfsave">保存连接</button><span class="tag" id="sfst"></span></div></div><div class="row" style="margin-top:12px"><input class="txt" id="sshpass" type="password" placeholder="密码 / 私钥口令（连接时输，不保存）" style="max-width:250px" autocomplete="off"><button class="btn" id="sshgo">连接</button><button class="btn gray" id="sshstop">断开</button><span class="tag" id="sshst">未连接</span></div><div id="sshterm" style="margin-top:10px;height:300px;background:#0b0e14;border-radius:10px;padding:6px;overflow:hidden"></div><hr style="border-color:rgba(255,255,255,.14);margin:16px 0"><h3>文件（SFTP）</h3><p class="mut" style="margin-top:4px">共用上面的终端连接传文件，不用再输一次密码。</p><div class="row" style="margin-top:8px"><span class="tag" id="sfpath">未连接</span><button class="btn gray" id="sfup">↑ 上级</button><button class="btn gray" id="sfrefresh">刷新</button><button class="btn gray" id="sfmkdir">新建文件夹</button><button class="btn gray" id="sfupload">上传文件</button><input type="file" id="sffile" style="display:none"></div><div id="sflist" class="mut" style="margin-top:8px">连上服务器后，这里能浏览、上传、下载、删除远程文件。</div>`;
+ if(id==='servermon') b.innerHTML=`<div class="sm-wrap"><div class="sm-side"><div class="sm-hd">服务器</div><div id="sm-list"></div><p class="mut" style="font-size:11.5px;padding:10px 8px 0;line-height:1.6">监控走 SSH 通道读服务器数据，不用在服务器上装任何东西。密钥连接可自动采样；密码连接先在 SSH 里连上，或在详情里输一次密码手动采样。</p></div><div class="sm-main" id="sm-main"><p class="mut">加载中…</p></div></div>`;
  if(id==='console'){ b.style.padding='0'; b.style.background='#0b0e14'; b.style.display='flex'; b.style.flexDirection='column';
- b.innerHTML=`<div style="padding:12px 14px 10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-bottom:1px solid rgba(255,255,255,.08)"><span class="cschip">版本 <b id="cs-ver">…</b></span><span class="cschip"><span class="csdot" id="cs-core-dot"></span>核心 <span id="cs-core">…</span></span><span class="cschip"><span class="csdot" id="cs-node-dot"></span>节点 <span id="cs-node">…</span></span><span class="cschip">运行时长 <span id="cs-up">…</span></span><span class="cschip">日志 <span id="cs-cnt">…</span></span></div><div style="padding:8px 14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-bottom:1px solid rgba(255,255,255,.08)"><select id="cs-level" class="csin"><option value="">全部级别</option><option value="info">信息及以上</option><option value="warn">警告及以上</option><option value="error">只看错误</option></select><select id="cs-module" class="csin"><option value="">全部模块</option><option value="system">系统</option><option value="core">核心</option><option value="node">节点</option><option value="browser">浏览器</option><option value="winmgr">窗口管理</option><option value="ssh">SSH</option><option value="update">更新</option><option value="firefox">Firefox</option><option value="apps">应用商店</option><option value="openclaw">小龙虾</option><option value="api">接口</option></select><input id="cs-q" class="csin" placeholder="搜索日志…" style="flex:1;min-width:100px"><label style="font-size:12.5px;opacity:.9"><input type="checkbox" id="cs-auto" checked> 自动滚动</label><button class="btn gray" id="cs-copy">复制诊断摘要</button><button class="btn gray" id="cs-export">导出日志</button></div><div id="cs-log" style="flex:1;overflow:auto;padding:10px 14px;font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.7;color:#d6e2f0"></div><div style="padding:7px 14px;font-size:12px;opacity:.6;border-top:1px solid rgba(255,255,255,.08)">日志同时存在 EXE 旁 Data/logs/mj.log。出问题时先看这里的红色报错，或点「导出日志」把诊断包发出来定位。</div>`;
+ b.innerHTML=`<div style="padding:12px 14px 10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-bottom:1px solid rgba(255,255,255,.08)"><span class="cschip">版本 <b id="cs-ver">…</b></span><span class="cschip"><span class="csdot" id="cs-core-dot"></span>核心 <span id="cs-core">…</span></span><span class="cschip"><span class="csdot" id="cs-node-dot"></span>节点 <span id="cs-node">…</span></span><span class="cschip">运行时长 <span id="cs-up">…</span></span><span class="cschip">日志 <span id="cs-cnt">…</span></span></div><div style="padding:8px 14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-bottom:1px solid rgba(255,255,255,.08)"><select id="cs-level" class="csin"><option value="">全部级别</option><option value="info">信息及以上</option><option value="warn">警告及以上</option><option value="error">只看错误</option></select><select id="cs-module" class="csin"><option value="">全部模块</option><option value="system">系统</option><option value="core">核心</option><option value="node">节点</option><option value="browser">浏览器</option><option value="winmgr">窗口管理</option><option value="ssh">SSH</option><option value="servermon">服务器监控</option><option value="update">更新</option><option value="firefox">Firefox</option><option value="apps">应用商店</option><option value="openclaw">小龙虾</option><option value="api">接口</option></select><input id="cs-q" class="csin" placeholder="搜索日志…" style="flex:1;min-width:100px"><label style="font-size:12.5px;opacity:.9"><input type="checkbox" id="cs-auto" checked> 自动滚动</label><button class="btn gray" id="cs-copy">复制诊断摘要</button><button class="btn gray" id="cs-export">导出日志</button></div><div id="cs-log" style="flex:1;overflow:auto;padding:10px 14px;font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.7;color:#d6e2f0"></div><div style="padding:7px 14px;font-size:12px;opacity:.6;border-top:1px solid rgba(255,255,255,.08)">日志同时存在 EXE 旁 Data/logs/mj.log。出问题时先看这里的红色报错，或点「导出日志」把诊断包发出来定位。</div>`;
  }
  if(id==='appstore') b.innerHTML=`<h3>应用商店 · 便携应用</h3><p class="mut" style="margin-top:6px">这里的都是<b style="color:#fff">免安装的便携版</b>：从官方源直下、装进 EXE 旁的 <b style="color:#fff">Data/apps</b>，程序和数据都跟着文件夹走，宿主电脑不留东西。每个应用上架前都验过包，并钉死了校验和，下载对不上会自动拒绝。</p><div class="row" style="margin-top:10px"><input class="txt" id="st-q" placeholder="搜索应用…"><span class="tag" id="st-count"></span></div><div style="display:flex;gap:12px;margin-top:12px;align-items:flex-start"><div id="st-cats" style="width:102px;flex:none;display:flex;flex-direction:column;gap:4px"></div><div id="st-grid" style="flex:1;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;align-content:start"></div></div><p class="mut" id="st-foot" style="margin-top:12px"></p>`;
  if(id==='openclaw') b.innerHTML=`<h3>小龙虾 OpenClaw（AI 助手组件）</h3><p class="mut" style="margin-top:8px">小龙虾是一个能<b style="color:#fff">操作电脑、收发消息</b>的 AI 助手（OpenClaw）。它是个<b style="color:#fff">按需下载的重型组件</b>，先把丑话说在前面：<br>· <b style="color:#fff">体积约 630 MB</b>（运行时 + 程序本体），装在 EXE 旁的 <b style="color:#fff">Data/openclaw</b>，跟着文件夹走；<br>· 运行时<b style="color:#fff">内存占用约 1 GB</b> 量级，老电脑会明显吃力；<br>· 它权限很大（能跑命令、动文件、替你发消息），<b style="color:#fff">只建议装在自己的电脑上，不要装到公用电脑</b>；<br>· <b style="color:#fff">模型 API 要你自备</b>：装好启动后，在小龙虾自己的控制台页面里填你自己的模型 Key，本页只负责装组件和启停，不碰你的 Key。</p><p style="margin-top:12px"><span class="tag" id="ocinfo">组件状态读取中…</span></p><div class="row" style="margin-top:10px"><button class="btn" id="ocdl">下载组件</button><span class="tag" id="ocprog"></span></div><div id="ocpanel" style="display:none"><div class="row" style="margin-top:14px"><label class="mut" style="font-size:13px"><input type="checkbox" id="ocvianode" checked> 模型流量走本地节点（开着且节点在跑时，模型请求经节点出去；节点起不来会明示本次直连）</label></div><div class="row" style="margin-top:10px"><button class="btn" id="ocstart">启动</button><button class="btn red" id="ocstop">停止</button><button class="btn gray" id="occonsole">打开控制台</button><button class="btn gray" id="ocuninst">卸载组件</button></div><p style="margin-top:10px"><span class="tag" id="ocstat">状态：…</span></p><p class="mut" style="margin-top:10px">网关令牌 <span class="tag" id="octoken">…</span> <button class="btn gray" id="octokencopy">复制令牌</button></p><p class="mut" style="margin-top:6px">打开控制台后如果要求输入令牌，就把令牌粘贴进去。令牌由系统生成、只存在组件自己的配置里，换电脑跟着文件夹走，不用你记。</p></div>`;
@@ -782,6 +825,148 @@ function bind(id){
    document.getElementById('ffopen').onclick=()=>openFF(true,false);
    document.getElementById('ffopenapp').onclick=()=>openFF(true,true);
    document.getElementById('ffopend').onclick=()=>openFF(false,false);
+ }
+ if(id==='servermon'){
+   const G=x=>document.getElementById(x);
+   const post=(p,body)=>api(p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+   const fmtB=n=>{if(n==null||isNaN(n))return '—';const u=['B','KB','MB','GB','TB'];let i=0;n=+n;while(n>=1024&&i<4){n/=1024;i++}return (n>=100||i===0?n.toFixed(0):n.toFixed(1))+' '+u[i]};
+   const fmtRate=n=>fmtB(n)+'/s';
+   const fmtUp=s=>{if(s==null)return '—';s=+s;const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return d?d+' 天 '+h+' 小时':(h?h+' 小时 '+m+' 分':m+' 分钟')};
+   const pctCls=p=>p>=90?'bad':(p>=75?'warn':'');
+   let servers=[], cur='all', builtFor=null, range='live', livePts=[], histPts=[], timer=null, watchTimer=null, ovSig='';
+   let cmdHist=[]; try{cmdHist=JSON.parse(localStorage.getItem('mj-sm-cmdhist')||'[]')}catch(e){}
+   const byId=id2=>servers.find(x=>x.conn.id===id2);
+   const dotOf=s=>!s?'<span class="sdot idle"></span>':(s.ok?'<span class="sdot on"></span>':'<span class="sdot off"></span>');
+   function paintSide(){
+     const anyOn=servers.some(x=>x.snap&&x.snap.ok);
+     G('sm-list').innerHTML=`<div class="sm-it ${cur==='all'?'on':''}" data-id="all"><span class="sdot ${anyOn?'on':'idle'}"></span><span class="nm">全部服务器<span class="sub">${servers.length} 台</span></span></div>`+servers.map(sv=>`<div class="sm-it ${cur===sv.conn.id?'on':''}" data-id="${sv.conn.id}">${dotOf(sv.snap)}<span class="nm">${esc(sv.conn.name||sv.conn.host)}<span class="sub">${esc(sv.conn.user)}@${esc(sv.conn.host)}:${sv.conn.port||22}</span></span></div>`).join('');
+     G('sm-list').querySelectorAll('.sm-it').forEach(el=>el.onclick=()=>{ selectServer(el.dataset.id); });
+   }
+   function selectServer(id2){
+     if(cur!=='all'&&cur!==id2) post('/api/servermon/watch',{id:cur,on:false});
+     cur=id2; builtFor=null; livePts=[]; ovSig='';
+     if(cur!=='all'){ post('/api/servermon/watch',{id:cur,on:true}); }
+     paintSide(); paintMain();
+   }
+   function barHTML(p){return `<div class="sm-bar"><i class="${pctCls(p)}" style="width:${Math.min(100,p||0)}%"></i></div>`}
+   function overviewHTML(){
+     if(!servers.length) return `<h3>服务器监控</h3><p class="mut" style="margin-top:8px">还没有服务器连接。先去 <b style="color:#fff">SSH</b> 应用里新建一个连接（推荐用密钥登录，监控就能自动采样），这里会自动出现。</p><div class="row" style="margin-top:12px"><button class="btn" onclick="openApp('ssh')">打开 SSH 应用</button></div>`;
+     return `<div class="sm-sec" style="margin-top:0">全部服务器<span class="mut" style="font-weight:400;font-size:12px">${servers.filter(x=>x.snap&&x.snap.ok).length} / ${servers.length} 在线</span></div><div class="sm-ov">`+servers.map(sv=>{const s=sv.snap,u=sv.usage||{};return `<div class="sm-ovc" data-id="${sv.conn.id}"><div style="display:flex;align-items:center;gap:7px;font-weight:600;font-size:13.5px">${dotOf(s)}<span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(sv.conn.name||sv.conn.host)}</span></div><div class="mut" style="font-size:11.5px;margin-top:2px">${esc(sv.conn.user)}@${esc(sv.conn.host)}${sv.engine?' · 后台采样中':''}</div>${s&&s.ok?`<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;margin-top:10px;font-size:12.5px;font-variant-numeric:tabular-nums"><span>CPU <b>${s.cpuPct.toFixed(0)}%</b></span><span>内存 <b>${s.memPct.toFixed(0)}%</b></span><span>↓ <b>${fmtRate(s.rxRate)}</b></span><span>↑ <b>${fmtRate(s.txRate)}</b></span><span>本月 <b>${fmtB((u.monthRx||0)+(u.monthTx||0))}</b></span><span>运行 <b>${fmtUp(s.uptimeSec)}</b></span></div>`:`<p class="mut" style="margin-top:10px;font-size:12.5px">${s?esc(s.err||'离线'):'等待采样…点开查看'}</p>`}</div>`}).join('')+`</div><p class="mut" style="margin-top:12px;font-size:12px">点一台服务器看详情：历史曲线、流量统计、服务状态、命令行都在详情里。</p>`;
+   }
+   function detailHTML(sv){
+     const c=sv.conn;
+     return `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><button class="btn gray" id="sm-back">‹ 全部</button><h3 style="margin:0">${esc(c.name||c.host)}</h3><span id="sm-status"></span><span class="mut" style="font-size:12.5px">${esc(c.user)}@${esc(c.host)}:${c.port||22}${c.proxy?' · 走节点':''}</span></div>
+     <div class="row" style="margin-top:10px"><input class="txt" id="sm-cred" type="password" placeholder="密码 / 私钥口令（手动采样和执行命令用，不保存）" style="max-width:300px" autocomplete="off"><button class="btn gray" id="sm-sample">手动采样一次</button><button class="btn gray" id="sm-openssh">在 SSH 中打开</button><span class="tag" id="sm-msg"></span></div>
+     <div class="sm-tiles" style="margin-top:12px">
+       <div class="sm-tile"><div class="k">CPU</div><div class="v" id="sm-t-cpu">—</div><div class="s" id="sm-t-load">负载 —</div></div>
+       <div class="sm-tile"><div class="k">内存</div><div class="v" id="sm-t-mem">—</div><div id="sm-t-memb"></div><div class="s" id="sm-t-mems"></div></div>
+       <div class="sm-tile"><div class="k">磁盘 /</div><div class="v" id="sm-t-disk">—</div><div id="sm-t-diskb"></div><div class="s" id="sm-t-disks"></div></div>
+       <div class="sm-tile"><div class="k">下载速率</div><div class="v" id="sm-t-rx">—</div><div class="s">入站</div></div>
+       <div class="sm-tile"><div class="k">上传速率</div><div class="v" id="sm-t-tx">—</div><div class="s">出站</div></div>
+       <div class="sm-tile"><div class="k">运行时间</div><div class="v" id="sm-t-up" style="font-size:16px">—</div><div class="s" id="sm-t-ports"></div></div>
+     </div>
+     <div class="sm-sec">网络流量 <span class="sm-seg" id="sm-ranges"><button data-r="live" class="on">实时</button><button data-r="1h">1 小时</button><button data-r="24h">24 小时</button><button data-r="7d">7 天</button></span></div>
+     <div class="sm-card" style="position:relative"><canvas class="sm-chart" id="sm-chart"></canvas><div class="sm-tip" id="sm-tip"></div><div style="display:flex;gap:16px;margin-top:6px;font-size:12px"><span><span style="color:#30d158">━</span> 下载</span><span><span style="color:#0a84ff">━</span> 上传</span><span class="mut" id="sm-chart-note"></span></div></div>
+     <div class="sm-sec">流量统计</div>
+     <div class="sm-card" id="sm-usage"></div>
+     <div class="sm-sec">服务与进程</div>
+     <div class="sm-card" id="sm-svc"></div>
+     <div class="sm-sec">命令行</div>
+     <div class="sm-card"><div class="row"><button class="btn gray" data-cmd="systemctl restart sing-box">重启 sing-box</button><button class="btn gray" data-cmd="journalctl -u sing-box -n 50 --no-pager">sing-box 日志</button><button class="btn gray" data-cmd="df -h">磁盘占用</button><button class="btn gray" data-cmd="free -m">内存</button><button class="btn gray" data-cmd="uptime">运行时间</button></div><div class="row" style="margin-top:8px"><input class="txt" id="sm-cmd" placeholder="输入命令回车执行（一次性命令；交互程序请去 SSH 终端）" autocomplete="off"><button class="btn" id="sm-run">执行</button></div><div class="sm-cmdout" id="sm-out" style="margin-top:8px;display:none"></div></div>
+     <div class="sm-sec">监控设置</div>
+     <div class="sm-card">
+       <div class="sm-row"><span>后台采样（面板关着也每分钟采）</span><label class="sm-sw"><input type="checkbox" id="sm-c-bg"><i></i></label></div>
+       <div class="sm-row"><span>月流量配额（GB，0 = 不设）</span><input class="sm-num" id="sm-c-quota" type="number" min="0" step="1"></div>
+       <div class="sm-row"><span>磁盘告警（用到百分之多少，0 = 关）</span><input class="sm-num" id="sm-c-disk" type="number" min="0" max="99" step="1"></div>
+       <div class="sm-row"><span>流量告警（用到配额百分之多少，0 = 关）</span><input class="sm-num" id="sm-c-traf" type="number" min="0" max="99" step="1"></div>
+       <div class="sm-row"><span>服务停止时告警（进控制台）</span><label class="sm-sw"><input type="checkbox" id="sm-c-svc"><i></i></label></div>
+       <div class="row" style="margin-top:10px"><button class="btn" id="sm-c-save">保存设置</button><span class="tag" id="sm-c-msg"></span></div>
+       <p class="mut" style="font-size:12px;margin-top:8px">流量统计是终端机按采样累计的（关机时段不计），和服务器商账单会有小出入；历史曲线保留 30 天。</p>
+     </div>`;
+   }
+   function paintMain(){
+     const M=G('sm-main'); if(!M) return;
+     if(cur==='all'){
+       const sig=servers.map(x=>x.conn.id+':'+(x.snap?x.snap.ok+Math.round(x.snap.cpuPct)+Math.round((x.usage||{}).monthRx/1e6):'n')).join('|');
+       if(sig===ovSig&&builtFor==='all') return;
+       ovSig=sig; builtFor='all';
+       M.innerHTML=overviewHTML(); M.querySelectorAll('.sm-ovc').forEach(el=>el.onclick=()=>selectServer(el.dataset.id)); return;
+     }
+     const sv=byId(cur); if(!sv){ cur='all'; paintMain(); return; }
+     if(builtFor!==cur){ M.innerHTML=detailHTML(sv); builtFor=cur; bindDetail(sv); }
+     updateDetail(sv);
+   }
+   function bindDetail(sv){
+     G('sm-back').onclick=()=>selectServer('all');
+     G('sm-openssh').onclick=()=>openApp('ssh');
+     G('sm-sample').onclick=async()=>{ G('sm-msg').textContent='采样中…'; const r=await post('/api/servermon/sample',{id:cur,password:G('sm-cred').value,passphrase:G('sm-cred').value}); G('sm-msg').textContent=r.ok?'已更新':(r.error||'采样失败'); refresh(); };
+     G('sm-ranges').querySelectorAll('button').forEach(b=>b.onclick=()=>{ range=b.dataset.r; G('sm-ranges').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); if(range==='live'){drawChart(livePts);} else loadHist(); });
+     const runCmd=async(cmd)=>{ const out=G('sm-out'); if(!out) return; out.style.display='block'; out.textContent='执行中…'; const r=await post('/api/servermon/exec',{id:cur,cmd:cmd,password:G('sm-cred').value,passphrase:G('sm-cred').value}); out.textContent=r.error?('错误：'+r.error):((r.output||'（无输出）')); if(cmd&&cmdHist[0]!==cmd){cmdHist.unshift(cmd); cmdHist=cmdHist.slice(0,30); try{localStorage.setItem('mj-sm-cmdhist',JSON.stringify(cmdHist))}catch(e){}} };
+     G('sm-run').onclick=()=>{ const v=G('sm-cmd').value.trim(); if(v) runCmd(v); };
+     G('sm-cmd').addEventListener('keydown',e=>{ if(e.key==='Enter'){ const v=e.target.value.trim(); if(v) runCmd(v); } if(e.key==='ArrowUp'){ e.preventDefault(); if(cmdHist[0]) e.target.value=cmdHist[0]; } });
+     G('sm-main').querySelectorAll('[data-cmd]').forEach(b=>b.onclick=()=>runCmd(b.dataset.cmd));
+     const cfg=sv.cfg||{};
+     G('sm-c-bg').checked=!!cfg.bg; G('sm-c-quota').value=cfg.quotaGB||0; G('sm-c-disk').value=(cfg.alertDisk==null?90:cfg.alertDisk); G('sm-c-traf').value=(cfg.alertTraffic==null?90:cfg.alertTraffic); G('sm-c-svc').checked=cfg.alertSvc!==false;
+     G('sm-c-save').onclick=async()=>{ const nc={bg:G('sm-c-bg').checked,quotaGB:+G('sm-c-quota').value||0,alertDisk:+G('sm-c-disk').value||0,alertTraffic:+G('sm-c-traf').value||0,alertSvc:G('sm-c-svc').checked}; const r=await post('/api/servermon/config',{id:cur,cfg:nc}); G('sm-c-msg').textContent=r.ok?'已保存':(r.error||'保存失败'); if(r.ok){ sv.cfg=nc; } };
+     drawChart(livePts);
+   }
+   function updateDetail(sv){
+     const s=sv.snap, u=sv.usage||{}, cfg=sv.cfg||{};
+     const st=G('sm-status'); if(!st) return;
+     st.innerHTML=s?(s.ok?'<span class="tag" style="color:#30d158">● 在线</span>':'<span class="tag" style="color:#ff453a">● 离线</span>'):'<span class="tag">未采样</span>';
+     if(!s){ G('sm-msg').textContent='等待采样…（密钥连接会自动开始）'; return; }
+     if(!s.ok){ G('sm-msg').textContent=s.err||'采样失败'; return; }
+     G('sm-msg').textContent=s.liveClient?'（借用 SSH 终端的连接采样）':'';
+     G('sm-t-cpu').textContent=s.cpuPct.toFixed(0)+'%';
+     G('sm-t-load').textContent='负载 '+(s.load1||0).toFixed(2);
+     G('sm-t-mem').textContent=s.memPct.toFixed(0)+'%';
+     G('sm-t-memb').innerHTML=barHTML(s.memPct);
+     G('sm-t-mems').textContent=fmtB(s.memUsed)+' / '+fmtB(s.memTotal);
+     G('sm-t-disk').textContent=s.diskPct.toFixed(0)+'%';
+     G('sm-t-diskb').innerHTML=barHTML(s.diskPct);
+     G('sm-t-disks').textContent=fmtB(s.diskUsed)+' / '+fmtB(s.diskTotal);
+     G('sm-t-rx').textContent=fmtRate(s.rxRate);
+     G('sm-t-tx').textContent=fmtRate(s.txRate);
+     G('sm-t-up').textContent=fmtUp(s.uptimeSec);
+     G('sm-t-ports').textContent=(s.ports||[]).length?('监听端口 '+(s.ports||[]).join('、')):'';
+     const monthUsed=(u.monthRx||0)+(u.monthTx||0);
+     let quotaHTML='';
+     if(cfg.quotaGB>0){ const qpct=Math.min(100, monthUsed/(cfg.quotaGB*1e9)*100); quotaHTML=`<div class="sm-row"><span>本月配额进度</span><span>${fmtB(monthUsed)} / ${cfg.quotaGB} GB（${qpct.toFixed(0)}%）</span></div><div class="sm-bar"><i class="${qpct>=90?'bad':(qpct>=75?'warn':'')}" style="width:${qpct}%"></i></div>`; }
+     G('sm-usage').innerHTML=`<div class="sm-row"><span>今日</span><span>↓ ${fmtB(u.dayRx||0)} · ↑ ${fmtB(u.dayTx||0)}</span></div><div class="sm-row"><span>本月</span><span>↓ ${fmtB(u.monthRx||0)} · ↑ ${fmtB(u.monthTx||0)}</span></div>${quotaHTML}<div class="sm-row"><span>累计（终端机记录）</span><span>↓ ${fmtB(u.totalRx||0)} · ↑ ${fmtB(u.totalTx||0)}</span></div>`;
+     const svc=(s.services||[]).map(x=>`<div class="sm-row"><span><span class="sdot ${x.on?'on':'off'}" style="display:inline-block;vertical-align:1px;margin-right:7px"></span>${esc(x.name)}</span><span class="mut">${x.on?'运行中':'未运行'}</span></div>`).join('');
+     const top=(s.top||[]).map(p=>`<div class="sm-row"><span>${esc(p.name)}</span><span class="mut">CPU ${p.cpu}% · 内存 ${p.mem}%</span></div>`).join('');
+     G('sm-svc').innerHTML=(svc||'<p class="mut">无服务数据</p>')+(top?`<div style="margin-top:6px;border-top:1px solid rgba(255,255,255,.06);padding-top:4px"><div class="mut" style="font-size:12px;padding:4px 2px">进程占用 Top（按内存）</div>${top}</div>`:'');
+     if(range==='live'){ const last=livePts[livePts.length-1]; if(!last||last.ts!==s.ts){ livePts.push({ts:s.ts,rx:s.rxRate,tx:s.txRate}); if(livePts.length>90) livePts.splice(0,livePts.length-90); } drawChart(livePts); }
+   }
+   async function loadHist(){ const r=await api('/api/servermon/history?id='+encodeURIComponent(cur)+'&range='+range); histPts=(r.points||[]).map(p=>({ts:p.ts,rx:p.rx,tx:p.tx})); drawChart(histPts); const n=G('sm-chart-note'); if(n) n.textContent=histPts.length?'':'暂无历史（开启后台采样后会持续记录）'; }
+   function drawChart(pts){
+     const cv=G('sm-chart'); if(!cv) return;
+     const dpr=window.devicePixelRatio||1, W=cv.clientWidth, H=cv.clientHeight; if(!W) return;
+     if(cv.width!==Math.round(W*dpr)||cv.height!==Math.round(H*dpr)){ cv.width=W*dpr; cv.height=H*dpr; }
+     const ctx=cv.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,W,H);
+     const pad={l:4,r:4,t:10,b:16};
+     ctx.strokeStyle='rgba(255,255,255,.08)'; ctx.fillStyle='rgba(255,255,255,.45)'; ctx.font='10px system-ui'; ctx.lineWidth=1;
+     for(let i=0;i<3;i++){ const y=pad.t+(H-pad.t-pad.b)*i/2; ctx.beginPath(); ctx.moveTo(pad.l,y); ctx.lineTo(W-pad.r,y); ctx.stroke(); }
+     if(!pts||pts.length<2){ ctx.fillText('等待数据…',pad.l+2,H/2); cv.onmousemove=null; return; }
+     let max=0; pts.forEach(p=>{ max=Math.max(max,p.rx,p.tx); }); if(max<=0) max=1; max*=1.15;
+     const X=i=>pad.l+(W-pad.l-pad.r)*i/(pts.length-1), Y=v=>pad.t+(H-pad.t-pad.b)*(1-v/max);
+     const line=(key,color,fill)=>{ ctx.beginPath(); pts.forEach((p,i)=>{ const x=X(i),y=Y(p[key]); i?ctx.lineTo(x,y):ctx.moveTo(x,y); }); ctx.strokeStyle=color; ctx.lineWidth=1.6; ctx.stroke(); if(fill){ ctx.lineTo(X(pts.length-1),H-pad.b); ctx.lineTo(X(0),H-pad.b); ctx.closePath(); const g=ctx.createLinearGradient(0,pad.t,0,H-pad.b); g.addColorStop(0,fill); g.addColorStop(1,'rgba(0,0,0,0)'); ctx.fillStyle=g; ctx.fill(); ctx.lineWidth=1; } };
+     line('rx','#30d158','rgba(48,209,88,.20)');
+     line('tx','#0a84ff',null);
+     ctx.fillStyle='rgba(255,255,255,.45)';
+     const tf=d=>(range==='7d')?(d.getMonth()+1)+'/'+d.getDate()+' '+d.toTimeString().slice(0,5):d.toTimeString().slice(0,8);
+     const t0=tf(new Date(pts[0].ts*1000)), t1=tf(new Date(pts[pts.length-1].ts*1000));
+     ctx.fillText(t0,pad.l,H-4); ctx.fillText(t1,W-pad.r-ctx.measureText(t1).width,H-4);
+     const tip=G('sm-tip');
+     cv.onmousemove=e=>{ const r=cv.getBoundingClientRect(); const fx=(e.clientX-r.left-pad.l)/(W-pad.l-pad.r); let i=Math.round(fx*(pts.length-1)); i=Math.max(0,Math.min(pts.length-1,i)); const p=pts[i]; drawChart(pts); const c2=cv.getContext('2d'); const x=X(i); c2.strokeStyle='rgba(255,255,255,.35)'; c2.lineWidth=1; c2.beginPath(); c2.moveTo(x,pad.t); c2.lineTo(x,H-pad.b); c2.stroke(); [['rx','#30d158'],['tx','#0a84ff']].forEach(kv=>{ c2.fillStyle=kv[1]; c2.beginPath(); c2.arc(x,Y(p[kv[0]]),3,0,7); c2.fill(); }); if(tip){ tip.style.display='block'; tip.style.left=Math.min(W-120,x+16)+'px'; tip.style.top='6px'; tip.innerHTML=tf(new Date(p.ts*1000))+'<br>↓ '+fmtRate(p.rx)+'<br>↑ '+fmtRate(p.tx); } };
+     cv.onmouseleave=()=>{ if(tip) tip.style.display='none'; drawChart(pts); };
+   }
+   async function refresh(){ try{ const r=await api('/api/servermon'); servers=r.servers||[]; paintSide(); paintMain(); }catch(e){} }
+   refresh();
+   timer=setInterval(()=>{ if(!document.hidden) refresh(); },3000);
+   watchTimer=setInterval(()=>{ if(cur!=='all') post('/api/servermon/watch',{id:cur,on:true}); },30000);
+   const winEl=document.getElementById('body-servermon')?.closest('.win');
+   if(winEl){ const mo=new MutationObserver(()=>{ if(!document.body.contains(winEl)){ clearInterval(timer); clearInterval(watchTimer); if(cur!=='all') post('/api/servermon/watch',{id:cur,on:false}); mo.disconnect(); } }); mo.observe(document.body,{childList:true,subtree:true}); }
  }
  if(id==='ssh'){
    let conns=[], keys=[], cur=null, ws=null, term=null, fit=null, curPath='';

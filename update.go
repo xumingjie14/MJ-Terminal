@@ -45,7 +45,7 @@ import (
 // AppVersion is the single source of truth for the running version.
 // The CI workflow must publish the Release with the matching tag
 // (v + AppVersion) and update.json.
-const AppVersion = "0.25"
+const AppVersion = "0.26"
 
 const updateRepo = "xumingjie14/MJ-Terminal"
 const updateZipName = "MJ-System-64bit.zip"
@@ -285,7 +285,8 @@ func downloadUpdate() {
 		upd.set("error", "还没有检查到可下载的更新")
 		return
 	}
-	upd.set("downloading", "正在下载更新包…")
+	ensureCoreForDownload()
+	upd.set("downloading", "正在下载更新包（"+downloadRoute()+"）…")
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 	resp, err := ghSend(ctx, zipURL, "application/octet-stream")
