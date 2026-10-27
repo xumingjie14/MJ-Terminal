@@ -65,6 +65,11 @@ jobs:
           "BUILD_TMP=$buildTmp"    | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "COPY_ROOT=$copyRoot"    | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "LIB=$lib"               | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          # 便携 runtime 顶到后续每个步骤 PATH 的最前面（GITHUB_PATH 里的行会被
+          # 前置进后续步骤的 PATH）；此处先占位，Node 本体在下一步提取进来。
+          # 配合各步的绝对路径调用与解析断言，杜绝裸 node 解析到 runner 预装的
+          # 系统 Node（run #1 就是栽在这里，详见 DESIGN.md 末尾）
+          (Join-Path $component "runtime") | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
           $env:COMPONENT = $component; $env:LOGS = $logs; $env:RESULTS_DIR = $results
           $env:BUILD_TMP = $buildTmp; $env:COPY_ROOT = $copyRoot; $env:LIB = $lib
 
@@ -196,32 +201,76 @@ jobs:
           . $env:LIB
           $comp = $env:COMPONENT
           $app  = Join-Path $comp "app"
-          $npm  = Join-Path $comp "runtime\npm.cmd"
+          $runtimeDir = Join-Path $comp "runtime"
+          $nodeExe    = Join-Path $runtimeDir "node.exe"
+          $npm        = Join-Path $runtimeDir "npm.cmd"
           $env:npm_config_cache = Join-Path $env:BUILD_TMP "npm-cache"
+
+          # 运行时钉死（run #1 教训）：本步先把便携 runtime 顶到 PATH 最前面
+          # （后续步骤另有 GITHUB_PATH 与 Set-OcEnv 双保险）。npm.cmd 本身虽走
+          # 绝对路径，但 openclaw 的安装脚本里裸调的 node 是按 PATH 解析的，
+          # 不钉死就会被 runner 预装的系统 Node（C:\Program Files\nodejs）抢走
+          $env:PATH = "$runtimeDir;$env:PATH"
 
           # 版本钉死：与 Linux 验证同一组合（Linux 侧 ^2026.10.8 解析结果即 2026.10.8）
           $pkg = [ordered]@{ dependencies = [ordered]@{ openclaw = $env:OPENCLAW_VERSION } }
           ($pkg | ConvertTo-Json) | Set-Content (Join-Path $app "package.json") -Encoding utf8
 
+          # 快速失败护栏：在真正 npm install 之前，用与安装相同的解析方式
+          # （PATH 里的 node + 将要调用的 npm.cmd/node.exe）核对运行时——
+          # node -v 必须恰为 v24.22.1，且 execPath 与 PATH 解析结果都必须落在
+          # component\runtime 内；不过就立刻红，实际解析值经 Add-Result 进
+          # Summary，不再等两分钟安装白跑完才发现又是系统 Node
+          $guardLog = Join-Path $env:LOGS "runtime-guard.txt"
+          $resolvedNode = (Get-Command node -ErrorAction SilentlyContinue).Source
+          $nodeVersion  = (& $nodeExe -v).Trim()
+          $nodeExecPath = (& $nodeExe -p "process.execPath").Trim()
+          $npmVersion   = (& $npm --version).Trim()
+          @(
+            "want node        : v$env:NODE_VERSION"
+            "node.exe -v      : $nodeVersion"
+            "node execPath    : $nodeExecPath"
+            "PATH resolves to : $resolvedNode"
+            "npm.cmd --version: $npmVersion (via $npm)"
+          ) | Set-Content $guardLog -Encoding utf8
+          Get-Content $guardLog | Write-Host
+          $guardOk = ($nodeVersion -eq "v$env:NODE_VERSION") -and `
+                     ($nodeExecPath -like "$runtimeDir*") -and `
+                     ($resolvedNode -and ($resolvedNode -like "$runtimeDir*"))
+          if (-not $guardOk) {
+            "GUARD FAIL: 便携 Node 未钉死（实际解析见上）" | Add-Content $guardLog -Encoding utf8
+            Add-Result "01-assembly" "组装（Node + OpenClaw）" "fail" "运行时护栏未过：node -v=$nodeVersion；execPath=$nodeExecPath；PATH 解析=$resolvedNode（期望 v$env:NODE_VERSION 且两者都位于 $runtimeDir 内）" $guardLog
+            exit 1
+          }
+          "GUARD pass" | Add-Content $guardLog -Encoding utf8
+
           $registries = @("https://registry.npmjs.org/", "https://registry.npmmirror.com/")
-          $usedRegistry = ""; $installSec = 0; $installed = $false
+          $usedRegistry = ""; $installSec = 0; $installed = $false; $attempts = @()
           foreach ($reg in $registries) {
             if (Test-Path (Join-Path $app "node_modules"))     { Remove-Item (Join-Path $app "node_modules") -Recurse -Force }
             if (Test-Path (Join-Path $app "package-lock.json")) { Remove-Item (Join-Path $app "package-lock.json") -Force }
             $tag = if ($reg -like "*npmmirror*") { "npmmirror" } else { "official" }
             $installLog = Join-Path $env:LOGS "npm-install-$tag.log"
             Write-Host "npm install via $reg ..."
+            # 本次尝试的日志先落一行头：实际在用的 node 版本与解析路径，
+            # 失败摘录（Summary 与 artifact）里能直接看出每次跑在哪个 Node 上
+            "[attempt registry=$reg] node=$nodeVersion execPath=$nodeExecPath pathNode=$resolvedNode npm=$npmVersion" |
+              Set-Content $installLog -Encoding utf8
             $sw = [System.Diagnostics.Stopwatch]::StartNew()
             Push-Location $app
-            & $npm install --no-audit --no-fund --loglevel=warn --registry $reg *> $installLog
+            # --scripts-prepend-node-path=true：npm 把“运行 npm 的那个 node”
+            # 所在目录顶到安装脚本的 PATH 最前面，与本步 PATH 钉死双保险，
+            # 保证 openclaw 的版本预检脚本在便携 Node 下执行
+            & $npm install --no-audit --no-fund --loglevel=warn --scripts-prepend-node-path=true --registry $reg *>> $installLog
             $code = $LASTEXITCODE
             Pop-Location
             $sw.Stop(); $installSec = [math]::Round($sw.Elapsed.TotalSeconds, 1)
             Write-Host "npm exit=$code in ${installSec}s (registry $reg)"
+            $attempts += "${tag}: node $nodeVersion @ $resolvedNode, ${installSec}s, exit $code"
             if ($code -eq 0) { $installed = $true; $usedRegistry = $reg; break }
           }
           if (-not $installed) {
-            Add-Result "01-assembly" "组装（Node + OpenClaw）" "fail" "npm install 两个源都失败（官方源与 npmmirror 各一次）；最后一次耗时 ${installSec}s" (Join-Path $env:LOGS "npm-install-npmmirror.log")
+            Add-Result "01-assembly" "组装（Node + OpenClaw）" "fail" "npm install 两个源都失败；各次尝试实际运行时：$($attempts -join '；')" (Join-Path $env:LOGS "npm-install-npmmirror.log")
             exit 1
           }
 
@@ -290,6 +339,14 @@ jobs:
           $bin    = Join-Path $comp "app\node_modules\.bin\openclaw.cmd"
           $outLog = Join-Path $env:LOGS "gateway-stdout.log"
           $errLog = Join-Path $env:LOGS "gateway-stderr.log"
+          # 垫片 openclaw.cmd 内部仍靠 PATH 找 node：启动前断言解析落在组件内
+          # （Set-OcEnv 已把 runtime 顶到本步 PATH 最前面，这里做一次硬核对）
+          $gwNode = (Get-Command node -ErrorAction SilentlyContinue).Source
+          Write-Host "gateway step node resolves to: $gwNode"
+          if (-not ($gwNode -and ($gwNode -like "$comp*"))) {
+            Add-Result "02-gateway-boot" "网关原生启动并监听 18789" "fail" "网关启动前 node 解析未钉死：$gwNode（期望位于 $comp 内）"
+            return
+          }
           try {
             $start = Get-Date
             # 托管方式：gateway 前台 run（不用 openclaw 自带 daemon/schtasks 安装模式）
@@ -318,6 +375,14 @@ jobs:
           $comp = $env:COMPONENT
           Set-OcEnv -Root $comp
           $bin = Join-Path $comp "app\node_modules\.bin\openclaw.cmd"
+
+          # 同 gateway 步：status/doctor 经垫片调 node，先断言解析在组件内
+          $smokeNode = (Get-Command node -ErrorAction SilentlyContinue).Source
+          Write-Host "smoke step node resolves to: $smokeNode"
+          if (-not ($smokeNode -and ($smokeNode -like "$comp*"))) {
+            Add-Result "03-smoke" "status / doctor / Control UI" "fail" "冒烟前 node 解析未钉死：$smokeNode（期望位于 $comp 内）"
+            return
+          }
 
           $healthy = $false
           try {
@@ -450,6 +515,10 @@ jobs:
           $outLog = Join-Path $env:LOGS "gateway-copy-stdout.log"
           $errLog = Join-Path $env:LOGS "gateway-copy-stderr.log"
           try {
+            # 同原组件：副本垫片靠 PATH 找 node，启动前断言解析在副本内
+            $copyNode = (Get-Command node -ErrorAction SilentlyContinue).Source
+            Write-Host "copy step node resolves to: $copyNode"
+            if (-not ($copyNode -and ($copyNode -like "$copy*"))) { throw "副本启动前 node 解析未钉死：$copyNode（期望位于 $copy 内）" }
             $start = Get-Date
             $proc = Start-Process -FilePath "cmd.exe" `
               -ArgumentList "/c `"$bin`" gateway run --port $env:GATEWAY_PORT --bind loopback --verbose" `
