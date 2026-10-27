@@ -152,7 +152,7 @@ func pruneExtWindowsLocked() (restamp, place []uint64) {
 	return restamp, place
 }
 
-// ---------- v0.20: one-shot landing placement ----------
+// ---------- v0.20/v0.21: one-shot landing placement ----------
 //
 // External apps are launched with --start-maximized and Chrome also
 // restores its own remembered geometry, so a window opened from the
@@ -160,27 +160,71 @@ func pruneExtWindowsLocked() (restamp, place []uint64) {
 // and the Dock. The user asked for the window to open "inside the
 // terminal" while staying a real external window. So: exactly once,
 // when a window is first registered, it is fitted into the desktop
-// shell window's rectangle, inset per the constants below. After
+// shell window's rectangle, sized per the constants below. After
 // that the user may drag or maximize it freely -- the daemon never
 // touches its geometry again. A window that is closed and reopened
 // is a new registration and lands again.
 
-// Landing insets in physical pixels, sized from the desktop's own
-// chrome (index.html): the menu bar is 38px tall, the floating Dock
-// occupies roughly the bottom 90px once its hover magnification is
-// counted. The insets leave a breathing gap on top of that.
+// Landing size as fractions of the desktop rectangle (v0.21),
+// measured from the user's reference photo of the effect he wants:
+// the landed window takes about 62% of the desktop width and 85%
+// of its height, horizontally centered, with a ring of desktop
+// showing on all four sides -- menu bar and wallpaper on top, the
+// Stage Manager strip on the left, the desktop icon column on the
+// right, the Dock at the bottom. The top gap is 6.5% of the
+// desktop height, which keeps the menu bar clear; the rest of the
+// vertical slack falls to the bottom so the Dock shows too.
+const (
+	placeWidthFrac  = 0.62  // of desktop width
+	placeHeightFrac = 0.85  // of desktop height
+	placeTopFrac    = 0.065 // of desktop height, above the window
+)
+
+// Minimum usable landed size. If the proportional size would come
+// out smaller than this (small desktop window), placement falls
+// back to the v0.20 fixed-inset algorithm below so the app window
+// is not squeezed into something unusable.
+const (
+	placeMinWidth  = 760
+	placeMinHeight = 520
+)
+
+// Landing insets in physical pixels for the small-desktop fallback,
+// sized from the desktop's own chrome (index.html): the menu bar is
+// 38px tall, the floating Dock occupies roughly the bottom 90px once
+// its hover magnification is counted. The insets leave a breathing
+// gap on top of that.
 const (
 	placeTopInset    = 50  // menu bar (38) + gap
 	placeBottomInset = 106 // Dock zone (~90) + gap
 	placeSideInset   = 28
 )
 
-// placeTargetRect computes where a landed window goes: the shell
-// rectangle shrunk by the landing insets. On a small desktop window
-// the insets converge proportionally so they can never eat the whole
-// area; if the result would still be degenerate, the window simply
-// gets 92% of the shell, centered.
+// placeTargetRect computes where a landed window goes. Normally
+// that is the proportional rectangle described above: 62% x 85% of
+// the desktop, horizontally centered, with 6.5% of the desktop
+// height above it. When the desktop is small enough that the
+// proportional window would drop below the usable minimum size, it
+// falls back to the v0.20 fixed-inset algorithm.
 func placeTargetRect(l, t, r, b int32) (int32, int32, int32, int32) {
+	w, h := r-l, b-t
+	tw := int32(float64(w) * placeWidthFrac)
+	th := int32(float64(h) * placeHeightFrac)
+	if tw >= placeMinWidth && th >= placeMinHeight {
+		tl := l + (w-tw)/2
+		tt := t + int32(float64(h)*placeTopFrac)
+		return tl, tt, tl + tw, tt + th
+	}
+	return placeTargetRectInset(l, t, r, b)
+}
+
+// placeTargetRectInset is the original v0.20 algorithm, now only
+// the small-desktop fallback: the shell rectangle shrunk by the
+// landing insets. On a small desktop window the insets converge
+// proportionally so they can never eat the whole area; if the
+// result would still be degenerate, the window simply gets 92% of
+// the shell, centered.
+func placeTargetRectInset(l, t, r, b int32) (int32, int32, int32, int32) {
 	w, h := r-l, b-t
 	side := int32(placeSideInset)
 	if m := w / 12; m < side {
