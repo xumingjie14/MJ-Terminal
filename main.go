@@ -1119,6 +1119,14 @@ func launchIsolatedBrowser(proxy bool, target string, appMode bool) error {
 	profile := filepath.Join(dataDir(), "ChromeProfile")
 	_ = os.MkdirAll(profile, 0o755)
 	args := []string{"--user-data-dir=" + profile, "--no-first-run", "--start-maximized"}
+	// Disk-cache cap (v0.30, 设置 -> 浏览器）: the profile's caches
+	// are what bloats the portable folder over time; the cap keeps
+	// them bounded. 0 = no cap (the flag is simply not passed).
+	cacheNote := "不限制"
+	if mb := settingChromeCacheMB(); mb > 0 {
+		args = append(args, "--disk-cache-size="+strconv.Itoa(mb*1024*1024))
+		cacheNote = fmt.Sprintf("%d MB", mb)
+	}
 	if proxy {
 		args = append(args, "--proxy-server=socks5://127.0.0.1:"+strconv.Itoa(proxyPort), "--proxy-bypass-list=127.0.0.1;localhost")
 	}
@@ -1145,7 +1153,7 @@ func launchIsolatedBrowser(proxy bool, target string, appMode bool) error {
 	if appMode {
 		mode += " · 应用模式"
 	}
-	logf("browser", "info", "打开隔离浏览器：%s（%s）", host, mode)
+	logf("browser", "info", "打开隔离浏览器：%s（%s，磁盘缓存上限 %s）", host, mode, cacheNote)
 	// Unified window management (v0.18 乙+丙): register this external
 	// window with the daemon so the Stage Manager can switch to it and
 	// the taskbar groups it with the rest. No-op off Windows.
@@ -1679,6 +1687,9 @@ func runServer(portFlag int, isDaemon bool) {
 	mux.HandleFunc("/api/update/download", updateDownloadHandler)
 	mux.HandleFunc("/api/update/apply", updateApplyHandler)
 	mux.HandleFunc("/api/accel", accelHandler)
+	mux.HandleFunc("/api/settings", settingsHandler)
+	mux.HandleFunc("/api/storage/usage", storageUsageHandler)
+	mux.HandleFunc("/api/storage/cleanup", storageCleanupHandler)
 	mux.HandleFunc("/api/openshell", shellOpenHandler)
 	mux.HandleFunc("/api/apps/catalog", appsCatalogHandler)
 	mux.HandleFunc("/api/apps/install", appsInstallHandler)
@@ -1765,16 +1776,21 @@ func runServer(portFlag int, isDaemon bool) {
 
 	if isDaemon {
 		// Safety net for shared PCs: if the node is NOT running and
-		// nobody has touched the system for 30 minutes, the daemon
+		// nobody has touched the system for a while, the daemon
 		// cleans itself up instead of lingering forever. While the
 		// node runs (someone may be browsing through it), never exit.
+		// The idle limit is a user preference since v0.30
+		// (Data/settings.json, 设置 -> 通用； default 30 minutes,
+		// 0 = never auto-exit), re-read every tick so a change in
+		// the Settings app applies without a restart.
 		go func() {
 			for range time.Tick(time.Minute) {
 				coreMu.Lock()
 				running := coreRunningLocked()
 				coreMu.Unlock()
-				if !running && !ocRunning() && time.Now().Unix()-lastActivity.Load() > 30*60 {
-					logf("system", "info", "空闲超过 30 分钟且节点未运行，守护进程自动退出")
+				mins := settingIdleExitMinutes()
+				if mins > 0 && !running && !ocRunning() && time.Now().Unix()-lastActivity.Load() > int64(mins)*60 {
+					logf("system", "info", "空闲超过 %d 分钟且节点未运行，守护进程自动退出", mins)
 					ocStopForShutdown()
 					coreMu.Lock()
 					stopCoreLocked()

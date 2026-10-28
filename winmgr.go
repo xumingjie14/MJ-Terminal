@@ -219,18 +219,26 @@ const (
 // phoneModeMaxDesktopWidth: a desktop shell narrower than this is in
 // small-window mode even when maximized (a maximized-but-narrow
 // desktop, e.g. snapped to half a small screen, is still small).
+// Since v0.30 this is only the DEFAULT: the live values (and the
+// on/off switch) are user preferences in Data/settings.json, read
+// through settingPhone() on every landing.
 const phoneModeMaxDesktopWidth = 1200
 
 // phoneWidth is the landed width in phone mode, matching a large
-// phone's CSS viewport.
+// phone's CSS viewport. Default only, see above.
 const phoneWidth = 400
 
 // placePhoneMode reports whether a landing should use the phone
 // width: the desktop shell is not maximized (the user's floating-
-// window way of working), or it is narrower than
-// phoneModeMaxDesktopWidth even though maximized.
+// window way of working), or it is narrower than the configured
+// trigger width even though maximized. Phone mode can also be
+// switched off entirely in 设置 -> 桌面与 Dock.
 func placePhoneMode(l, r int32, shellZoomed bool) bool {
-	return !shellZoomed || (r-l) < phoneModeMaxDesktopWidth
+	on, trigger, _ := settingPhone()
+	if !on {
+		return false
+	}
+	return !shellZoomed || (r-l) < int32(trigger)
 }
 
 // placeTargetRectPhone computes the phone-mode landing rectangle:
@@ -242,8 +250,9 @@ func placePhoneMode(l, r int32, shellZoomed bool) bool {
 // wider than the desktop.
 func placeTargetRectPhone(l, t, r, b int32) (int32, int32, int32, int32) {
 	w, h := r-l, b-t
-	tw := int32(phoneWidth)
-	if w < phoneWidth+32 {
+	_, _, prefWidth := settingPhone()
+	tw := int32(prefWidth)
+	if w < tw+32 {
 		tw = w - 32
 		floor := int32(280)
 		if m := w * 90 / 100; m < floor {

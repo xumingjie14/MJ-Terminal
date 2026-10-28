@@ -32,17 +32,20 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 const (
-	diagBufMax  = 2000            // in-memory ring buffer size
-	diagFileMax = 2 * 1024 * 1024 // rotate mj.log past 2 MB
-	diagBackups = 2               // keep mj.log.1 / mj.log.2
+	diagBufMax      = 2000            // in-memory ring buffer size
+	diagFileMax     = 2 * 1024 * 1024 // rotate mj.log past 2 MB
+	diagBackups     = 2               // keep mj.log.1 / mj.log.2
+	diagBackfillMax = 1000            // history lines reloaded into the buffer at boot (v0.30)
 )
 
 type diagEntry struct {
@@ -54,12 +57,14 @@ type diagEntry struct {
 }
 
 var (
-	diagMu      sync.Mutex
-	diagBuf     []diagEntry
-	diagSeq     int64
-	diagFile    *os.File
-	diagFileLen int64
-	diagOnce    sync.Once
+	diagMu          sync.Mutex
+	diagBuf         []diagEntry
+	diagSeq         int64
+	diagFile        *os.File
+	diagFileLen     int64
+	diagOnce        sync.Once
+	diagBootOnce    sync.Once
+	diagPendingNote atomic.Int64 // backfilled history count, announced by the next logf
 
 	daemonStart = time.Now()
 	daemonPort  int // set by runServer once the listener is up
@@ -88,6 +93,90 @@ func diagInitFile() {
 			diagFile = f
 		}
 	})
+}
+
+// diagBoot runs once, on the first logf of the process: open the
+// on-disk log, then backfill history into the ring buffer. Doing it
+// inside the first logf guarantees the history is in place before
+// the hub serves anything, with no separate init ordering to break.
+func diagBoot() {
+	diagBootOnce.Do(func() {
+		diagInitFile()
+		diagBackfill()
+	})
+}
+
+// diagLineRe parses one mj.log line back into an entry. The writer
+// format is "%s [%-5s] [%s] %s" (time, upper level padded to 5,
+// module, message) -- see logf.
+var diagLineRe = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) \[(INFO|WARN|ERROR) ?\] \[([^\]]+)\] (.*)$`)
+
+func parseDiagLine(line string) (diagEntry, bool) {
+	m := diagLineRe.FindStringSubmatch(strings.TrimRight(line, "\r"))
+	if m == nil {
+		return diagEntry{}, false
+	}
+	return diagEntry{
+		Time:   m[1],
+		Level:  strings.ToLower(m[2]),
+		Module: m[3],
+		Msg:    m[4],
+	}, true
+}
+
+// readLogTail returns the last n lines of a log file. The files are
+// capped at 2 MB by rotation, so reading one whole is bounded.
+func readLogTail(path string, n int) []string {
+	b, err := os.ReadFile(path)
+	if err != nil || len(b) == 0 {
+		return nil
+	}
+	lines := strings.Split(strings.TrimRight(string(b), "\n"), "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return lines
+}
+
+// diagBackfill (v0.30) reloads the tail of the on-disk log into the
+// ring buffer at boot, so the console page shows the previous
+// session's records instead of starting blank after a restart --
+// the records were never lost (they live in Data/logs/mj.log), the
+// page just never read them back. Up to diagBackfillMax entries,
+// taken from mj.log first and topped up from mj.log.1's tail.
+// Backfilled entries take seq 1..N in file order, so the live
+// entries of the new session continue right after them and the
+// frontend's after-cursor semantics are unchanged. Runs inside
+// diagBootOnce, before any new entry exists; it must NOT call logf
+// (that would re-enter the once) -- it leaves the count in
+// diagPendingNote and the next logf announces it.
+func diagBackfill() {
+	p := diagLogPath()
+	lines := readLogTail(p, diagBackfillMax)
+	if len(lines) < diagBackfillMax {
+		prev := readLogTail(p+".1", diagBackfillMax-len(lines))
+		lines = append(prev, lines...)
+	}
+	entries := make([]diagEntry, 0, len(lines))
+	for _, ln := range lines {
+		if e, ok := parseDiagLine(ln); ok {
+			entries = append(entries, e)
+		}
+	}
+	if len(entries) == 0 {
+		return
+	}
+	diagMu.Lock()
+	for i := range entries {
+		diagSeq++
+		entries[i].Seq = diagSeq
+	}
+	diagBuf = append(diagBuf, entries...)
+	if len(diagBuf) > diagBufMax {
+		diagBuf = append([]diagEntry{}, diagBuf[len(diagBuf)-diagBufMax:]...)
+	}
+	diagMu.Unlock()
+	diagPendingNote.Store(int64(len(entries)))
 }
 
 func diagRotateLocked() {
@@ -123,7 +212,7 @@ func logf(module, level, format string, args ...any) {
 	}
 	now := time.Now()
 	e := diagEntry{Time: now.Format("2006-01-02 15:04:05"), Level: level, Module: module, Msg: msg}
-	diagInitFile()
+	diagBoot()
 	diagMu.Lock()
 	diagSeq++
 	e.Seq = diagSeq
@@ -144,6 +233,12 @@ func logf(module, level, format string, args ...any) {
 	// Mirror to stdout: invisible in the hidden Windows daemon, but
 	// handy in dev / -no-open runs.
 	fmt.Printf("[%s] %s\n", module, msg)
+	// Announce a boot-time history backfill exactly once, right
+	// after the session's first real entry (diagBackfill itself
+	// cannot log -- it runs inside the boot once).
+	if n := diagPendingNote.Swap(0); n > 0 {
+		logf("diag", "info", "已载入历史日志 %d 条（来自 Data/logs/mj.log）", n)
+	}
 }
 
 func diagCount() int {
