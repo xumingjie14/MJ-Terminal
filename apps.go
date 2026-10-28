@@ -193,6 +193,35 @@ func findApp(id string) (storeApp, bool) {
 	return storeApp{}, false
 }
 
+// storeAppNameForExe maps an executable path back to its store
+// catalog name, for labelling patrol-claimed windows (v0.36). It
+// reads ONLY the embedded catalog: this runs inside the 2-second
+// patrol, where the remote catalog fetch in getCatalog would be
+// far too heavy. Parsed once.
+var embeddedCatalogOnce struct {
+	once sync.Once
+	apps []storeApp
+}
+
+func storeAppNameForExe(exePath string) string {
+	if exePath == "" {
+		return ""
+	}
+	embeddedCatalogOnce.once.Do(func() {
+		embeddedCatalogOnce.apps, _ = parseCatalog(embeddedAppsJSON)
+	})
+	reg := loadAppsRegistry()
+	for _, a := range embeddedCatalogOnce.apps {
+		if !appInstalled(a, reg) {
+			continue
+		}
+		if strings.EqualFold(filepath.Join(appDir(a.ID), filepath.FromSlash(a.Exe)), exePath) {
+			return a.Name
+		}
+	}
+	return ""
+}
+
 func urlHost(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil || u.Host == "" {
@@ -455,6 +484,7 @@ func appsLaunchHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"error": "启动失败：" + err.Error()})
 		return
 	}
+	noteSpawnedProcess(uint32(cmd.Process.Pid), entry.Name)
 	logf("apps", "info", "已启动 %s %s", entry.Name, entry.Version)
 	// Register the app's window with the unified window manager:
 	// unified AppID, one-shot landing, Stage Manager strip (v0.31).

@@ -1153,9 +1153,11 @@ func launchIsolatedBrowser(proxy bool, target string, appMode bool) error {
 	// new window by diffing against it (Chrome hands off to a running
 	// instance, so the started process is not the window's owner).
 	before := platformSnapshotWindows(browser)
-	if err := exec.Command(browser, args...).Start(); err != nil {
+	browserCmd := exec.Command(browser, args...)
+	if err := browserCmd.Start(); err != nil {
 		return fmt.Errorf("浏览器打开失败: %w", err)
 	}
+	noteSpawnedProcess(uint32(browserCmd.Process.Pid), "隔离浏览器")
 	host := target
 	if u, perr := url.Parse(target); perr == nil && u.Host != "" {
 		host = u.Host

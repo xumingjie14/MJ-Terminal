@@ -36,6 +36,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -58,10 +60,14 @@ type extWindow struct {
 	placed    bool   // v0.20: one-shot landing placement already done
 	// browser marks windows owned by a browser the daemon launched
 	// (isolated Chrome / Firefox component, incl. windows the patrol
-	// auto-claimed from them in v0.31). The patrol only watches the
-	// PIDs of browser windows; store apps and the shell never enter
-	// the watched set.
+	// auto-claimed from them). The patrol treats further windows of
+	// a browser process as the gated auto-claim class (v0.36).
 	browser bool
+	// origin records HOW this window entered the registry:
+	// "launch" (the daemon opened it and trackLaunch claimed it) or
+	// the v0.36 ownership reason the patrol claimed it under
+	// (ownProfile / ownExe / ownTree). Audit trail only.
+	origin string
 }
 
 var (
@@ -71,6 +77,52 @@ var (
 	// succession must not race to claim the same fresh window.
 	extClaimMu sync.Mutex
 )
+
+// ---------- v0.36: spawn ledger ----------
+//
+// The daemon historically started UI processes with
+// exec.Command(...).Start() and threw the handle away, so nothing
+// remembered WHICH processes it had brought into being. The ledger
+// is that memory: every UI launch site notes the PID it started.
+// The patrol uses live ledger entries as ownership seeds (rule
+// (a): the daemon's own process trees), alongside the PIDs of
+// already-registered windows. Entries are pruned once the process
+// leaves the snapshot -- a launcher that handed off and exited has
+// done its job; its children keep their ownership through the
+// exe/profile rules or through still-living ancestors.
+
+var (
+	spawnMu    sync.Mutex
+	spawnRoots = map[uint32]string{} // pid -> label (log/audit only)
+)
+
+// noteSpawnedProcess records a process the daemon just started.
+// Call it right after a successful cmd.Start() at UI launch sites
+// (isolated browser, Firefox, store apps, user-run executables).
+func noteSpawnedProcess(pid uint32, label string) {
+	if pid == 0 {
+		return
+	}
+	spawnMu.Lock()
+	spawnRoots[pid] = label
+	spawnMu.Unlock()
+}
+
+// spawnSeedPIDs returns the ledger PIDs still alive in the current
+// process snapshot, pruning the dead ones on the way out.
+func spawnSeedPIDs(alive map[uint32]bool) map[uint32]bool {
+	spawnMu.Lock()
+	defer spawnMu.Unlock()
+	out := map[uint32]bool{}
+	for pid := range spawnRoots {
+		if alive[pid] {
+			out[pid] = true
+		} else {
+			delete(spawnRoots, pid)
+		}
+	}
+	return out
+}
 
 // appNameForURL labels a launched window: the pinned web-app's name
 // when the URL matches one, else the site's hostname, else generic.
@@ -128,7 +180,7 @@ func trackLaunch(app, targetURL, exePath string, before map[uint64]bool, shell, 
 			extMu.Unlock()
 			if hwnd, pid, ok := platformClaimWindow(exePath, before, claimed); ok {
 				extMu.Lock()
-				extWins[hwnd] = &extWindow{HWND: hwnd, App: app, URL: targetURL, Shell: shell, pid: pid, browser: browser}
+				extWins[hwnd] = &extWindow{HWND: hwnd, App: app, URL: targetURL, Shell: shell, pid: pid, browser: browser, origin: "launch"}
 				extMu.Unlock()
 				logf("winmgr", "info", "已登记外部窗口：%s", app)
 				// 丙: stamp the unified AppUserModelID (best effort).
@@ -477,53 +529,39 @@ func extWinNote(format string, args ...any) {
 	logf("winmgr", "warn", "%s", strings.TrimSpace(fmt.Sprintf(format, args...)))
 }
 
-// ---------- v0.31: patrol -- auto-claim browser-spawned windows ----------
+// ---------- v0.36: patrol -- full-inventory ownership claiming ----------
 //
-// trackBrowserLaunch claims exactly ONE window per launch: the one
-// the daemon asked for. Windows the browser then creates on its own
-// -- page popups, Ctrl+N, a tab dragged out into its own window, an
-// undocked DevTools -- were invisible to the Stage Manager. The
-// patrol closes that gap: every ~2s it enumerates the top-level
-// windows owned by the PIDs of already-registered browser windows
-// and claims the new ones.
+// v0.31's patrol watched only the PIDs of already-registered
+// browser windows. That model leaked whenever a window's process
+// was not a watched PID: Firefox was never registered at launch at
+// all (no trackLaunch -- its PID could never enter the watched
+// set), a browser that crashed and respawned came back under a new
+// PID, a store app relaunched itself through a stub, a page handed
+// a file to an external viewer. The user's field report was exact:
+// windows opened from inside the terminal sat on the HOST taskbar
+// with no Stage Manager entry, unfindable from inside.
 //
-// The PID keying is the safety boundary. A browser process owns all
-// of its windows, and the isolated Chrome/Firefox the daemon
-// launched is a different process instance from anything the user
-// runs on the host (the host's own Chrome is another PID), so host
-// windows can never match. The desktop shell's PID is excluded: the
-// shell is registered with browser=false, so Edge's own process
-// never enters the watched set either.
+// The v0.36 patrol inverts the model (decision logic in
+// owncheck.go): every ~2s it inventories ALL visible top-level
+// windows and a full process snapshot, classifies every process by
+// durable facts (isolated-profile command line / image under the
+// terminal folder / descent from a daemon seed), and claims every
+// terminal-owned main window that is not registered yet.
 //
-// Auto-claimed windows are registered with placed=true: they join
-// the Stage Manager strip (listed, clickable to raise) but are
-// NEVER landed or moved -- a page popup has its own idea of where
-// it belongs. The watched PID set is derived from the live registry
-// on every tick, so once a browser's last window is pruned its PID
-// leaves the set on its own.
+// Claimed windows are registered with placed=true: they join the
+// Stage Manager strip (listed, clickable to raise) but are NEVER
+// landed or focus-stolen -- only daemon-launched windows land, via
+// trackLaunch, exactly as before.
 //
 // The on/off switch is 设置 -> 桌面与 Dock ->
 // 「浏览器新窗口自动纳入台前调度」 (settings key
-// stageAutoClaimBrowser, default on), re-read every tick.
-
-// patrolCandidate is one top-level window as the platform layer saw
-// it, in platform-neutral form so the filter stays unit-testable.
-type patrolCandidate struct {
-	HWND    uint64
-	PID     uint32
-	Class   string
-	Title   string
-	Visible bool
-	Owned   bool // has an owner window (dialogs, palettes) -- not a main window
-	W, H    int32
-}
-
-// patrolMinW / patrolMinH filter out toasts, bubbles and other
-// transient specks that share the browser's window class.
-const (
-	patrolMinW = 200
-	patrolMinH = 100
-)
+// stageAutoClaimBrowser, default on), re-read every tick. Its scope
+// is the BROWSER auto-claim class only: profile-fingerprint windows
+// and further windows of registered browser processes. Store apps
+// and other terminal programs (exe/tree rules) are the Stage
+// Manager's core job and are claimed regardless -- previously they
+// entered only through their launch claim, and a second window or
+// a relaunched process fell out of the registry entirely.
 
 // isBrowserWindowClass reports whether a window class is a
 // browser's MAIN window class: Chromium browsers (Chrome, Edge)
@@ -532,29 +570,7 @@ func isBrowserWindowClass(class string) bool {
 	return class == "Chrome_WidgetWin_1" || class == "MozillaWindowClass"
 }
 
-// patrolFilter keeps only the candidates that are genuinely new
-// browser main windows of watched processes.
-func patrolFilter(cands []patrolCandidate, pids map[uint32]bool, registered map[uint64]bool) []patrolCandidate {
-	var out []patrolCandidate
-	for _, c := range cands {
-		if !pids[c.PID] || registered[c.HWND] {
-			continue
-		}
-		if !c.Visible || c.Owned {
-			continue
-		}
-		if !isBrowserWindowClass(c.Class) {
-			continue
-		}
-		if c.W < patrolMinW || c.H < patrolMinH {
-			continue
-		}
-		out = append(out, c)
-	}
-	return out
-}
-
-// deriveBrowserPIDs is the watched set: PIDs of registered browser
+// deriveBrowserPIDs is the set of PIDs owning registered browser
 // windows. Shell windows and store apps are excluded by their flags.
 func deriveBrowserPIDs(wins map[uint64]*extWindow) map[uint32]bool {
 	pids := map[uint32]bool{}
@@ -600,8 +616,58 @@ func cleanAutoClaimTitle(title string) string {
 	return t
 }
 
-// startExtPatrol launches the auto-claim patrol. Off Windows the
-// platform candidate source is always empty, so the loop is inert.
+// claimLabel picks the Stage Manager label for a patrol-claimed
+// window: browsers get their cleaned page title (so the user finds
+// the window by the page they opened); other programs prefer their
+// store-catalog name, then their window title, then the image name.
+func claimLabel(w windowFact, p procFact, browser bool) string {
+	if browser {
+		return cleanAutoClaimTitle(w.Title)
+	}
+	if name := storeAppNameForExe(p.ImagePath); name != "" {
+		return name
+	}
+	if t := strings.TrimSpace(w.Title); t != "" {
+		return t
+	}
+	if base := filepath.Base(p.ImagePath); base != "" && base != "." {
+		return strings.TrimSuffix(base, ".exe")
+	}
+	return "应用"
+}
+
+// procDisplayName renders a process for log lines.
+func procDisplayName(p procFact) string {
+	if base := filepath.Base(p.ImagePath); base != "" && base != "." {
+		return base
+	}
+	return fmt.Sprintf("pid %d", p.PID)
+}
+
+// ---------- self-audit ----------
+//
+// An owned window that cannot be registered yet (today: its title
+// has not materialized) is remembered here. One tick of grace is
+// normal -- windows are routinely enumerated a beat before their
+// title lands. Past the grace tick the window is registered anyway
+// under a fallback label AND a warn goes to the console, so a leak
+// is visible in the diagnostics hub instead of being discovered by
+// the user. The warn fires once per window (at that claim), never
+// per tick.
+
+type pendingClaim struct {
+	title  string
+	pid    uint32
+	reason string
+}
+
+var (
+	auditMu      sync.Mutex
+	pendingOwned = map[uint64]*pendingClaim{}
+)
+
+// startExtPatrol launches the inventory patrol. Off Windows the
+// platform sources are always empty, so the loop is inert.
 func startExtPatrol() {
 	go func() {
 		for range time.Tick(2 * time.Second) {
@@ -613,15 +679,24 @@ func startExtPatrol() {
 func patrolTick() {
 	// Prune + housekeeping first (same as the list handler does on
 	// poll): dead registrations disappear even when the desktop
-	// view is closed, which is also what retires a PID from the
-	// watched set once its last window is gone.
+	// view is closed.
 	extMu.Lock()
 	restamp, place := pruneExtWindowsLocked()
-	pids := deriveBrowserPIDs(extWins)
 	registered := make(map[uint64]bool, len(extWins))
-	for h := range extWins {
+	shellPIDs := map[uint32]bool{}
+	seedPIDs := map[uint32]bool{}
+	for h, e := range extWins {
 		registered[h] = true
+		if e.pid == 0 {
+			continue
+		}
+		if e.Shell {
+			shellPIDs[e.pid] = true
+		} else {
+			seedPIDs[e.pid] = true
+		}
 	}
+	browserPIDs := deriveBrowserPIDs(extWins)
 	extMu.Unlock()
 	for _, h := range restamp {
 		platformSetAppID(h)
@@ -630,23 +705,88 @@ func patrolTick() {
 		tryPlaceExtWindow(h)
 	}
 
-	if len(pids) == 0 || !settingStageAutoClaimBrowser() {
-		return
+	procs := platformProcessSnapshot()
+	wins := platformAllTopWindows()
+	if len(procs) == 0 || len(wins) == 0 {
+		return // non-Windows / collection unavailable: patrol inert
 	}
-	fresh := patrolFilter(platformPatrolCandidates(pids), pids, registered)
-	for _, c := range fresh {
-		app := cleanAutoClaimTitle(c.Title)
-		extMu.Lock()
-		if _, dup := extWins[c.HWND]; dup {
-			extMu.Unlock()
+	alive := make(map[uint32]bool, len(procs))
+	byPID := make(map[uint32]procFact, len(procs))
+	for _, p := range procs {
+		alive[p.PID] = true
+		byPID[p.PID] = p
+	}
+	for pid := range spawnSeedPIDs(alive) {
+		seedPIDs[pid] = true
+	}
+	selfPID := uint32(os.Getpid())
+	delete(seedPIDs, selfPID)
+	delete(shellPIDs, selfPID)
+
+	owned := classifyOwnership(procs, seedPIDs, ownContext{
+		RootDir:     exeDir(),
+		ProfileDirs: []string{filepath.Join(dataDir(), "ChromeProfile"), ffProfileDir()},
+		SelfPID:     selfPID,
+	})
+	opts := claimOpts{
+		AutoClaimBrowser: settingStageAutoClaimBrowser(),
+		ShellPIDs:        shellPIDs,
+		BrowserPIDs:      browserPIDs,
+	}
+
+	liveHwnds := make(map[uint64]bool, len(wins))
+	for _, wf := range wins {
+		liveHwnds[wf.HWND] = true
+		if registered[wf.HWND] {
 			continue
 		}
-		extWins[c.HWND] = &extWindow{
-			HWND: c.HWND, App: app, Title: c.Title, pid: c.PID,
-			browser: true, placed: true, lastTitle: c.Title,
+		auditMu.Lock()
+		_, seenBefore := pendingOwned[wf.HWND]
+		auditMu.Unlock()
+		o := opts
+		o.EmptySeenBefore = seenBefore
+		v := decideClaim(wf, owned, registered, o)
+		switch {
+		case v.Claim:
+			label := claimLabel(wf, byPID[wf.PID], v.Browser)
+			extMu.Lock()
+			if _, dup := extWins[wf.HWND]; dup {
+				extMu.Unlock()
+				continue
+			}
+			extWins[wf.HWND] = &extWindow{
+				HWND: wf.HWND, App: label, Title: wf.Title, pid: wf.PID,
+				browser: v.Browser, placed: true, lastTitle: wf.Title, origin: v.Reason,
+			}
+			extMu.Unlock()
+			registered[wf.HWND] = true
+			auditMu.Lock()
+			delete(pendingOwned, wf.HWND)
+			auditMu.Unlock()
+			platformSetAppID(wf.HWND)
+			if v.NoTitle {
+				logf("winmgr", "warn", "台前调度自检：窗口超过一轮盘点仍无标题，已先行登记：%s（进程 %s，归属：%s）",
+					label, procDisplayName(byPID[wf.PID]), ownReasonText(v.Reason))
+			} else {
+				logf("winmgr", "info", "台前调度认领窗口：%s（归属：%s）", label, ownReasonText(v.Reason))
+			}
+		case v.Defer:
+			// Owned but not ready (no title yet): remember it so
+			// the next tick knows the grace is spent.
+			auditMu.Lock()
+			pendingOwned[wf.HWND] = &pendingClaim{title: wf.Title, pid: wf.PID, reason: v.Reason}
+			auditMu.Unlock()
 		}
-		extMu.Unlock()
-		platformSetAppID(c.HWND)
-		logf("winmgr", "info", "台前调度自动认领浏览器新窗口：%s", app)
+		// v.Gated (browser auto-claim switched off) and plain
+		// no-claims need no bookkeeping: gated is a user choice,
+		// never an alarm.
 	}
+	// Retire audit entries whose windows are gone.
+	auditMu.Lock()
+	for h := range pendingOwned {
+		if !liveHwnds[h] {
+			delete(pendingOwned, h)
+		}
+	}
+	auditMu.Unlock()
 }

@@ -763,6 +763,7 @@ func filesOpenPDFHandler(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, map[string]any{"error": "SumatraPDF 启动失败：" + err.Error()})
 			return
 		}
+		noteSpawnedProcess(uint32(cmd.Process.Pid), "SumatraPDF")
 		logf("files", "info", "用 SumatraPDF 打开 PDF：%s", name)
 		trackAppLaunch("SumatraPDF", exePath, before)
 		writeJSON(w, map[string]any{"ok": true, "via": "sumatra"})
@@ -819,6 +820,7 @@ func filesRunHandler(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, map[string]any{"error": "启动失败：" + err.Error()})
 			return
 		}
+		noteSpawnedProcess(uint32(cmd.Process.Pid), name)
 		logf("files", "info", "用户确认后运行可执行文件：%s", name)
 		trackAppLaunch(name, abs, before)
 	case ".bat", ".cmd":

@@ -83,20 +83,11 @@ func windowPID(hwnd uintptr) uint32 {
 // ("chrome.exe") owning pid, "" when it cannot be queried (the
 // process is gone or protected -- either way not ours to manage).
 func processImageBase(pid uint32) string {
-	const processQueryLimitedInformation = 0x1000
-	h, _, _ := procOpenProcess.Call(processQueryLimitedInformation, 0, uintptr(pid))
-	if h == 0 {
+	full := processImagePath(pid)
+	if full == "" {
 		return ""
 	}
-	defer procCloseHandle.Call(h)
-	buf := make([]uint16, 1024)
-	size := uint32(len(buf))
-	r, _, _ := procQueryFullProcessImageNameW.Call(h, 0,
-		uintptr(unsafe.Pointer(&buf[0])), uintptr(unsafe.Pointer(&size)))
-	if r == 0 || size == 0 {
-		return ""
-	}
-	return strings.ToLower(filepath.Base(syscall.UTF16ToString(buf[:size])))
+	return strings.ToLower(filepath.Base(full))
 }
 
 type winCand struct {
@@ -129,19 +120,105 @@ func browserWindows(browserPath string) []winCand {
 	return out
 }
 
-// platformPatrolCandidates enumerates the top-level windows owned
-// by the given PIDs (the patrol's watched browser processes) with
-// the facts patrolFilter needs: class, title, visibility, owner and
-// size. PID membership is the isolation boundary -- a window is
-// only even looked at when its owning process IS one of the
-// browsers the daemon itself launched.
-func platformPatrolCandidates(pids map[uint32]bool) []patrolCandidate {
-	var out []patrolCandidate
-	enumTopLevel(func(hwnd uintptr) bool {
-		pid := windowPID(hwnd)
-		if !pids[pid] {
-			return true
+// ---------- v0.36: full inventory collection ----------
+//
+// The patrol no longer filters at collection time. These functions
+// gather the raw facts for EVERY process and EVERY top-level
+// window; all ownership decisions happen in the platform-neutral
+// classifier (owncheck.go), which is also what keeps the host's own
+// windows safe: they are looked at, classified as not ours, and
+// left alone.
+
+var (
+	ntdll = syscall.NewLazyDLL("ntdll.dll")
+
+	procNtQueryInformationProcess = ntdll.NewProc("NtQueryInformationProcess")
+	procReadProcessMemory         = kernel32.NewProc("ReadProcessMemory")
+	procIsWow64Process            = kernel32.NewProc("IsWow64Process")
+	procCreateToolhelp32Snapshot  = kernel32.NewProc("CreateToolhelp32Snapshot")
+	procProcess32FirstW           = kernel32.NewProc("Process32FirstW")
+	procProcess32NextW            = kernel32.NewProc("Process32NextW")
+)
+
+// processImagePath returns the FULL image path owning pid (""
+// when it cannot be queried: the process is gone or protected --
+// either way its facts stay empty and only tree descent can claim
+// its windows).
+func processImagePath(pid uint32) string {
+	const processQueryLimitedInformation = 0x1000
+	h, _, _ := procOpenProcess.Call(processQueryLimitedInformation, 0, uintptr(pid))
+	if h == 0 {
+		return ""
+	}
+	defer procCloseHandle.Call(h)
+	buf := make([]uint16, 1024)
+	size := uint32(len(buf))
+	r, _, _ := procQueryFullProcessImageNameW.Call(h, 0,
+		uintptr(unsafe.Pointer(&buf[0])), uintptr(unsafe.Pointer(&size)))
+	if r == 0 || size == 0 {
+		return ""
+	}
+	return syscall.UTF16ToString(buf[:size])
+}
+
+type processEntry32W struct {
+	Size            uint32
+	Usage           uint32
+	ProcessID       uint32
+	DefaultHeapID   uintptr
+	ModuleID        uint32
+	Threads         uint32
+	ParentProcessID uint32
+	PriClassBase    int32
+	Flags           uint32
+	ExeFile         [260]uint16
+}
+
+// browserImageNames are the only processes whose command line the
+// snapshot collects: the profile fingerprint lives there, and
+// reading every process's command line would be both slower and
+// more intrusive than the patrol needs to be.
+var browserImageNames = map[string]bool{
+	"chrome.exe": true, "msedge.exe": true, "firefox.exe": true,
+}
+
+// platformProcessSnapshot inventories all processes: pid, parent
+// pid, full image path, and -- for browser images only -- the
+// command line (the isolated-profile fingerprint).
+func platformProcessSnapshot() []procFact {
+	const th32csSnapProcess = 0x00000002
+	snap, _, _ := procCreateToolhelp32Snapshot.Call(th32csSnapProcess, 0)
+	if snap == 0 || snap == uintptr(^uint(0)) {
+		return nil
+	}
+	defer procCloseHandle.Call(snap)
+	var entry processEntry32W
+	entry.Size = uint32(unsafe.Sizeof(entry))
+	var out []procFact
+	r, _, _ := procProcess32FirstW.Call(snap, uintptr(unsafe.Pointer(&entry)))
+	for r != 0 {
+		f := procFact{PID: entry.ProcessID, PPID: entry.ParentProcessID}
+		f.ImagePath = processImagePath(entry.ProcessID)
+		base := strings.ToLower(filepath.Base(f.ImagePath))
+		if f.ImagePath == "" {
+			base = strings.ToLower(syscall.UTF16ToString(entry.ExeFile[:]))
 		}
+		if browserImageNames[base] {
+			f.CmdLine = processCmdLine(entry.ProcessID)
+		}
+		out = append(out, f)
+		entry.Size = uint32(unsafe.Sizeof(entry))
+		r, _, _ = procProcess32NextW.Call(snap, uintptr(unsafe.Pointer(&entry)))
+	}
+	return out
+}
+
+// platformAllTopWindows enumerates every top-level window with the
+// facts decideClaim needs: owning pid, class, title, visibility,
+// owner and size. Unfiltered by design (see the section comment).
+func platformAllTopWindows() []windowFact {
+	var out []windowFact
+	enumTopLevel(func(hwnd uintptr) bool {
 		visible, _, _ := procIsWindowVisible.Call(hwnd)
 		owner, _, _ := procGetWindow.Call(hwnd, 4) // GW_OWNER
 		var cls [256]uint16
@@ -155,13 +232,140 @@ func platformPatrolCandidates(pids map[uint32]bool) []patrolCandidate {
 		if l, t, r, b, ok := platformWindowRect(uint64(hwnd)); ok {
 			w, h = r-l, b-t
 		}
-		out = append(out, patrolCandidate{
-			HWND: uint64(hwnd), PID: pid, Class: class, Title: title,
+		out = append(out, windowFact{
+			HWND: uint64(hwnd), PID: windowPID(hwnd), Class: class, Title: title,
 			Visible: visible != 0, Owned: owner != 0, W: w, H: h,
 		})
 		return true
 	})
 	return out
+}
+
+// ---------- process command line via the PEB ----------
+//
+// There is no supported Win32 API for another process's command
+// line; the standard route is NtQueryInformationProcess ->
+// PEB -> RTL_USER_PROCESS_PARAMETERS.CommandLine, read with
+// ReadProcessMemory. Pure stdlib syscalls, fail-soft throughout:
+// any error yields "", which simply means the profile rule cannot
+// fire for that process this tick.
+//
+// Offsets: a 64-bit reader uses the 64-bit PEB layout for native
+// targets and the 32-bit layout for WOW64 targets; a 32-bit reader
+// (the 386 build) only ever sees the 32-bit layout.
+
+const daemonIs64Bit = unsafe.Sizeof(uintptr(0)) == 8
+
+func readProcessMem(h uintptr, addr uintptr, buf []byte) bool {
+	if addr == 0 || len(buf) == 0 {
+		return false
+	}
+	var read uintptr
+	r, _, _ := procReadProcessMemory.Call(h, addr,
+		uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)),
+		uintptr(unsafe.Pointer(&read)))
+	return r != 0 && read == uintptr(len(buf))
+}
+
+func processCmdLine(pid uint32) string {
+	const processQueryInformation = 0x0400
+	const processVMRead = 0x0010
+	h, _, _ := procOpenProcess.Call(processQueryInformation|processVMRead, 0, uintptr(pid))
+	if h == 0 {
+		return ""
+	}
+	defer procCloseHandle.Call(h)
+
+	wow64 := false
+	if daemonIs64Bit {
+		var w uintptr
+		if r, _, _ := procIsWow64Process.Call(h, uintptr(unsafe.Pointer(&w))); r != 0 {
+			wow64 = w != 0
+		}
+	}
+
+	var pebAddr uintptr
+	if daemonIs64Bit && wow64 {
+		// ProcessWow64Information (26) returns the 32-bit PEB.
+		var p uintptr
+		st, _, _ := procNtQueryInformationProcess.Call(h, 26,
+			uintptr(unsafe.Pointer(&p)), unsafe.Sizeof(p), 0)
+		if st != 0 {
+			return ""
+		}
+		pebAddr = p
+	} else {
+		// ProcessBasicInformation (0): PEB address is the second
+		// pointer-sized field.
+		var pbi [6]uintptr
+		st, _, _ := procNtQueryInformationProcess.Call(h, 0,
+			uintptr(unsafe.Pointer(&pbi[0])), unsafe.Sizeof(pbi), 0)
+		if st != 0 {
+			return ""
+		}
+		pebAddr = pbi[1]
+	}
+	if pebAddr == 0 {
+		return ""
+	}
+
+	use32 := !daemonIs64Bit || wow64
+	var paramsAddr uintptr
+	var cmdOff uintptr // offset of CommandLine within the parameters block
+	if use32 {
+		buf := make([]byte, 0x14)
+		if !readProcessMem(h, pebAddr, buf) {
+			return ""
+		}
+		paramsAddr = uintptr(uint32(buf[0x10]) | uint32(buf[0x11])<<8 | uint32(buf[0x12])<<16 | uint32(buf[0x13])<<24)
+		cmdOff = 0x40
+	} else {
+		buf := make([]byte, 0x28)
+		if !readProcessMem(h, pebAddr, buf) {
+			return ""
+		}
+		paramsAddr = uintptr(uint64(buf[0x20]) | uint64(buf[0x21])<<8 | uint64(buf[0x22])<<16 | uint64(buf[0x23])<<24 |
+			uint64(buf[0x24])<<32 | uint64(buf[0x25])<<40 | uint64(buf[0x26])<<48 | uint64(buf[0x27])<<56)
+		cmdOff = 0x70
+	}
+	if paramsAddr == 0 {
+		return ""
+	}
+
+	// UNICODE_STRING at cmdOff: Length u16, then the buffer
+	// pointer (u32 at +4 in the 32-bit layout, u64 at +8 in the
+	// 64-bit layout).
+	hdr := make([]byte, cmdOff+0x18)
+	if !readProcessMem(h, paramsAddr, hdr) {
+		return ""
+	}
+	co := int(cmdOff)
+	length := int(hdr[co]) | int(hdr[co+1])<<8
+	var bufAddr uintptr
+	if use32 {
+		bufAddr = uintptr(uint32(hdr[co+4]) | uint32(hdr[co+5])<<8 | uint32(hdr[co+6])<<16 | uint32(hdr[co+7])<<24)
+	} else {
+		var v uint64
+		for i := 0; i < 8; i++ {
+			v |= uint64(hdr[co+8+i]) << (8 * i)
+		}
+		bufAddr = uintptr(v)
+	}
+	if length <= 0 || bufAddr == 0 {
+		return ""
+	}
+	if length > 16384 {
+		length = 16384
+	}
+	raw := make([]byte, length)
+	if !readProcessMem(h, bufAddr, raw) {
+		return ""
+	}
+	u16 := make([]uint16, length/2)
+	for i := range u16 {
+		u16[i] = uint16(raw[2*i]) | uint16(raw[2*i+1])<<8
+	}
+	return syscall.UTF16ToString(u16)
 }
 
 func platformSnapshotWindows(browserPath string) map[uint64]bool {

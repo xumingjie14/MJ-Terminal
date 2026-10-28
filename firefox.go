@@ -360,6 +360,12 @@ func launchFirefox(proxy bool, appMode bool, target string) error {
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("Firefox 打开失败: %w", err)
 	}
+	// v0.36: Firefox windows used to be invisible to the Stage
+	// Manager -- launchFirefox never registered the window, so its
+	// PID could never enter the old patrol's watched set. The
+	// inventory patrol now claims it from the spawn ledger and the
+	// -profile command-line fingerprint.
+	noteSpawnedProcess(uint32(cmd.Process.Pid), "Firefox")
 	return nil
 }
 

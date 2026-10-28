@@ -12,7 +12,11 @@ func platformSnapshotWindows(browserPath string) map[uint64]bool {
 	return map[uint64]bool{}
 }
 
-func platformPatrolCandidates(pids map[uint32]bool) []patrolCandidate {
+func platformProcessSnapshot() []procFact {
+	return nil
+}
+
+func platformAllTopWindows() []windowFact {
 	return nil
 }
 
