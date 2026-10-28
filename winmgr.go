@@ -185,11 +185,15 @@ func trackLaunch(app, targetURL, exePath string, before map[uint64]bool, shell, 
 				logf("winmgr", "info", "已登记外部窗口：%s", app)
 				// 丙: stamp the unified AppUserModelID (best effort).
 				platformSetAppID(hwnd)
-				// v0.20: land the new window inside the desktop's
-				// rectangle, once. The shell window itself is the
-				// frame everything lands in, so it is never placed.
-				if !shell {
-					tryPlaceExtWindow(hwnd)
+				if shell {
+					// The desktop view itself: it is the frame
+					// everything else answers to (v0.37 watcher).
+					grpShellOpened(hwnd)
+				} else {
+					// v0.37: birth settlement -- the one landing
+					// plus the backdrop lift, or following the
+					// set into hiding (winset.go).
+					settleNewWindow(hwnd, true)
 				}
 				return
 			}
@@ -211,6 +215,11 @@ func pruneExtWindowsLocked() (restamp, place []uint64) {
 	for h, e := range extWins {
 		title, alive := platformWindowTitle(h)
 		if !alive {
+			if e.Shell {
+				// v0.37: the watcher turns this into the
+				// close-to-tray transition (winset.go).
+				noteShellWindowGone(h)
+			}
 			delete(extWins, h)
 			continue
 		}
@@ -412,59 +421,17 @@ func placeTargetRectInset(l, t, r, b int32) (int32, int32, int32, int32) {
 	return l + side, t + top, r - side, b - bottom
 }
 
-// tryPlaceExtWindow performs the one-shot placement for a registered
-// external window. It ALWAYS moves the window to the computed target
-// rectangle (rather than keeping a geometry that happens to fit):
-// launch geometry is inconsistent by construction -- --start-
-// maximized, Chrome's remembered position, per-app quirks -- and one
-// predictable landing spot is what the user asked for. When the
-// desktop shell is not registered (view closed) placement is skipped
-// silently; prune retries it on the next /api/extwin poll, and if
-// the view never opens the window simply stays where it opened.
+// tryPlaceExtWindow is the housekeeping retry of the one-shot
+// landing: a window whose birth placement was deferred (no desktop
+// frame to land in yet) is offered again on every prune pass, so
+// its one landing still happens once a frame exists -- the same
+// contract launched windows have had since v0.20. The placement
+// itself (and the v0.37 rules around it: equal for patrol claims,
+// dialogs exempt, never while the set is hidden) lives in
+// doBirthPlacement (winset.go); the birth-moment settlement with
+// the backdrop lift is settleNewWindow, called by the claim paths.
 func tryPlaceExtWindow(hwnd uint64) {
-	extMu.Lock()
-	e, ok := extWins[hwnd]
-	if !ok || e.Shell || e.placed {
-		extMu.Unlock()
-		return
-	}
-	var shell uint64
-	for h, o := range extWins {
-		if o.Shell {
-			shell = h
-			break
-		}
-	}
-	extMu.Unlock()
-	if shell == 0 {
-		return
-	}
-	sl, st, sr, sb, ok := platformWindowRect(shell)
-	if !ok {
-		return
-	}
-	// v0.23: the shell's maximized state is read here, at landing
-	// time, and only for the shell -- whether the external window
-	// itself is maximized stays platformPlaceWindow's business (it
-	// restores it first, as before).
-	tl, tt, tr, tb, phone := placeTargetRectAuto(sl, st, sr, sb, platformWindowZoomed(shell))
-	if !platformPlaceWindow(hwnd, tl, tt, tr, tb) {
-		return
-	}
-	extMu.Lock()
-	if e2, ok := extWins[hwnd]; ok {
-		e2.placed = true
-	}
-	extMu.Unlock()
-	if phone {
-		name := e.App
-		if e.Title != "" {
-			name = e.Title
-		}
-		logf("winmgr", "info", "外部窗口落位（小窗手机宽）：%s → %d×%d", name, tr-tl, tb-tt)
-	} else {
-		logf("winmgr", "info", "外部窗口落位：%s → %d×%d", e.App, tr-tl, tb-tt)
-	}
+	doBirthPlacement(hwnd)
 }
 
 // extWinListHandler serves GET /api/extwin: every registered external
@@ -516,6 +483,10 @@ func extWinFocusHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"error": "这个窗口已经关了"})
 		return
 	}
+	// v0.37: while the set is tucked away (minimize linkage /
+	// tray), a Stage Manager click restores the WHOLE set first,
+	// then raises the target (grpRestoreForFocus, winset.go).
+	grpRestoreForFocus()
 	if !platformFocusWindow(body.HWND) {
 		writeJSON(w, map[string]any{"error": "窗口置前失败"})
 		return
@@ -548,10 +519,14 @@ func extWinNote(format string, args ...any) {
 // terminal folder / descent from a daemon seed), and claims every
 // terminal-owned main window that is not registered yet.
 //
-// Claimed windows are registered with placed=true: they join the
-// Stage Manager strip (listed, clickable to raise) but are NEVER
-// landed or focus-stolen -- only daemon-launched windows land, via
-// trackLaunch, exactly as before.
+// Claimed windows join the Stage Manager strip (listed,
+// clickable to raise) and are never focus-stolen by the patrol.
+// v0.37 changed the landing rule the user originally set for
+// v0.31 ("claims never land"): birth placement is now equal for
+// everyone, so a patrol claim runs the same one-shot settlement
+// as a launch claim (settleNewWindow, winset.go) -- landed once,
+// backdrop-lifted in terminal context, or hidden along with the
+// set when the set is tucked away.
 //
 // The on/off switch is 设置 -> 桌面与 Dock ->
 // 「浏览器新窗口自动纳入台前调度」 (settings key
@@ -756,7 +731,7 @@ func patrolTick() {
 			}
 			extWins[wf.HWND] = &extWindow{
 				HWND: wf.HWND, App: label, Title: wf.Title, pid: wf.PID,
-				browser: v.Browser, placed: true, lastTitle: wf.Title, origin: v.Reason,
+				browser: v.Browser, placed: false, lastTitle: wf.Title, origin: v.Reason,
 			}
 			extMu.Unlock()
 			registered[wf.HWND] = true
@@ -764,6 +739,11 @@ func patrolTick() {
 			delete(pendingOwned, wf.HWND)
 			auditMu.Unlock()
 			platformSetAppID(wf.HWND)
+			// v0.37 birth settlement: the one landing (patrol
+			// claims are equal citizens since this version), the
+			// backdrop lift in terminal context, or following
+			// the set into hiding.
+			settleNewWindow(wf.HWND, false)
 			if v.NoTitle {
 				logf("winmgr", "warn", "台前调度自检：窗口超过一轮盘点仍无标题，已先行登记：%s（进程 %s，归属：%s）",
 					label, procDisplayName(byPID[wf.PID]), ownReasonText(v.Reason))
@@ -789,4 +769,9 @@ func patrolTick() {
 		}
 	}
 	auditMu.Unlock()
+
+	// v0.37: while the set is tucked away, keep it tucked (a
+	// window claimed a beat before the hide, or re-shown by its
+	// own app, rejoins the hidden set here).
+	grpEnforceHidden()
 }

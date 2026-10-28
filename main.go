@@ -1786,6 +1786,9 @@ func runServer(portFlag int, isDaemon bool) {
 		logf("system", "info", "用户从设置退出系统，守护进程关闭")
 		go func() {
 			time.Sleep(300 * time.Millisecond)
+			// v0.37 safety line: never leave group-hidden
+			// windows behind (winset.go).
+			prepareWindowsForDaemonExit()
 			remoteShutdown()
 			ocStopForShutdown()
 			coreMu.Lock()
@@ -1799,6 +1802,7 @@ func runServer(portFlag int, isDaemon bool) {
 	monInit()
 	ocAutoStartInit()
 	startExtPatrol()
+	startShellWatcher()
 	remoteInit()
 
 	fmt.Println("MJ Light System daemon:", url)
@@ -1862,6 +1866,8 @@ func runServer(portFlag int, isDaemon bool) {
 				mins := settingIdleExitMinutes()
 				if mins > 0 && !running && !ocRunning() && time.Now().Unix()-lastActivity.Load() > int64(mins)*60 {
 					logf("system", "info", "空闲超过 %d 分钟且节点未运行，守护进程自动退出", mins)
+					// v0.37 safety line (winset.go).
+					prepareWindowsForDaemonExit()
 					remoteShutdown()
 					ocStopForShutdown()
 					coreMu.Lock()

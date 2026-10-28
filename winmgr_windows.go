@@ -500,6 +500,110 @@ func platformFocusWindow(hwnd uint64) bool {
 	return now == h
 }
 
+// ---------- v0.37: window etiquette platform ops (winset.go) ----------
+
+// platformWindowExists reports whether the handle is still a window.
+func platformWindowExists(hwnd uint64) bool {
+	r, _, _ := procIsWindow.Call(uintptr(hwnd))
+	return r != 0
+}
+
+// platformWindowIconic reports whether the window is minimized.
+func platformWindowIconic(hwnd uint64) bool {
+	h := uintptr(hwnd)
+	if r, _, _ := procIsWindow.Call(h); r == 0 {
+		return false
+	}
+	r, _, _ := procIsIconic.Call(h)
+	return r != 0
+}
+
+// platformWindowVisible reports the window's WS_VISIBLE state. Note
+// a minimized window keeps this flag -- iconic is the minimize test.
+func platformWindowVisible(hwnd uint64) bool {
+	h := uintptr(hwnd)
+	if r, _, _ := procIsWindow.Call(h); r == 0 {
+		return false
+	}
+	r, _, _ := procIsWindowVisible.Call(h)
+	return r != 0
+}
+
+// platformWindowOwned reports whether the window has an owner
+// (dialogs, palettes, file pickers): the birth-placement exemption.
+func platformWindowOwned(hwnd uint64) bool {
+	h := uintptr(hwnd)
+	if r, _, _ := procIsWindow.Call(h); r == 0 {
+		return false
+	}
+	owner, _, _ := procGetWindow.Call(h, 4) // GW_OWNER
+	return owner != 0
+}
+
+// platformForegroundHWND returns the current foreground window.
+func platformForegroundHWND() uint64 {
+	fg, _, _ := procGetForegroundWindow.Call()
+	return uint64(fg)
+}
+
+// platformHideWindow hides the window outright (SW_HIDE): it leaves
+// the screen AND the host taskbar, which is what a group hide means.
+func platformHideWindow(hwnd uint64) bool {
+	h := uintptr(hwnd)
+	if r, _, _ := procIsWindow.Call(h); r == 0 {
+		return false
+	}
+	procShowWindow.Call(h, 0) // SW_HIDE
+	return true
+}
+
+// platformShowBackWindow undoes platformHideWindow with
+// SW_SHOWNOACTIVATE: the window returns in the size/position/show
+// state it had when hidden, without taking activation.
+func platformShowBackWindow(hwnd uint64) bool {
+	h := uintptr(hwnd)
+	if r, _, _ := procIsWindow.Call(h); r == 0 {
+		return false
+	}
+	procShowWindow.Call(h, 8) // SW_SHOWNOACTIVATE
+	return true
+}
+
+// platformRestoreShellWindow un-minimizes the desktop view (the
+// user asked for the set back, e.g. via a Stage Manager click).
+func platformRestoreShellWindow(hwnd uint64) {
+	h := uintptr(hwnd)
+	if r, _, _ := procIsWindow.Call(h); r == 0 {
+		return
+	}
+	if r, _, _ := procIsIconic.Call(h); r != 0 {
+		procShowWindow.Call(h, 9) // SW_RESTORE
+	}
+}
+
+// platformRaiseBackdrop slides the desktop view directly underneath
+// the newborn window in z-order: first the shell is lifted to the
+// top of the stack, then the new window is inserted directly above
+// it. Both moves are NOACTIVATE -- z-order only, focus is never
+// taken; where the user's focus sits afterwards is the system's
+// natural result of their own click.
+func platformRaiseBackdrop(hwnd uint64, shell uint64) bool {
+	sh, nw := uintptr(shell), uintptr(hwnd)
+	if r, _, _ := procIsWindow.Call(sh); r == 0 {
+		return false
+	}
+	if r, _, _ := procIsWindow.Call(nw); r == 0 {
+		return false
+	}
+	const swpNoSize = 0x0001
+	const swpNoMove = 0x0002
+	const swpNoActivate = 0x0010
+	flags := uintptr(swpNoSize | swpNoMove | swpNoActivate)
+	procSetWindowPos.Call(sh, 0 /* HWND_TOP */, 0, 0, 0, 0, flags)
+	r, _, _ := procSetWindowPos.Call(nw, sh, 0, 0, 0, 0, flags)
+	return r != 0
+}
+
 // ---------- 丙: shared AppUserModelID via IPropertyStore ----------
 
 type wmGUID struct {

@@ -58,6 +58,22 @@ type mjSettings struct {
 	// before v0.33. The remote settings POST path refuses this key:
 	// the channel can never switch itself on or off.
 	RemoteEnabled bool `json:"remoteEnabled"`
+	// v0.37 window etiquette （开窗礼仪）, all default ON, read live
+	// by winset.go on every decision:
+	//   WinPlaceOnClaim   -- a window is landed once at first claim
+	//                        (patrol claims included, not just
+	//                        daemon launches); the desktop-backdrop
+	//                        raise rides on this same switch.
+	//   WinHideOnMinimize -- minimizing the desktop view hides the
+	//                        whole claimed set with it; restoring
+	//                        the view brings the set back.
+	//   WinCloseToTray    -- closing the desktop view hides the
+	//                        whole set and parks the daemon in the
+	//                        host's notification area instead of
+	//                        leaving the windows on the host desktop.
+	WinPlaceOnClaim   bool `json:"winPlaceOnClaim"`
+	WinHideOnMinimize bool `json:"winHideOnMinimize"`
+	WinCloseToTray    bool `json:"winCloseToTray"`
 }
 
 func defaultSettings() mjSettings {
@@ -72,6 +88,9 @@ func defaultSettings() mjSettings {
 		StageAutoClaimBrowser: true,
 		FilesOnDesktop:        true,
 		RemoteEnabled:         false,
+		WinPlaceOnClaim:       true,
+		WinHideOnMinimize:     true,
+		WinCloseToTray:        true,
 	}
 }
 
@@ -180,6 +199,9 @@ func settingsMap() map[string]any {
 		"stageAutoClaimBrowser": s.StageAutoClaimBrowser,
 		"filesOnDesktop":        s.FilesOnDesktop,
 		"remoteEnabled":         s.RemoteEnabled,
+		"winPlaceOnClaim":       s.WinPlaceOnClaim,
+		"winHideOnMinimize":     s.WinHideOnMinimize,
+		"winCloseToTray":        s.WinCloseToTray,
 		"fresh":                 settingsFresh(),
 	}
 }
@@ -200,6 +222,12 @@ func settingStageAutoClaimBrowser() bool { return settingsGet().StageAutoClaimBr
 func settingFilesOnDesktop() bool { return settingsGet().FilesOnDesktop }
 
 func settingRemoteEnabled() bool { return settingsGet().RemoteEnabled }
+
+func settingWinPlaceOnClaim() bool { return settingsGet().WinPlaceOnClaim }
+
+func settingWinHideOnMinimize() bool { return settingsGet().WinHideOnMinimize }
+
+func settingWinCloseToTray() bool { return settingsGet().WinCloseToTray }
 
 // settingsSetRemoteEnabledInternal flips the remote-assistance
 // master switch from inside the daemon (the pairing page's
@@ -305,6 +333,30 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 				} else if v != next.FilesOnDesktop {
 					next.FilesOnDesktop = v
 					changed = append(changed, boolLog("filesOnDesktop", v))
+				}
+			case "winPlaceOnClaim":
+				var v bool
+				if json.Unmarshal(val, &v) != nil {
+					fail = "winPlaceOnClaim 必须是 true/false"
+				} else if v != next.WinPlaceOnClaim {
+					next.WinPlaceOnClaim = v
+					changed = append(changed, boolLog("winPlaceOnClaim", v))
+				}
+			case "winHideOnMinimize":
+				var v bool
+				if json.Unmarshal(val, &v) != nil {
+					fail = "winHideOnMinimize 必须是 true/false"
+				} else if v != next.WinHideOnMinimize {
+					next.WinHideOnMinimize = v
+					changed = append(changed, boolLog("winHideOnMinimize", v))
+				}
+			case "winCloseToTray":
+				var v bool
+				if json.Unmarshal(val, &v) != nil {
+					fail = "winCloseToTray 必须是 true/false"
+				} else if v != next.WinCloseToTray {
+					next.WinCloseToTray = v
+					changed = append(changed, boolLog("winCloseToTray", v))
 				}
 			case "remoteEnabled":
 				var v bool

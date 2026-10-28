@@ -45,3 +45,20 @@ func platformFocusWindow(hwnd uint64) bool {
 }
 
 func platformSetAppID(hwnd uint64) {}
+
+// v0.37 window-etiquette ops (winset.go): no host windows exist off
+// Windows, so every fact is "no" and every action is a no-op.
+
+func platformWindowExists(hwnd uint64) bool  { return false }
+func platformWindowIconic(hwnd uint64) bool  { return false }
+func platformWindowVisible(hwnd uint64) bool { return false }
+func platformWindowOwned(hwnd uint64) bool   { return false }
+func platformForegroundHWND() uint64         { return 0 }
+func platformHideWindow(hwnd uint64) bool    { return false }
+func platformShowBackWindow(hwnd uint64) bool {
+	return false
+}
+func platformRestoreShellWindow(hwnd uint64) {}
+func platformRaiseBackdrop(hwnd uint64, shell uint64) bool {
+	return false
+}

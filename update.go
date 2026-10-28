@@ -45,7 +45,7 @@ import (
 // AppVersion is the single source of truth for the running version.
 // The CI workflow must publish the Release with the matching tag
 // (v + AppVersion) and update.json.
-const AppVersion = "0.36"
+const AppVersion = "0.37"
 
 const updateRepo = "xumingjie14/MJ-Terminal"
 const updateZipName = "MJ-System-64bit.zip"
@@ -468,6 +468,9 @@ func updateApplyHandler(w http.ResponseWriter, r *http.Request) {
 	// well makes the handover robust if that call races.
 	go func() {
 		time.Sleep(800 * time.Millisecond)
+		// v0.37 safety line: the hand-over is an exit too -- never
+		// leave group-hidden windows behind (winset.go).
+		prepareWindowsForDaemonExit()
 		remoteShutdown()
 		ocStopForShutdown()
 		coreMu.Lock()
