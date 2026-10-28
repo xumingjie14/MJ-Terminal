@@ -52,12 +52,13 @@ type usageBuckets struct {
 	total, exe, core, data          int64
 	chrome, ffProfile, openclaw     int64
 	apps, logs, wallpaper, otherDat int64
+	files                           int64 // Data/files (imported files, v0.32; .thumbs included)
 }
 
 // classifyWalk walks root once, adding every regular file to acc
 // under the bucket its path belongs to. exeRoot is only used to
 // know when a path leaves the program folder.
-func classifyWalk(root string, acc *usageBuckets, self, core, data, chrome, ffProf, oc, appsDir, logs string) {
+func classifyWalk(root string, acc *usageBuckets, self, core, data, chrome, ffProf, oc, appsDir, logs, files string) {
 	_ = filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
 		if err != nil || !d.Type().IsRegular() {
 			return nil
@@ -82,6 +83,9 @@ func classifyWalk(root string, acc *usageBuckets, self, core, data, chrome, ffPr
 			acc.data += sz
 		case strings.HasPrefix(p, appsDir+string(os.PathSeparator)):
 			acc.apps += sz
+			acc.data += sz
+		case strings.HasPrefix(p, files+string(os.PathSeparator)):
+			acc.files += sz
 			acc.data += sz
 		case strings.HasPrefix(p, logs+string(os.PathSeparator)):
 			acc.logs += sz
@@ -112,18 +116,19 @@ func storageUsage() (map[string]any, int64) {
 	oc := ocDir()
 	appsDir := filepath.Join(data, "apps")
 	logs := diagLogsDir()
+	files := filesDir()
 
 	acc := &usageBuckets{}
 	exeRoot := exeDir()
-	classifyWalk(exeRoot, acc, self, core, data, chrome, ffProf, oc, appsDir, logs)
+	classifyWalk(exeRoot, acc, self, core, data, chrome, ffProf, oc, appsDir, logs, files)
 	// Data can live outside the program folder (LocalAppData
 	// fallback when the folder is not writable): account for it too.
 	if !strings.HasPrefix(data, exeRoot+string(os.PathSeparator)) {
-		classifyWalk(data, acc, self, core, data, chrome, ffProf, oc, appsDir, logs)
+		classifyWalk(data, acc, self, core, data, chrome, ffProf, oc, appsDir, logs, files)
 	}
 
 	program := acc.exe + acc.core
-	other := acc.total - program - acc.chrome - acc.ffProfile - acc.openclaw - acc.apps - acc.logs - acc.wallpaper
+	other := acc.total - program - acc.chrome - acc.ffProfile - acc.openclaw - acc.apps - acc.logs - acc.wallpaper - acc.files
 	if other < 0 {
 		other = 0
 	}
@@ -138,6 +143,7 @@ func storageUsage() (map[string]any, int64) {
 			{"key": "firefoxProfile", "name": "Firefox 档案", "bytes": acc.ffProfile},
 			{"key": "openclaw", "name": "小龙虾组件与数据", "bytes": acc.openclaw},
 			{"key": "apps", "name": "商店应用", "bytes": acc.apps},
+			{"key": "files", "name": "导入的文件", "bytes": acc.files},
 			{"key": "logs", "name": "日志", "bytes": acc.logs},
 			{"key": "wallpaper", "name": "自定义壁纸", "bytes": acc.wallpaper},
 			{"key": "other", "name": "其他", "bytes": other},

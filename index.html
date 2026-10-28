@@ -202,6 +202,32 @@ a{color:#64d2ff}
 .set-num:focus{border-color:var(--accent)}
 .set-val{font-variant-numeric:tabular-nums;opacity:.92}
 .set-note{font-size:12px;opacity:.6;line-height:1.6;margin-top:8px}
+/* ---------- imported files on the desktop (v0.32) ---------- */
+.appico.fileico{position:relative;overflow:hidden}
+.appico.fileico .ext{font-size:12.5px;font-weight:800;letter-spacing:.03em;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.45);padding:0 3px;text-align:center;line-height:1.15;word-break:break-all}
+.appico.fileico img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.g-f-pdf{background:linear-gradient(180deg,#ff6b5e,#d92c1f)}
+.g-f-img{background:linear-gradient(180deg,#64d2ff,#0a62d6)}
+.g-f-txt{background:linear-gradient(180deg,#f2f2f5,#9a9aa0)}
+.g-f-txt .ext{color:#3a3a3c;text-shadow:none}
+.g-f-csv{background:linear-gradient(180deg,#4cd964,#1d8a3c)}
+.g-f-doc{background:linear-gradient(180deg,#5ec2ff,#0a4dcc)}
+.g-f-xls{background:linear-gradient(180deg,#5ad08a,#146c2e)}
+.g-f-ppt{background:linear-gradient(180deg,#ffab5e,#d95d1f)}
+.g-f-zip{background:linear-gradient(180deg,#c9a06a,#8a6134)}
+.g-f-exe{background:linear-gradient(180deg,#48484f,#131316)}
+.g-f-other{background:linear-gradient(180deg,#aeaeb2,#636366)}
+.g-f-dir{background:rgba(255,255,255,.24);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);font-size:26px}
+#dropveil{position:fixed;inset:10px;z-index:2900;border:2.5px dashed rgba(140,210,255,.9);border-radius:22px;background:rgba(20,40,70,.35);display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:650;color:#fff;text-shadow:0 2px 8px rgba(0,0,0,.6);pointer-events:none}
+#dropveil.hidden{display:none}
+#toast{position:fixed;left:50%;bottom:118px;transform:translateX(-50%);z-index:3200;background:rgba(28,28,34,.9);border:1px solid rgba(255,255,255,.22);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);color:#fff;border-radius:12px;padding:10px 18px;font-size:13.5px;box-shadow:0 14px 34px rgba(0,0,0,.45);max-width:80vw;text-align:center}
+#toast.hidden{display:none}
+.imgstage{flex:1;display:flex;align-items:center;justify-content:center;min-height:0;background:rgba(0,0,0,.25);border-radius:12px;overflow:auto}
+.imgstage img{max-width:100%;max-height:100%;object-fit:contain}
+.imgstage img.full{max-width:none;max-height:none}
+pre.textview{white-space:pre-wrap;word-break:break-all;font-family:ui-monospace,Consolas,monospace;font-size:12.5px;line-height:1.65;color:#e8e8ed}
+table.gridtab th{background:rgba(255,255,255,.10);font-weight:650}
+table.gridtab td,table.gridtab th{white-space:nowrap;max-width:280px;overflow:hidden;text-overflow:ellipsis}
 /* ---------- app store (v0.24) ---------- */
 .stcat{text-align:left;padding:7px 11px;border-radius:9px;border:1px solid transparent;background:transparent;color:var(--txt);cursor:pointer;font:inherit;font-size:13px}
 .stcat:hover{background:rgba(255,255,255,.10)}
@@ -255,6 +281,9 @@ a{color:#64d2ff}
 <div id="extstrip" class="hidden"></div>
 <div id="ctxmenu" class="hidden"></div>
 <div id="folderpop" class="hidden"></div>
+<div id="dropveil" class="hidden">松开，把文件导入到终端桌面</div>
+<div id="toast" class="hidden"></div>
+<input type="file" id="deskimp" multiple style="display:none">
 
 <div id="dockwrap"><div id="dock"></div></div>
 
@@ -272,6 +301,15 @@ const APPS=[
  {id:'openclaw',e:'🦞',g:'g-openclaw',glyph:'🦞',n:'小龙虾'},
  {id:'core',e:'🚀',g:'g-core',glyph:'🚀',n:'节点'},
  {id:'sys',e:'⚙️',g:'g-sys',glyph:'⚙️',n:'设置'},
+ /* file viewers (v0.32): real windows in the same openApp system
+    (so they join the Stage Manager like everything else), but they
+    are viewers, not resident apps -- nodesk keeps them off the
+    desktop icon grid and the Dock; file icons wake them. */
+ {id:'imgview',e:'🖼️',g:'g-files',glyph:'🖼️',n:'图片',nodesk:true},
+ {id:'textview',e:'📄',g:'g-sys',glyph:'≡',n:'文本',nodesk:true},
+ {id:'gridview',e:'▦',g:'g-ssh',glyph:'▦',n:'表格',nodesk:true},
+ {id:'ziplist',e:'🗂️',g:'g-files',glyph:'🗂️',n:'文件夹',nodesk:true},
+ {id:'filepanel',e:'📄',g:'g-sys',glyph:'?',n:'打开文件',nodesk:true},
 ];
 const WALLPAPERS={
  tahoe:{n:'大湖',css:'radial-gradient(1100px 600px at 78% -10%,#ffb35c 0%,transparent 55%),radial-gradient(900px 700px at 12% 110%,#3b1d8f 0%,transparent 60%),linear-gradient(160deg,#1c6dd9 0%,#5b2ee5 52%,#b01e9e 100%)'},
@@ -296,7 +334,7 @@ async function api(p,opt){const r=await fetch(p,opt);let t=await r.text();try{re
    reports "fresh" (no settings file yet), the old local values are
    migrated up once and the local copies dropped. */
 let SETTINGS=null;
-const SETDEF={wallpaper:'tahoe',stageManager:false,idleExitMinutes:30,phoneMode:true,phoneTriggerWidth:1200,phoneWidth:400,chromeCacheMB:200,stageAutoClaimBrowser:true};
+const SETDEF={wallpaper:'tahoe',stageManager:false,idleExitMinutes:30,phoneMode:true,phoneTriggerWidth:1200,phoneWidth:400,chromeCacheMB:200,stageAutoClaimBrowser:true,filesOnDesktop:true};
 function wallKey(){ if(SETTINGS) return SETTINGS.wallpaper||'tahoe'; return localStorage.getItem('mj-wall')||'tahoe' }
 function saveSetting(patch){
  if(SETTINGS) Object.assign(SETTINGS,patch);
@@ -317,7 +355,7 @@ async function loadSettings(){
  }catch(e){ if(!SETTINGS) SETTINGS={...SETDEF} }
  applyWallpaper(); updateStageUI();
 }
-loadSettings();
+const settingsReady=loadSettings();
 
 /* ----- wallpaper ----- */
 function applyWallpaper(){
@@ -481,6 +519,7 @@ async function refreshExtStrip(){
 }
 setInterval(refreshExtStrip,4000);
 APPS.forEach(a=>{
+ if(a.nodesk) return; /* file viewers (v0.32): windows only, no Dock icon */
  const it=document.createElement('div');it.className='ditem';
  it.innerHTML=`<span class="dlabel">${a.n}</span><button class="dockbtn">${appIcon(a)}</button><span class="ddot" id="ddot-${a.id}"></span>`;
  it.querySelector('.dockbtn').onclick=()=>openApp(a.id);
@@ -532,11 +571,24 @@ function renderDesk(){
  iconsEl.innerHTML='';
  let slot=0;
  const place=(el,key)=>{const p=deskPos(key,slot++); el.style.left=p.x+'px'; el.style.top=p.y+'px'; iconsEl.appendChild(el);};
- APPS.forEach(a=>{ place(mkDeskIcon('app:'+a.id,'app',appIcon(a),a.n,()=>openApp(a.id)),'app:'+a.id); });
+ APPS.forEach(a=>{ if(a.nodesk) return; place(mkDeskIcon('app:'+a.id,'app',appIcon(a),a.n,()=>openApp(a.id)),'app:'+a.id); });
  const inFolder=new Set(); LAYOUT.folders.forEach(f=>f.items.forEach(u=>inFolder.add(u)));
  WEBAPPS.filter(a=>!inFolder.has(a.url)).forEach(a=>{ place(mkDeskIcon('web:'+a.url,'web',webIconHTML(a),a.name,()=>openWebApp(a.url)),'web:'+a.url); });
  LAYOUT.folders.forEach(f=>{ const el=mkDeskIcon('folder:'+f.id,'folder',folderIconHTML(f),f.name,()=>openFolderPop(f.id,el),f.id); place(el,'folder:'+f.id); });
  STOREAPPS.forEach(a=>{ place(mkDeskIcon('store:'+a.id,'native',storeIconHTML(a),a.name,()=>launchStoreApp(a.id)),'store:'+a.id); });
+ /* Imported files (v0.32) mix into the same desktop sequence as
+    the app icons, keyed file:<name> in the same layout store.
+    They reorder/yield with the v0.31 drag engine but can never
+    enter a folder or stack into one (updateDrag only arms those
+    modes for kind 'web'). Hidden wholesale by the filesOnDesktop
+    setting; the files themselves stay in Data/files. */
+ if(!SETTINGS||SETTINGS.filesOnDesktop!==false){
+  DESKFILES.forEach(f=>{
+   const el=mkDeskIcon('file:'+f.name,'file',fileIconHTML(f),f.name,()=>openDeskFile(f.path,f.kind));
+   el.oncontextmenu=ev=>{ ev.preventDefault(); ev.stopPropagation(); showFileCtx(ev.clientX,ev.clientY,f); };
+   place(el,'file:'+f.name);
+  });
+ }
 }
 /* ----- pure drag logic (v0.31): Launchpad reorder math -----
    Kept free of DOM access so it can be unit-tested under node. The
@@ -959,11 +1011,12 @@ function endFolderDragVisual(st){
 const ctxEl=document.getElementById('ctxmenu');
 function hideCtx(){ctxEl.classList.add('hidden')}
 function showCtx(x,y){
- ctxEl.innerHTML=`<div class="ctxitem" id="ctx-nf">📁&nbsp; 新建文件夹</div><div class="ctxitem" id="ctx-rf">⟳&nbsp; 刷新</div><div class="ctxitem" id="ctx-ps">🎨&nbsp; 个性化</div>`;
+ ctxEl.innerHTML=`<div class="ctxitem" id="ctx-nf">📁&nbsp; 新建文件夹</div><div class="ctxitem" id="ctx-imp">📥&nbsp; 从电脑导入文件…</div><div class="ctxitem" id="ctx-rf">⟳&nbsp; 刷新</div><div class="ctxitem" id="ctx-ps">🎨&nbsp; 个性化</div>`;
  ctxEl.classList.remove('hidden');
  ctxEl.style.left=Math.min(x,innerWidth-196)+'px';
- ctxEl.style.top=Math.min(y,innerHeight-170)+'px';
+ ctxEl.style.top=Math.min(y,innerHeight-200)+'px';
  document.getElementById('ctx-nf').onclick=()=>{hideCtx();newFolder(x,y)};
+ document.getElementById('ctx-imp').onclick=()=>{hideCtx();document.getElementById('deskimp').click()};
  document.getElementById('ctx-rf').onclick=()=>location.reload();
  document.getElementById('ctx-ps').onclick=()=>{hideCtx();openApp('sys')};
 }
@@ -1014,6 +1067,211 @@ async function launchStoreApp(id){
  const r=await api('/api/apps/launch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})}).catch(()=>null);
  if(r&&r.error) alert(r.error);
 }
+/* ----- imported files on the desktop (v0.32) -----
+   Host files enter ONLY by the user's hand: drag them onto the
+   desktop, the desktop menu's 「从电脑导入文件…」 (the OS picker),
+   or paste. The daemon copies them into Data/files (originals on
+   the host are never touched) and they show up here as icons mixed
+   with the apps. Every open route stays inside the system; the
+   only way back out is the explicit export (a browser download
+   into the host's Downloads folder, labelled as such). */
+let DESKFILES=[], SUBLIST=[];
+async function loadDeskFiles(){
+ try{ const r=await api('/api/files'); DESKFILES=r.files||[]; }catch(e){ DESKFILES=[]; }
+}
+function fileIconHTML(f){
+ if(f.dir) return `<div class="appico fileico g-f-dir">📁</div>`;
+ const ext=(f.ext||'').toUpperCase();
+ if(f.kind==='image'&&['jpg','jpeg','png','gif'].includes(f.ext)){
+  /* Real thumbnail from the daemon; if it cannot render one
+     (webp/bmp), the img removes itself and the type tile shows. */
+  return `<div class="appico fileico g-f-img"><span class="ext">${esc(ext)}</span><img src="/api/files/thumb?name=${encodeURIComponent(f.name)}" alt="" draggable="false" loading="lazy" onerror="this.remove()"></div>`;
+ }
+ const g={pdf:'g-f-pdf',image:'g-f-img',text:'g-f-txt',csv:'g-f-csv',docx:'g-f-doc',xlsx:'g-f-xls',pptx:'g-f-ppt',zip:'g-f-zip',exe:'g-f-exe'}[f.kind]||'g-f-other';
+ return `<div class="appico fileico ${g}"><span class="ext">${esc(ext||'文件')}</span></div>`;
+}
+let toastT=null;
+function toast(msg){
+ const t=document.getElementById('toast'); if(!t) return;
+ t.textContent=msg; t.classList.remove('hidden');
+ clearTimeout(toastT); toastT=setTimeout(()=>t.classList.add('hidden'),2600);
+}
+let importBusy=false;
+async function importFiles(fileList,via){
+ const files=[...fileList].filter(f=>f&&f.name);
+ if(!files.length||importBusy) return;
+ importBusy=true;
+ toast('正在导入 '+files.length+' 个文件…');
+ let ok=0; const fails=[];
+ for(const f of files){
+  try{
+   const fd=new FormData(); fd.append('via',via); fd.append('file',f,f.name);
+   const r=await (await fetch('/api/files/import',{method:'POST',body:fd})).json();
+   ok+=(r.imported||[]).length;
+   (r.errors||[]).forEach(e=>fails.push(e.name+'：'+e.error));
+  }catch(e){ fails.push(f.name+'：上传失败'); }
+ }
+ importBusy=false;
+ await loadDeskFiles(); renderDesk();
+ if(fails.length) alert('有 '+fails.length+' 个文件没导入成功：\n'+fails.join('\n'));
+ else if(ok) toast('已导入 '+ok+' 个文件到桌面');
+}
+/* drag-in: the veil is pointer-events:none; the document-level
+   handlers both catch the drop and stop Edge from navigating to
+   the dropped file (the desktop view is an Edge app window). */
+let dragFilesDepth=0;
+document.addEventListener('dragenter',ev=>{
+ if(ev.dataTransfer&&[...ev.dataTransfer.types].includes('Files')){ dragFilesDepth++; document.getElementById('dropveil').classList.remove('hidden'); }
+});
+document.addEventListener('dragleave',ev=>{
+ if(ev.dataTransfer&&[...ev.dataTransfer.types].includes('Files')&&--dragFilesDepth<=0){ dragFilesDepth=0; document.getElementById('dropveil').classList.add('hidden'); }
+});
+document.addEventListener('dragover',ev=>{ ev.preventDefault(); });
+document.addEventListener('drop',ev=>{
+ ev.preventDefault(); dragFilesDepth=0; document.getElementById('dropveil').classList.add('hidden');
+ if(ev.dataTransfer&&ev.dataTransfer.files&&ev.dataTransfer.files.length) importFiles(ev.dataTransfer.files,'drag');
+});
+document.addEventListener('paste',ev=>{
+ const t=ev.target;
+ if(t&&(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.isContentEditable)) return;
+ if(ev.clipboardData&&ev.clipboardData.files&&ev.clipboardData.files.length){ ev.preventDefault(); importFiles(ev.clipboardData.files,'paste'); }
+});
+document.getElementById('deskimp').addEventListener('change',e=>{ importFiles(e.target.files,'picker'); e.target.value=''; });
+/* file icon right-click menu: open / rename / export / delete */
+function showFileCtx(x,y,f){
+ ctxEl.innerHTML=`<div class="ctxitem" id="fc-open">打开</div><div class="ctxitem" id="fc-rename">重命名…</div><div class="ctxitem" id="fc-export">导出到电脑（下载文件夹）</div><div class="ctxitem" id="fc-del" style="color:#ff9d97">删除</div>`;
+ ctxEl.classList.remove('hidden');
+ ctxEl.style.left=Math.min(x,innerWidth-220)+'px';
+ ctxEl.style.top=Math.min(y,innerHeight-190)+'px';
+ document.getElementById('fc-open').onclick=()=>{ hideCtx(); openDeskFile(f.path,f.kind); };
+ document.getElementById('fc-export').onclick=()=>{ hideCtx(); exportDeskFile(f); };
+ document.getElementById('fc-rename').onclick=async()=>{
+  hideCtx();
+  const nn=prompt('新名字（不能带路径）',f.name);
+  if(!nn||nn.trim()===f.name) return;
+  const r=await api('/api/files/rename',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({old:f.name,new:nn.trim()})});
+  if(r.error){ alert('改名失败：'+r.error); return; }
+  if(LAYOUT.pos['file:'+f.name]){ LAYOUT.pos['file:'+r.name]=LAYOUT.pos['file:'+f.name]; delete LAYOUT.pos['file:'+f.name]; }
+  saveLayout(); await loadDeskFiles(); renderDesk();
+ };
+ document.getElementById('fc-del').onclick=async()=>{
+  hideCtx();
+  if(!confirm('删除终端桌面上的「'+f.name+'」？\n删的是终端里的副本（在 Data/files 里），电脑上的原文件不受影响。')) return;
+  const r=await api('/api/files/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:f.name})});
+  if(r.error){ alert('删除失败：'+r.error); return; }
+  delete LAYOUT.pos['file:'+f.name];
+  saveLayout(); await loadDeskFiles(); renderDesk();
+ };
+}
+function exportDeskFile(f){
+ const a=document.createElement('a');
+ a.href='/api/files/raw?path='+encodeURIComponent(f.path)+'&dl=1';
+ document.body.appendChild(a); a.click(); a.remove();
+}
+function setWinTitle(id,t){ const b=document.querySelector('#win-'+id+' .title b'); if(b) b.textContent=t; }
+/* ----- open routing: everything resolves inside the system ----- */
+async function openDeskFile(p,kind){
+ const name=p.split('/').pop();
+ if(kind==='image') return openImageViewer(p);
+ if(kind==='text'||kind==='docx') return openTextViewer(p);
+ if(kind==='csv') return openGridViewer(p);
+ if(kind==='dir') return openZipList(p);
+ if(kind==='pdf'){
+  const r=await api('/api/files/openpdf',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:p})}).catch(()=>null);
+  if(r&&r.error) alert(r.error);
+  return;
+ }
+ if(kind==='zip'){
+  if(!confirm('解压「'+name+'」？\n会在终端的 Data/files 里生成一个同名文件夹，桌面上多一个文件夹图标。')) return;
+  const r=await api('/api/files/unzip',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:p})}).catch(()=>null);
+  if(!r||r.error){ alert('解压失败：'+((r&&r.error)||'接口没回应')); return; }
+  toast('已解压到文件夹「'+r.dir+'」（'+r.count+' 个文件）');
+  await loadDeskFiles(); renderDesk();
+  return;
+ }
+ if(kind==='exe'){
+  /* Deliberate friction: an imported program really runs on this
+     PC. Nothing happens unless the user confirms here. */
+  if(!confirm('运行「'+name+'」？\n这是从电脑导入的可执行文件，确认后会真的在这台电脑上运行它。')) return;
+  const r=await api('/api/files/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:p})}).catch(()=>null);
+  if(r&&r.error) alert(r.error);
+  return;
+ }
+ openFilePanel(p,kind); /* xlsx / pptx / unknown */
+}
+/* image viewer: siblings are the other images in the same place */
+let IMGV={cur:'',fit:true};
+function imageSiblings(p){
+ const pool=p.includes('/')?SUBLIST:DESKFILES;
+ return pool.filter(f=>f.kind==='image').map(f=>f.path);
+}
+function openImageViewer(p){
+ openApp('imgview'); setWinTitle('imgview',p.split('/').pop());
+ IMGV.cur=p; paintImageViewer();
+}
+function paintImageViewer(){
+ const img=document.getElementById('iv-img'); if(!img) return;
+ const sib=imageSiblings(IMGV.cur);
+ const i=sib.indexOf(IMGV.cur);
+ document.getElementById('iv-name').textContent=IMGV.cur.split('/').pop()+(sib.length>1?(' · '+(i+1)+' / '+sib.length):'');
+ img.classList.toggle('full',!IMGV.fit);
+ img.src='/api/files/raw?path='+encodeURIComponent(IMGV.cur);
+ const pv=document.getElementById('iv-prev'), nx=document.getElementById('iv-next');
+ if(pv) pv.disabled=sib.length<2; if(nx) nx.disabled=sib.length<2;
+}
+function stepImage(d){
+ const sib=imageSiblings(IMGV.cur); if(sib.length<2) return;
+ let i=sib.indexOf(IMGV.cur); i=(i+d+sib.length)%sib.length;
+ IMGV.cur=sib[i]; setWinTitle('imgview',IMGV.cur.split('/').pop()); paintImageViewer();
+}
+async function openTextViewer(p){
+ openApp('textview'); setWinTitle('textview',p.split('/').pop());
+ const pre=document.getElementById('tv-pre'); if(pre) pre.textContent='读取中…';
+ const r=await api('/api/files/text?path='+encodeURIComponent(p)).catch(()=>null);
+ if(!pre) return;
+ if(!r||r.error){ pre.textContent='打开失败：'+((r&&r.error)||'接口没回应'); return; }
+ document.getElementById('tv-name').textContent=r.name;
+ document.getElementById('tv-note').textContent=(r.kind==='docx'?'文档预览（仅文字）':'')+(r.truncated?' · 仅显示前 2 MB':'');
+ pre.textContent=r.text||'（空文件）';
+}
+async function openGridViewer(p){
+ openApp('gridview'); setWinTitle('gridview',p.split('/').pop());
+ const tab=document.getElementById('gv-tab'); if(tab) tab.innerHTML='';
+ const note=document.getElementById('gv-note'); if(note) note.textContent='读取中…';
+ const r=await api('/api/files/csv?path='+encodeURIComponent(p)).catch(()=>null);
+ if(!tab) return;
+ if(!r||r.error){ if(note) note.textContent='打开失败：'+((r&&r.error)||'接口没回应'); return; }
+ const rows=r.rows||[];
+ tab.innerHTML=rows.map((row,i)=>'<tr>'+row.map(c=>i===0?`<th>${esc(c)}</th>`:`<td>${esc(c)}</td>`).join('')+'</tr>').join('')||'<tr><td>（空表格）</td></tr>';
+ if(note) note.textContent=r.name+' · 共显示 '+rows.length+' 行'+(r.truncatedRows?'（文件更长，只显示前 200 行）':'')+(r.truncatedCols?' · 列数已截到前 50 列':'');
+}
+async function openZipList(p){
+ openApp('ziplist'); setWinTitle('ziplist',p.split('/').pop());
+ const box=document.getElementById('zl-list'); if(box) box.innerHTML='加载中…';
+ const r=await api('/api/files/sub?path='+encodeURIComponent(p)).catch(()=>null);
+ if(!box) return;
+ if(!r||r.error){ box.textContent='打开失败：'+((r&&r.error)||'接口没回应'); return; }
+ SUBLIST=r.files||[];
+ box.innerHTML=SUBLIST.length?`<table>${SUBLIST.map(it=>`<tr class="file" data-p="${esc(it.path)}" data-k="${it.kind}" data-d="${it.dir}"><td>${it.dir?'📁':'📄'}</td><td>${esc(it.name)}</td><td>${it.dir?'':(it.size/1024).toFixed(1)+' KB'}</td></tr>`).join('')}</table>`:'（空文件夹）';
+ box.querySelectorAll('tr.file').forEach(tr=>tr.ondblclick=()=>{
+  if(tr.dataset.d==='true'){ toast('子文件夹先不在这里展开（它在 Data/files 里）'); return; }
+  openDeskFile(tr.dataset.p,tr.dataset.k);
+ });
+}
+function openFilePanel(p,kind){
+ openApp('filepanel');
+ const name=p.split('/').pop();
+ setWinTitle('filepanel',name);
+ const office=(kind==='xlsx'||kind==='pptx');
+ document.getElementById('fp2-name').textContent=name;
+ document.getElementById('fp2-desc').textContent=office
+  ? '这个格式（'+(kind==='xlsx'?'Excel 表格':'PowerPoint 演示')+'）系统内暂时不能直接编辑。两个诚实的办法：传到网页版办公（腾讯文档）里打开编辑，或者导出到这台电脑、用电脑上的 Office 打开。'
+  : '这个格式系统里还没有打开方式。可以先导出到这台电脑，用电脑上的软件打开。';
+ document.getElementById('fp2-web').style.display=office?'':'none';
+ document.getElementById('fp2-web').onclick=()=>openWebApp('https://docs.qq.com/desktop');
+ document.getElementById('fp2-exp').onclick=ev=>{ ev.preventDefault(); exportDeskFile({path:p,name}); };
+}
+
 async function openWebApp(url){
  const r=await api('/api/appopen',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})}).catch(()=>null);
  if(r&&r.ok) return;
@@ -1044,10 +1302,15 @@ function render(id){
  if(id==='ssh') b.innerHTML=`<h3>SSH 远程终端</h3><p class="mut" style="margin-top:6px">连接、私钥、服务器指纹都存在 EXE 旁的 <b style="color:#fff">Data/ssh</b> 里，跟着文件夹走。密码和私钥口令只在连接时输入、<b style="color:#fff">不保存</b>。第一次连某台服务器会记下它的指纹，之后每次校验，对不上会拦住。</p><div class="row" style="margin-top:10px"><select id="sshconn" class="txt" style="max-width:250px"></select><button class="btn gray" id="sshnew">＋ 新建</button><button class="btn gray" id="sshedit">编辑</button><button class="btn gray" id="sshdel">删除</button></div><div id="sshform" style="display:none;margin-top:10px"><div class="row"><input class="txt" id="sf_name" placeholder="名字，如 新加坡服务器" style="max-width:170px"><input class="txt" id="sf_host" placeholder="主机 / IP"><input class="txt" id="sf_port" placeholder="端口" value="22" style="max-width:80px"><input class="txt" id="sf_user" placeholder="用户名" style="max-width:120px"></div><div class="row" style="margin-top:8px"><label class="mut">登录方式 <select id="sf_auth" class="txt"><option value="key">密钥</option><option value="password">密码</option></select></label><select id="sf_key" class="txt" style="max-width:170px"></select><label class="mut"><input type="checkbox" id="sf_proxy"> 走节点连接</label></div><div class="row" style="margin-top:8px"><input class="txt" id="sf_keyname" placeholder="新密钥名（导入时填，如 id_sg）" style="max-width:210px"></div><textarea id="sf_keydata" rows="3" style="width:100%;margin-top:6px" placeholder="粘贴私钥内容导入（可选，存进 Data/ssh/keys；已存的密钥在上面选）"></textarea><div class="row" style="margin-top:8px"><button class="btn" id="sfsave">保存连接</button><span class="tag" id="sfst"></span></div></div><div class="row" style="margin-top:12px"><input class="txt" id="sshpass" type="password" placeholder="密码 / 私钥口令（连接时输，不保存）" style="max-width:250px" autocomplete="off"><button class="btn" id="sshgo">连接</button><button class="btn gray" id="sshstop">断开</button><span class="tag" id="sshst">未连接</span></div><div id="sshterm" style="margin-top:10px;height:300px;background:#0b0e14;border-radius:10px;padding:6px;overflow:hidden"></div><hr style="border-color:rgba(255,255,255,.14);margin:16px 0"><h3>文件（SFTP）</h3><p class="mut" style="margin-top:4px">共用上面的终端连接传文件，不用再输一次密码。</p><div class="row" style="margin-top:8px"><span class="tag" id="sfpath">未连接</span><button class="btn gray" id="sfup">↑ 上级</button><button class="btn gray" id="sfrefresh">刷新</button><button class="btn gray" id="sfmkdir">新建文件夹</button><button class="btn gray" id="sfupload">上传文件</button><input type="file" id="sffile" style="display:none"></div><div id="sflist" class="mut" style="margin-top:8px">连上服务器后，这里能浏览、上传、下载、删除远程文件。</div>`;
  if(id==='servermon') b.innerHTML=`<div class="sm-wrap"><div class="sm-side"><div class="sm-hd">服务器</div><div id="sm-list"></div><p class="mut" style="font-size:11.5px;padding:10px 8px 0;line-height:1.6">监控走 SSH 通道读服务器数据，不用在服务器上装任何东西。密钥连接可自动采样；密码连接先在 SSH 里连上，或在详情里输一次密码手动采样。</p></div><div class="sm-main" id="sm-main"><p class="mut">加载中…</p></div></div>`;
  if(id==='console'){ b.style.padding='0'; b.style.background='#0b0e14'; b.style.display='flex'; b.style.flexDirection='column';
- b.innerHTML=`<div style="padding:12px 14px 10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-bottom:1px solid rgba(255,255,255,.08)"><span class="cschip">版本 <b id="cs-ver">…</b></span><span class="cschip"><span class="csdot" id="cs-core-dot"></span>核心 <span id="cs-core">…</span></span><span class="cschip"><span class="csdot" id="cs-node-dot"></span>节点 <span id="cs-node">…</span></span><span class="cschip">运行时长 <span id="cs-up">…</span></span><span class="cschip">日志 <span id="cs-cnt">…</span></span></div><div style="padding:8px 14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-bottom:1px solid rgba(255,255,255,.08)"><select id="cs-level" class="csin"><option value="">全部级别</option><option value="info">信息及以上</option><option value="warn">警告及以上</option><option value="error">只看错误</option></select><select id="cs-module" class="csin"><option value="">全部模块</option><option value="system">系统</option><option value="core">核心</option><option value="node">节点</option><option value="browser">浏览器</option><option value="winmgr">窗口管理</option><option value="ssh">SSH</option><option value="servermon">服务器监控</option><option value="update">更新</option><option value="firefox">Firefox</option><option value="apps">应用商店</option><option value="openclaw">小龙虾</option><option value="settings">设置</option><option value="storage">存储</option><option value="diag">诊断</option><option value="api">接口</option></select><input id="cs-q" class="csin" placeholder="搜索日志…" style="flex:1;min-width:100px"><label style="font-size:12.5px;opacity:.9"><input type="checkbox" id="cs-auto" checked> 自动滚动</label><button class="btn gray" id="cs-copy">复制诊断摘要</button><button class="btn gray" id="cs-export">导出日志</button></div><div id="cs-log" style="flex:1;overflow:auto;padding:10px 14px;font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.7;color:#d6e2f0"></div><div style="padding:7px 14px;font-size:12px;opacity:.6;border-top:1px solid rgba(255,255,255,.08)">日志同时存在 EXE 旁 Data/logs/mj.log。出问题时先看这里的红色报错，或点「导出日志」把诊断包发出来定位。</div>`;
+ b.innerHTML=`<div style="padding:12px 14px 10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-bottom:1px solid rgba(255,255,255,.08)"><span class="cschip">版本 <b id="cs-ver">…</b></span><span class="cschip"><span class="csdot" id="cs-core-dot"></span>核心 <span id="cs-core">…</span></span><span class="cschip"><span class="csdot" id="cs-node-dot"></span>节点 <span id="cs-node">…</span></span><span class="cschip">运行时长 <span id="cs-up">…</span></span><span class="cschip">日志 <span id="cs-cnt">…</span></span></div><div style="padding:8px 14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-bottom:1px solid rgba(255,255,255,.08)"><select id="cs-level" class="csin"><option value="">全部级别</option><option value="info">信息及以上</option><option value="warn">警告及以上</option><option value="error">只看错误</option></select><select id="cs-module" class="csin"><option value="">全部模块</option><option value="system">系统</option><option value="core">核心</option><option value="node">节点</option><option value="browser">浏览器</option><option value="winmgr">窗口管理</option><option value="ssh">SSH</option><option value="servermon">服务器监控</option><option value="update">更新</option><option value="firefox">Firefox</option><option value="apps">应用商店</option><option value="openclaw">小龙虾</option><option value="settings">设置</option><option value="storage">存储</option><option value="files">文件导入</option><option value="diag">诊断</option><option value="api">接口</option></select><input id="cs-q" class="csin" placeholder="搜索日志…" style="flex:1;min-width:100px"><label style="font-size:12.5px;opacity:.9"><input type="checkbox" id="cs-auto" checked> 自动滚动</label><button class="btn gray" id="cs-copy">复制诊断摘要</button><button class="btn gray" id="cs-export">导出日志</button></div><div id="cs-log" style="flex:1;overflow:auto;padding:10px 14px;font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.7;color:#d6e2f0"></div><div style="padding:7px 14px;font-size:12px;opacity:.6;border-top:1px solid rgba(255,255,255,.08)">日志同时存在 EXE 旁 Data/logs/mj.log。出问题时先看这里的红色报错，或点「导出日志」把诊断包发出来定位。</div>`;
  }
  if(id==='appstore') b.innerHTML=`<h3>应用商店 · 便携应用</h3><p class="mut" style="margin-top:6px">这里的都是<b style="color:#fff">免安装的便携版</b>：从官方源直下、装进 EXE 旁的 <b style="color:#fff">Data/apps</b>，程序和数据都跟着文件夹走，宿主电脑不留东西。每个应用上架前都验过包，并钉死了校验和，下载对不上会自动拒绝。</p><div class="row" style="margin-top:10px"><input class="txt" id="st-q" placeholder="搜索应用…"><span class="tag" id="st-count"></span></div><div style="display:flex;gap:12px;margin-top:12px;align-items:flex-start"><div id="st-cats" style="width:102px;flex:none;display:flex;flex-direction:column;gap:4px"></div><div id="st-grid" style="flex:1;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;align-content:start"></div></div><p class="mut" id="st-foot" style="margin-top:12px"></p>`;
  if(id==='openclaw') b.innerHTML=`<h3>小龙虾 OpenClaw</h3><div class="sm-card" style="margin-top:10px"><div class="sm-row"><span>状态</span><span id="oc-st-state">读取中…</span></div><div class="sm-row"><span>版本</span><span id="oc-st-ver">—</span></div><div class="sm-row"><span>运行时长</span><span id="oc-st-up">—</span></div><div class="sm-row"><span>内存占用（整个进程树）</span><span id="oc-st-rss">—</span></div><div class="sm-row"><span>组件占用磁盘</span><span id="oc-st-disk">—</span></div><div class="sm-row"><span>模型出口</span><span id="oc-st-route">—</span></div></div><div class="row" style="margin-top:10px"><button class="btn" id="oc-dl">下载组件</button><button class="btn gray" id="oc-check">检查更新</button><span class="tag" id="oc-prog"></span></div><div id="oc-main" style="display:none"><div class="row" style="margin-top:12px"><button class="btn" id="oc-start">启动</button><button class="btn red" id="oc-stop">停止</button><button class="btn gray" id="oc-console">打开控制台</button></div><p class="mut" style="margin-top:8px">网关令牌 <span class="tag" id="oc-token">…</span> <button class="btn gray" id="oc-tokcopy">复制令牌</button> <span style="font-size:12px">打开控制台要令牌时粘贴它；令牌存在组件自己的配置里，跟着文件夹走，不用记。</span></p><div class="sm-sec">设置</div><div class="sm-card"><div class="sm-row"><span>模型流量走本地节点</span><label class="sm-sw"><input type="checkbox" id="oc-p-vianode"><i></i></label></div><div class="sm-row"><span>打开终端机时自动启动</span><label class="sm-sw"><input type="checkbox" id="oc-p-autostart"><i></i></label></div><div class="sm-row"><span>崩溃后自动重启（10 分钟内最多 3 次）</span><label class="sm-sw"><input type="checkbox" id="oc-p-crash"><i></i></label></div></div><p class="mut" style="font-size:12px;margin-top:6px">走节点：节点在跑时模型请求经节点出去；节点起不来会明示本次直连，绝不假装走了节点。</p><div class="sm-sec">配置向导 · 模型</div><div class="sm-card"><div class="sm-row"><span>当前配置</span><span id="oc-wiz-cur">读取中…</span></div><div class="row" style="margin-top:8px" id="oc-wiz-provs"><button class="btn" data-p="openai">OpenAI</button><button class="btn gray" data-p="anthropic">Anthropic</button><button class="btn gray" data-p="deepseek">DeepSeek</button><button class="btn gray" data-p="custom">自定义接口</button></div><div class="row" style="margin-top:8px;display:none" id="oc-wiz-idrow"><input class="txt" id="oc-wiz-id" placeholder="厂商标识（小写字母开头，如 myapi）" style="max-width:240px"></div><div class="row" style="margin-top:8px"><input class="txt" id="oc-wiz-base" placeholder="接口地址（留空用官方地址）"></div><div class="row" style="margin-top:8px"><input class="txt" id="oc-wiz-key" type="password" placeholder="API Key（留空 = 不修改已保存的）" autocomplete="off"></div><div class="row" style="margin-top:8px"><input class="txt" id="oc-wiz-model" list="oc-wiz-models" placeholder="模型名，如 gpt-5.1"><datalist id="oc-wiz-models"></datalist></div><div class="row" style="margin-top:8px"><button class="btn" id="oc-wiz-save">保存配置</button><button class="btn gray" id="oc-wiz-test">测试连接</button><span class="tag" id="oc-wiz-msg"></span></div><p class="mut" style="font-size:12px;margin-top:6px">保存走小龙虾自己的配置命令：立即生效、不用重启网关，改前它会自动备份旧配置。Key 只写进组件配置，不进日志。自定义接口按 OpenAI 兼容协议。Telegram 等消息渠道去小龙虾控制台里配。</p></div><div class="sm-sec">运行日志</div><div class="sm-card"><pre id="oc-log" style="max-height:220px;overflow:auto;font-size:11.5px;line-height:1.55;white-space:pre-wrap;word-break:break-all;margin:0">（暂无日志）</pre><div class="row" style="margin-top:6px"><button class="btn gray" id="oc-log-refresh">刷新日志</button><span class="mut" style="font-size:12px">网关自己的输出；终端机的系统事件在「控制台」应用里看（模块：小龙虾）</span></div></div><div class="sm-sec">数据与组件</div><div class="sm-card"><div class="sm-row"><span>数据导出（配置 + 它记住的东西，换电脑用）</span><button class="btn gray" id="oc-export">导出</button></div><div class="sm-row"><span>数据导入（导入前自动备份现有数据）</span><span><input type="file" id="oc-import-file" accept=".zip" style="display:none"><button class="btn gray" id="oc-import">导入…</button></span></div><div class="sm-row"><span>卸载组件（程序、配置、数据全删）</span><button class="btn red" id="oc-uninst">卸载</button></div><p class="mut" style="font-size:12px;margin-top:6px" id="oc-dir"></p></div></div><details style="margin-top:14px"><summary class="mut" style="cursor:pointer;font-size:12.5px">安装须知（重型组件，先看一眼）</summary><p class="mut" style="margin-top:6px;line-height:1.7">小龙虾是一个能<b style="color:#fff">操作电脑、收发消息</b>的 AI 助手。它是<b style="color:#fff">按需下载的重型组件</b>：<br>· <b style="color:#fff">体积约 630 MB</b>，装在 EXE 旁的 Data/openclaw，跟着文件夹走；<br>· 运行时<b style="color:#fff">内存约 1 GB</b> 量级，老电脑会吃力（上面的状态卡能实时看）；<br>· 它权限很大（能跑命令、动文件、替你发消息），<b style="color:#fff">只建议装在自己的电脑上，不要装到公用电脑</b>；<br>· 模型 API Key 自备：在上面的配置向导里填，或去小龙虾自己的控制台里配。</p></details>`;
+ if(id==='imgview') b.innerHTML=`<div style="display:flex;flex-direction:column;height:100%"><div class="row" style="padding-bottom:10px"><button class="btn gray" id="iv-prev">‹ 上一张</button><button class="btn gray" id="iv-next">下一张 ›</button><button class="btn gray" id="iv-fit">适应窗口 / 100%</button><span class="tag" id="iv-name">图片</span></div><div class="imgstage"><img id="iv-img" alt=""></div><p class="mut" style="margin-top:8px;font-size:12px">同目录的其他图片可以用按钮或键盘 ← → 切换。</p></div>`;
+ if(id==='textview') b.innerHTML=`<div class="row" style="padding-bottom:10px"><span class="tag" id="tv-name">文本</span><label style="font-size:12.5px"><input type="checkbox" id="tv-wrap" checked> 自动换行</label><span class="tag" id="tv-note"></span></div><pre class="textview" id="tv-pre">读取中…</pre>`;
+ if(id==='gridview') b.innerHTML=`<p class="mut" id="gv-note" style="margin-bottom:8px">读取中…</p><table class="gridtab" id="gv-tab"></table>`;
+ if(id==='ziplist') b.innerHTML=`<h3 id="zl-name">文件夹</h3><div id="zl-list" class="mut" style="margin-top:10px">加载中…</div><p class="mut" style="margin-top:8px;font-size:12px">这是解压出来的文件夹（在 Data/files 里）。双击文件用系统内的方式打开；子文件夹暂不在这里展开。</p>`;
+ if(id==='filepanel') b.innerHTML=`<h3 id="fp2-name">文件</h3><p class="mut" id="fp2-desc" style="margin-top:8px"></p><div class="row" style="margin-top:14px"><button class="btn" id="fp2-web">在网页版办公中打开（腾讯文档）</button><button class="btn gray" id="fp2-exp">导出到电脑（下载文件夹）</button></div>`;
  if(id==='core') b.innerHTML=`<h3>节点（sing-box）</h3><p class="mut" style="margin-top:8px">粘贴<b style="color:#fff">节点链接</b>或填<b style="color:#fff">订阅地址</b>导入，支持 vless / vmess / trojan / ss / hysteria2，自动生成 sing-box 配置、自动去重。sing-box.exe 在程序同目录的 core 文件夹（完整版已自带）。</p><textarea id="nlink" rows="3" style="width:100%;margin-top:12px" placeholder="粘贴节点链接，如 vless://... 或 ss://..."></textarea><div class="row" style="margin-top:8px"><button class="btn" id="nadd">添加这个节点</button></div><div class="row" style="margin-top:12px"><input class="txt" id="nsub" placeholder="或粘贴订阅地址 https://..."><button class="btn gray" id="nsubbtn">导入订阅</button></div><p style="margin:12px 0"><span class="tag" id="core-status">状态：读取中…</span> <span class="tag" id="ncount"></span></p><div class="row" style="margin-top:2px"><button class="btn gray" id="accel-toggle">软件内全局加速：…</button><span class="tag" id="accel-state">…</span></div><p class="mut" style="margin-top:8px">全局加速开着时：桌面窗口、从软件里点开的链接、终端里跑的命令都走节点；宿主电脑自己的浏览器和程序完全不受影响。桌面窗口在下次打开时按新设置生效（关掉桌面再双击 EXE 即可）。</p><div id="nlist" class="mut"></div><div class="row" style="margin-top:12px"><button class="btn" id="core-start">启动节点</button><button class="btn red" id="core-stop">停止节点</button><button class="btn gray" id="core-refresh">刷新状态</button><button class="btn gray" id="ptest">代理自检</button><button class="btn gray" id="nclear">清空节点</button></div><div class="row" style="margin-top:8px"><button class="btn gray" id="corelogbtn">看 sing-box 日志</button></div><pre class="term" id="corelog" style="min-height:90px;margin-top:10px;display:none"></pre>`;
  if(id==='sys'){ b.style.padding='0'; b.style.display='flex'; b.style.flexDirection='column';
   b.innerHTML=`<div class="set-wrap"><div class="set-side"><input class="set-search" id="set-q" placeholder="搜索设置"><div class="set-mecard" id="set-mecard"><div class="set-meico g-sys">铭</div><div style="min-width:0"><div style="font-weight:650;font-size:14px">铭杰终端机</div><div style="font-size:11.5px;opacity:.65" id="set-me-ver">版本 …</div></div></div><div class="set-nav" id="set-nav"></div></div><div class="set-main" id="set-main"><p class="mut">加载中…</p></div></div>`;
@@ -1106,7 +1369,7 @@ function bind(id){
   const fmtB=n=>{ n=+n||0; if(n>=1073741824) return (n/1073741824).toFixed(2)+' GB'; if(n>=1048576) return (n/1048576).toFixed(1)+' MB'; if(n>=1024) return (n/1024).toFixed(1)+' KB'; return n+' B' };
   const PAGES=[
    {id:'appearance',n:'外观',g:'linear-gradient(180deg,#64d2ff,#bf5af2)',glyph:'🖼',kw:'壁纸 背景 个性化 wallpaper'},
-   {id:'desktop',n:'桌面与 Dock',g:'linear-gradient(180deg,#2dd4bf,#0e7490)',glyph:'▦',kw:'台前调度 手机宽 落位 dock 窗口'},
+   {id:'desktop',n:'桌面与 Dock',g:'linear-gradient(180deg,#2dd4bf,#0e7490)',glyph:'▦',kw:'台前调度 手机宽 落位 dock 窗口 导入 文件 桌面图标'},
    {id:'network',n:'节点与网络',g:'linear-gradient(180deg,#bf5af2,#7d2ae8)',glyph:'🚀',kw:'节点 加速 代理 下载 网络'},
    {id:'browser',n:'浏览器',g:'linear-gradient(180deg,#5ec2ff,#0a62d6)',glyph:'◎',kw:'chrome firefox 缓存 同步 谷歌 浏览器'},
    {id:'components',n:'组件',g:'linear-gradient(180deg,#ffb340,#ff7139)',glyph:'🧩',kw:'firefox 小龙虾 openclaw 组件'},
@@ -1133,8 +1396,9 @@ function bind(id){
   };
   const paintDesktop=()=>{
    const s=SETTINGS||SETDEF;
-   G('set-main').innerHTML=`<div class="set-page"><div class="set-sec">台前调度</div><div class="set-desc">开启后，桌面只显示当前应用，其他打开的应用缩到左侧成一排实时缩略图，点缩略图就切换过来。菜单栏右侧的 ▦ 也可以随开随关。</div><div class="sm-card"><div class="sm-row"><span>台前调度</span><label class="sm-sw"><input type="checkbox" id="ds-stage" ${stageOn()?'checked':''}><i></i></label></div><div class="sm-row"><span>浏览器新窗口自动纳入台前调度</span><label class="sm-sw"><input type="checkbox" id="ds-autoclaim" ${s.stageAutoClaimBrowser!==false?'checked':''}><i></i></label></div></div><p class="set-note">自动纳入：隔离 Chrome / Firefox 自己新开的窗口（网页弹窗、新窗口、拖出的标签、独立的开发者工具）会自动登记进台前调度，方便切换；只登记、不挪位置。已经登记的窗口不受这个开关影响。</p><div class="set-sec">小窗手机宽</div><div class="set-desc">桌面窗口没最大化、或窄于触发宽度时，新打开的网站应用按手机宽度落位，网站多会显示手机版页面。只管打开时摆好，之后随你拖动。</div><div class="sm-card"><div class="sm-row"><span>手机宽模式</span><label class="sm-sw"><input type="checkbox" id="ds-pm" ${s.phoneMode?'checked':''}><i></i></label></div><div class="sm-row"><span>触发宽度（桌面窄于此值，px）</span><input class="set-num" id="ds-ptw" type="number" min="600" max="4000" step="50" value="${s.phoneTriggerWidth}"></div><div class="sm-row"><span>手机宽度（落位宽度，px）</span><input class="set-num" id="ds-pw" type="number" min="280" max="800" step="10" value="${s.phoneWidth}"></div></div><div class="set-sec">外部窗口落位</div><div class="set-desc">从终端机打开的网站应用，打开时自动摆进桌面区域（约 62% × 85%，菜单栏和 Dock 不会被盖住）；摆好之后完全归你，拖动、最大化都不再被拉回。</div></div>`;
+   G('set-main').innerHTML=`<div class="set-page"><div class="set-sec">台前调度</div><div class="set-desc">开启后，桌面只显示当前应用，其他打开的应用缩到左侧成一排实时缩略图，点缩略图就切换过来。菜单栏右侧的 ▦ 也可以随开随关。</div><div class="sm-card"><div class="sm-row"><span>台前调度</span><label class="sm-sw"><input type="checkbox" id="ds-stage" ${stageOn()?'checked':''}><i></i></label></div><div class="sm-row"><span>浏览器新窗口自动纳入台前调度</span><label class="sm-sw"><input type="checkbox" id="ds-autoclaim" ${s.stageAutoClaimBrowser!==false?'checked':''}><i></i></label></div></div><p class="set-note">自动纳入：隔离 Chrome / Firefox 自己新开的窗口（网页弹窗、新窗口、拖出的标签、独立的开发者工具）会自动登记进台前调度，方便切换；只登记、不挪位置。已经登记的窗口不受这个开关影响。</p><div class="set-sec">小窗手机宽</div><div class="set-desc">桌面窗口没最大化、或窄于触发宽度时，新打开的网站应用按手机宽度落位，网站多会显示手机版页面。只管打开时摆好，之后随你拖动。</div><div class="sm-card"><div class="sm-row"><span>手机宽模式</span><label class="sm-sw"><input type="checkbox" id="ds-pm" ${s.phoneMode?'checked':''}><i></i></label></div><div class="sm-row"><span>触发宽度（桌面窄于此值，px）</span><input class="set-num" id="ds-ptw" type="number" min="600" max="4000" step="50" value="${s.phoneTriggerWidth}"></div><div class="sm-row"><span>手机宽度（落位宽度，px）</span><input class="set-num" id="ds-pw" type="number" min="280" max="800" step="10" value="${s.phoneWidth}"></div></div><div class="set-sec">外部窗口落位</div><div class="set-desc">从终端机打开的网站应用，打开时自动摆进桌面区域（约 62% × 85%，菜单栏和 Dock 不会被盖住）；摆好之后完全归你，拖动、最大化都不再被拉回。</div><div class="set-sec">导入的文件</div><div class="set-desc">从电脑导入到终端桌面的文件存在 Data/files 里，和应用图标混排在桌面上。关掉只是不在桌面上显示这些图标，文件本身、导入通道（拖入 / 桌面菜单导入 / 粘贴）都不受影响。</div><div class="sm-card"><div class="sm-row"><span>在桌面显示导入的文件</span><label class="sm-sw"><input type="checkbox" id="ds-files" ${s.filesOnDesktop!==false?'checked':''}><i></i></label></div></div></div>`;
    G('ds-stage').onchange=e=>toggleStage(e.target.checked);
+   G('ds-files').onchange=async e=>{ const r=await saveSetting({filesOnDesktop:e.target.checked}); if(r&&r.error){ alert('保存失败：'+r.error); e.target.checked=!e.target.checked; return; } renderDesk(); };
    G('ds-autoclaim').onchange=async e=>{ const r=await saveSetting({stageAutoClaimBrowser:e.target.checked}); if(r&&r.error){ alert('保存失败：'+r.error); e.target.checked=!e.target.checked; } };
    const savePhone=async()=>{ const r=await saveSetting({phoneMode:G('ds-pm').checked,phoneTriggerWidth:+G('ds-ptw').value||1200,phoneWidth:+G('ds-pw').value||400}); if(r&&r.error) alert('保存失败：'+r.error); };
    G('ds-pm').onchange=savePhone; G('ds-ptw').onchange=savePhone; G('ds-pw').onchange=savePhone;
@@ -1161,7 +1425,7 @@ function bind(id){
    try{ const ff=await api('/api/firefox'); const el=G('cp-ff'); if(el) el.textContent=ff.installed?('已安装 · v'+(ff.version||'?')):'未安装'; }catch(e){}
    try{ const oc=await api('/api/openclaw/status'); const el=G('cp-oc'); if(el) el.textContent=oc.installed?('已安装 · v'+(oc.version||'?')+(oc.running?' · 运行中':'')+(oc.diskBytes?' · '+fmtB(oc.diskBytes):'')):'未安装'; }catch(e){}
   };
-  const STCOLORS={program:'#8e8e93',chrome:'#0a84ff',firefoxProfile:'#ff7139',openclaw:'#ff453a',apps:'#30d158',logs:'#ffd60a',wallpaper:'#bf5af2',other:'#48484a'};
+  const STCOLORS={program:'#8e8e93',chrome:'#0a84ff',firefoxProfile:'#ff7139',openclaw:'#ff453a',apps:'#30d158',files:'#ff9f0a',logs:'#ffd60a',wallpaper:'#bf5af2',other:'#48484a'};
   const paintStorage=async()=>{
    G('set-main').innerHTML=`<div class="set-page"><div class="set-sec">存储空间</div><div class="set-desc" id="st-total">正在盘点…</div><div id="st-body"></div><div class="set-sec">一键清理缓存</div><div class="set-desc">只清纯缓存：Chrome 档案里的 Cache / Code Cache / GPUCache 等缓存目录、Firefox 的 cache2、已完成更新的暂存包、核心的旧日志文件。<b style="color:#fff">绝不碰</b>登录、Cookie、书签、历史和任何配置。浏览器开着时不会执行。</div><div class="row"><button class="btn" id="st-clean">一键清理缓存</button><span class="tag" id="st-clean-msg"></span></div></div>`;
    const paintUsage=async()=>{ const u=await api('/api/storage/usage'); usageCache=u; const body=G('st-body'); if(!body) return; const tot=G('st-total'); if(tot) tot.textContent=`这个文件夹共占用 ${fmtB(u.totalBytes)}（其中 Data ${fmtB(u.dataBytes)}）。盘点用时 ${u.tookMs} ms。`; const segs=(u.groups||[]).filter(g=>g.bytes>0).map(g=>`<i style="background:${STCOLORS[g.key]||'#666'};width:${Math.max(0.4,(g.bytes/Math.max(1,u.totalBytes)*100))}%"></i>`).join(''); body.innerHTML=`<div class="set-stack">${segs}</div><div class="set-legend">${(u.groups||[]).map(g=>`<span><i style="background:${STCOLORS[g.key]||'#666'}"></i>${esc(g.name)}</span>`).join('')}</div><div class="sm-card">${(u.groups||[]).map(g=>`<div class="sm-row"><span>${esc(g.name)}</span><span class="set-val">${fmtB(g.bytes)}</span></div>`).join('')}</div>`; };
@@ -1687,6 +1951,23 @@ function bind(id){
        const ta=document.createElement('textarea'); ta.value=ocToken; ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.select(); try{ ok=document.execCommand('copy'); }catch(e2){} ta.remove(); }
      btn.textContent=ok?'已复制 ✓':'复制失败'; setTimeout(()=>{btn.textContent='复制令牌'},1600); };
  }
+ if(id==='imgview'){
+   document.getElementById('iv-prev').onclick=()=>stepImage(-1);
+   document.getElementById('iv-next').onclick=()=>stepImage(1);
+   document.getElementById('iv-fit').onclick=()=>{ IMGV.fit=!IMGV.fit; paintImageViewer(); };
+   document.addEventListener('keydown',ev=>{
+     const w=document.getElementById('win-imgview');
+     if(!w||w.classList.contains('hidden')) return;
+     if(ev.key==='ArrowLeft') stepImage(-1);
+     else if(ev.key==='ArrowRight') stepImage(1);
+   });
+ }
+ if(id==='textview'){
+   document.getElementById('tv-wrap').onchange=e=>{
+     const pre=document.getElementById('tv-pre');
+     if(pre) pre.style.whiteSpace=e.target.checked?'pre-wrap':'pre';
+   };
+ }
  if(id==='core'){
    const loadNodes=async()=>{
      const r=await api('/api/node');
@@ -1728,7 +2009,7 @@ function bind(id){
  }
 }
 openApp('home');
-(async()=>{ await Promise.all([loadLayout(),loadWebApps(),loadStoreApps()]); renderDesk(); })();
+(async()=>{ await Promise.all([loadLayout(),loadWebApps(),loadStoreApps(),loadDeskFiles(),settingsReady]); renderDesk(); })();
 </script>
 </body>
 </html>

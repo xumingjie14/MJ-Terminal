@@ -47,6 +47,10 @@ type mjSettings struct {
 	// (popups, Ctrl+N, undocked DevTools). Default ON; the patrol in
 	// winmgr.go reads it every tick, so toggling applies at once.
 	StageAutoClaimBrowser bool `json:"stageAutoClaimBrowser"`
+	// v0.32: imported files shown as desktop icons. Default ON;
+	// OFF only hides the icons -- the files in Data/files and the
+	// import channels are unaffected.
+	FilesOnDesktop bool `json:"filesOnDesktop"`
 }
 
 func defaultSettings() mjSettings {
@@ -59,6 +63,7 @@ func defaultSettings() mjSettings {
 		PhoneWidth:            400,
 		ChromeCacheMB:         200,
 		StageAutoClaimBrowser: true,
+		FilesOnDesktop:        true,
 	}
 }
 
@@ -165,6 +170,7 @@ func settingsMap() map[string]any {
 		"phoneWidth":            s.PhoneWidth,
 		"chromeCacheMB":         s.ChromeCacheMB,
 		"stageAutoClaimBrowser": s.StageAutoClaimBrowser,
+		"filesOnDesktop":        s.FilesOnDesktop,
 		"fresh":                 settingsFresh(),
 	}
 }
@@ -181,6 +187,8 @@ func settingPhone() (enabled bool, triggerWidth, width int) {
 func settingChromeCacheMB() int { return settingsGet().ChromeCacheMB }
 
 func settingStageAutoClaimBrowser() bool { return settingsGet().StageAutoClaimBrowser }
+
+func settingFilesOnDesktop() bool { return settingsGet().FilesOnDesktop }
 
 // ---------- HTTP ----------
 
@@ -256,6 +264,14 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 				} else if v != next.StageAutoClaimBrowser {
 					next.StageAutoClaimBrowser = v
 					changed = append(changed, boolLog("stageAutoClaimBrowser", v))
+				}
+			case "filesOnDesktop":
+				var v bool
+				if json.Unmarshal(val, &v) != nil {
+					fail = "filesOnDesktop 必须是 true/false"
+				} else if v != next.FilesOnDesktop {
+					next.FilesOnDesktop = v
+					changed = append(changed, boolLog("filesOnDesktop", v))
 				}
 			case "chromeCacheMB":
 				var v int
