@@ -1468,10 +1468,11 @@ function bind(id){
     const stEl=G('sec-state'); if(stEl) stEl.textContent=!st.supported?'当前平台不支持':(st.enabled?(NETTXT[st.netState]||st.netState):'已关闭');
     const nr=G('sec-netrows'); if(nr){
      let h='';
-     if(st.enabled&&st.netState==='needslogin'&&st.authURL) h+=`<div class="sm-row"><span>登录 Tailscale</span><span class="row"><a class="btn" href="${esc(st.authURL)}" target="_blank" rel="noopener" style="text-decoration:none">打开登录页</a></span></div><p class="set-note">用你自己的 Tailscale 账号登录一次，终端会以设备名「mj-terminal」加入你的网络。登录链接：<span style="word-break:break-all">${esc(st.authURL)}</span></p>`;
+     if(st.enabled&&st.netState==='needslogin'&&st.authURL) h+=`<div class="sm-row"><span>登录 Tailscale</span><span class="row"><button class="btn" id="sec-openlogin">打开登录页</button></span></div><p class="set-note">用你自己的 Tailscale 账号登录一次，终端会以设备名「mj-terminal」加入你的网络。登录页在终端自己的隔离浏览器里打开；也可以手动复制下面的链接到隔离浏览器里打开：<span style="word-break:break-all">${esc(st.authURL)}</span></p>`;
      if(st.enabled&&st.netState==='online') h+=`<div class="sm-row"><span>设备名</span><span class="set-val">${esc(st.device||'—')}</span></div><div class="sm-row"><span>网络地址</span><span class="set-val">${esc((st.ips||[]).join(' · ')||'—')}</span></div><div class="sm-row"><span>远程入口</span><span class="set-val">:${st.port}（仅你的私有网络内可达）</span></div>`;
      if(st.enabled&&st.err) h+=`<p class="set-note">${esc(st.err)}</p>`;
      nr.innerHTML=h;
+     const ol=G('sec-openlogin'); if(ol) ol.onclick=async()=>{ ol.disabled=true; const r=await api('/api/remote/openlogin',{method:'POST'}).catch(()=>null); if(r&&r.error) alert(r.error); ol.disabled=false; };
     }
     const pw=G('sec-pendwrap'); if(pw){
      const pend=pr.pending||[];

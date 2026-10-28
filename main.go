@@ -289,14 +289,28 @@ func openPath(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"error": "empty target"})
 		return
 	}
-	// v0.8 in-app global acceleration: a link opened from inside the
-	// system goes through the node (isolated Chrome), not to the host
-	// PC's default browser. Falls back to the default browser when
-	// the isolated one cannot start.
-	if body.URL != "" && runtime.GOOS == "windows" && accelEnabled() {
-		if err := launchIsolatedBrowser(true, target, false); err == nil {
-			writeJSON(w, map[string]any{"ok": true, "via": "node"})
+	// A link opened from inside the system belongs in the terminal's
+	// isolated browser: through the node when in-app global
+	// acceleration is on (v0.8), direct otherwise (v0.34 -- before,
+	// with acceleration off the URL leaked to the host PC's default
+	// browser). The host's default browser is only the last resort
+	// when the isolated browser cannot start at all (e.g. no
+	// Chrome/Edge on this PC), and that fallback is logged, never
+	// silent.
+	if body.URL != "" && runtime.GOOS == "windows" {
+		if accelEnabled() {
+			if err := launchIsolatedBrowser(true, target, false); err == nil {
+				writeJSON(w, map[string]any{"ok": true, "via": "node"})
+				return
+			} else {
+				logf("browser", "warn", "链接走节点打开失败，降级隔离浏览器直连：%v", err)
+			}
+		}
+		if err := launchIsolatedBrowser(false, target, false); err == nil {
+			writeJSON(w, map[string]any{"ok": true, "via": "isolated"})
 			return
+		} else {
+			logf("browser", "warn", "隔离浏览器打不开链接，降级宿主默认浏览器：%v", err)
 		}
 	}
 	var c *exec.Cmd
@@ -1726,6 +1740,7 @@ func runServer(portFlag int, isDaemon bool) {
 	mux.HandleFunc("/api/diag/export", diagExportHandler)
 	mux.HandleFunc("/api/remote/state", remoteStateHandler)
 	mux.HandleFunc("/api/remote/pairing", remotePairingHandler)
+	mux.HandleFunc("/api/remote/openlogin", remoteOpenLoginHandler)
 	srv := &http.Server{Handler: activityMiddleware(diagMiddleware(mux))}
 	mux.HandleFunc("/api/shutdown", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"ok": true, "message": "后台和节点一起退出"})

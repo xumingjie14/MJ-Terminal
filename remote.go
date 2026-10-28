@@ -53,6 +53,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -387,6 +388,58 @@ func remoteStateMap() map[string]any {
 
 func remoteStateHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, remoteStateMap())
+}
+
+// remoteOpenLoginHandler serves POST /api/remote/openlogin on the
+// LOCAL mux ONLY. It is deliberately absent from remoteRoutes():
+// nobody on the tailnet may ask this daemon to open a browser.
+// It opens the Tailscale login page in the terminal's OWN isolated
+// browser (v0.34 fix: the Settings page used to link the AuthURL
+// with target=_blank, which escaped into the HOST's default
+// browser). The URL is never taken from the request and never
+// written to the log: the handler reads the AuthURL this daemon is
+// itself holding for the pending tsnet login, and that link
+// carries login semantics, so it is treated like a secret.
+func remoteOpenLoginHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSONStatus(w, http.StatusMethodNotAllowed, map[string]any{"error": "POST only"})
+		return
+	}
+	if runtime.GOOS != "windows" {
+		writeJSON(w, map[string]any{"error": "当前不是 Windows 环境（这是测试环境），到 Windows 上会在终端的隔离浏览器里打开登录页"})
+		return
+	}
+	u := remoteStateMap()["authURL"]
+	authURL, _ := u.(string)
+	if authURL == "" {
+		writeJSON(w, map[string]any{"error": "现在没有待登录的链接（远程协助未开启，或已经登录完成）"})
+		return
+	}
+	if !strings.HasPrefix(authURL, "https://") {
+		logf("remote", "warn", "登录链接不是 https，已拒绝在浏览器中打开")
+		writeJSON(w, map[string]any{"error": "登录链接异常，已拒绝打开"})
+		return
+	}
+	// Through the node when in-app acceleration is on and nodes
+	// exist (the same rule as opening a website app), with a direct
+	// retry when the node cannot start.
+	err := error(nil)
+	viaNode := accelEnabled() && len(nodes) > 0
+	if viaNode {
+		if err = launchIsolatedBrowser(true, authURL, false); err != nil {
+			logf("remote", "warn", "登录页走节点打开失败，降级隔离浏览器直连：%v", err)
+		}
+	}
+	if !viaNode || err != nil {
+		err = launchIsolatedBrowser(false, authURL, false)
+	}
+	if err != nil {
+		logf("remote", "error", "在终端内打开登录页失败：%v", err)
+		writeJSON(w, map[string]any{"error": err.Error()})
+		return
+	}
+	logf("remote", "info", "已在终端内打开登录页（隔离浏览器）")
+	writeJSON(w, map[string]any{"ok": true})
 }
 
 type remotePendingView struct {
