@@ -442,6 +442,11 @@ func appsLaunchHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	exePath := filepath.Join(appDir(entry.ID), filepath.FromSlash(entry.Exe))
+	// Window snapshot BEFORE the launch (v0.31): the window manager
+	// claims the app's main window by diffing against it, the same
+	// way browser launches are claimed -- a portable app may hand
+	// off to a child process, so the started PID is not reliable.
+	before := platformSnapshotWindows(exePath)
 	cmd := exec.Command(exePath)
 	cmd.Dir = appDir(entry.ID)
 	hideConsole(cmd)
@@ -451,6 +456,9 @@ func appsLaunchHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	logf("apps", "info", "已启动 %s %s", entry.Name, entry.Version)
+	// Register the app's window with the unified window manager:
+	// unified AppID, one-shot landing, Stage Manager strip (v0.31).
+	trackAppLaunch(entry.Name, exePath, before)
 	writeJSON(w, map[string]any{"ok": true})
 }
 

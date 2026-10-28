@@ -56,6 +56,12 @@ type extWindow struct {
 	pid       uint32
 	lastTitle string // title at last AppID stamp; a change triggers a re-stamp
 	placed    bool   // v0.20: one-shot landing placement already done
+	// browser marks windows owned by a browser the daemon launched
+	// (isolated Chrome / Firefox component, incl. windows the patrol
+	// auto-claimed from them in v0.31). The patrol only watches the
+	// PIDs of browser windows; store apps and the shell never enter
+	// the watched set.
+	browser bool
 }
 
 var (
@@ -89,7 +95,24 @@ func appNameForURL(u string) string {
 // browser that was not there before" is the reliable way to find it.
 // The window may take a moment to appear, so this polls briefly.
 func trackBrowserLaunch(app, targetURL, browserPath string, before map[uint64]bool, shell bool) {
-	if browserPath == "" {
+	trackLaunch(app, targetURL, browserPath, before, shell, !shell)
+}
+
+// trackAppLaunch is the store-app twin (v0.31): a portable app from
+// the app store gets its main window claimed and registered exactly
+// like a browser window (unified AppID + one-shot landing), so it
+// shows up in the Stage Manager strip too. Some portable apps hand
+// off to a child process, so claiming keys on "the first new window
+// of this exe" (process image match), never on the started PID.
+func trackAppLaunch(appName, exePath string, before map[uint64]bool) {
+	trackLaunch(appName, "", exePath, before, false, false)
+}
+
+// trackLaunch is the shared claiming engine behind both. browser
+// marks the registration as browser-owned, which is what puts its
+// PID into the v0.31 patrol's watched set.
+func trackLaunch(app, targetURL, exePath string, before map[uint64]bool, shell, browser bool) {
+	if exePath == "" {
 		return
 	}
 	go func() {
@@ -103,9 +126,9 @@ func trackBrowserLaunch(app, targetURL, browserPath string, before map[uint64]bo
 				claimed[h] = true
 			}
 			extMu.Unlock()
-			if hwnd, pid, ok := platformClaimWindow(browserPath, before, claimed); ok {
+			if hwnd, pid, ok := platformClaimWindow(exePath, before, claimed); ok {
 				extMu.Lock()
-				extWins[hwnd] = &extWindow{HWND: hwnd, App: app, URL: targetURL, Shell: shell, pid: pid}
+				extWins[hwnd] = &extWindow{HWND: hwnd, App: app, URL: targetURL, Shell: shell, pid: pid, browser: browser}
 				extMu.Unlock()
 				logf("winmgr", "info", "已登记外部窗口：%s", app)
 				// 丙: stamp the unified AppUserModelID (best effort).
@@ -452,4 +475,178 @@ func extWinFocusHandler(w http.ResponseWriter, r *http.Request) {
 // v0.22 they go into the diagnostics hub like everything else.
 func extWinNote(format string, args ...any) {
 	logf("winmgr", "warn", "%s", strings.TrimSpace(fmt.Sprintf(format, args...)))
+}
+
+// ---------- v0.31: patrol -- auto-claim browser-spawned windows ----------
+//
+// trackBrowserLaunch claims exactly ONE window per launch: the one
+// the daemon asked for. Windows the browser then creates on its own
+// -- page popups, Ctrl+N, a tab dragged out into its own window, an
+// undocked DevTools -- were invisible to the Stage Manager. The
+// patrol closes that gap: every ~2s it enumerates the top-level
+// windows owned by the PIDs of already-registered browser windows
+// and claims the new ones.
+//
+// The PID keying is the safety boundary. A browser process owns all
+// of its windows, and the isolated Chrome/Firefox the daemon
+// launched is a different process instance from anything the user
+// runs on the host (the host's own Chrome is another PID), so host
+// windows can never match. The desktop shell's PID is excluded: the
+// shell is registered with browser=false, so Edge's own process
+// never enters the watched set either.
+//
+// Auto-claimed windows are registered with placed=true: they join
+// the Stage Manager strip (listed, clickable to raise) but are
+// NEVER landed or moved -- a page popup has its own idea of where
+// it belongs. The watched PID set is derived from the live registry
+// on every tick, so once a browser's last window is pruned its PID
+// leaves the set on its own.
+//
+// The on/off switch is 设置 -> 桌面与 Dock ->
+// 「浏览器新窗口自动纳入台前调度」 (settings key
+// stageAutoClaimBrowser, default on), re-read every tick.
+
+// patrolCandidate is one top-level window as the platform layer saw
+// it, in platform-neutral form so the filter stays unit-testable.
+type patrolCandidate struct {
+	HWND    uint64
+	PID     uint32
+	Class   string
+	Title   string
+	Visible bool
+	Owned   bool // has an owner window (dialogs, palettes) -- not a main window
+	W, H    int32
+}
+
+// patrolMinW / patrolMinH filter out toasts, bubbles and other
+// transient specks that share the browser's window class.
+const (
+	patrolMinW = 200
+	patrolMinH = 100
+)
+
+// isBrowserWindowClass reports whether a window class is a
+// browser's MAIN window class: Chromium browsers (Chrome, Edge)
+// use Chrome_WidgetWin_1, Firefox uses MozillaWindowClass.
+func isBrowserWindowClass(class string) bool {
+	return class == "Chrome_WidgetWin_1" || class == "MozillaWindowClass"
+}
+
+// patrolFilter keeps only the candidates that are genuinely new
+// browser main windows of watched processes.
+func patrolFilter(cands []patrolCandidate, pids map[uint32]bool, registered map[uint64]bool) []patrolCandidate {
+	var out []patrolCandidate
+	for _, c := range cands {
+		if !pids[c.PID] || registered[c.HWND] {
+			continue
+		}
+		if !c.Visible || c.Owned {
+			continue
+		}
+		if !isBrowserWindowClass(c.Class) {
+			continue
+		}
+		if c.W < patrolMinW || c.H < patrolMinH {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+// deriveBrowserPIDs is the watched set: PIDs of registered browser
+// windows. Shell windows and store apps are excluded by their flags.
+func deriveBrowserPIDs(wins map[uint64]*extWindow) map[uint32]bool {
+	pids := map[uint32]bool{}
+	for _, e := range wins {
+		if e.browser && !e.Shell && e.pid != 0 {
+			pids[e.pid] = true
+		}
+	}
+	return pids
+}
+
+// cleanAutoClaimTitle turns a browser window title into the app
+// label shown in the Stage Manager strip: drop the browser's own
+// suffix ("GitHub - Google Chrome" -> "GitHub"), fall back to
+// 「浏览器」 when nothing is left.
+func cleanAutoClaimTitle(title string) string {
+	t := strings.TrimSpace(title)
+	suffixes := []string{
+		" - Google Chrome", " - Google Chrome Beta", " - Chromium",
+		" - Mozilla Firefox", " — Mozilla Firefox", " - Microsoft Edge",
+	}
+	for i := 0; i < 3; i++ {
+		changed := false
+		for _, s := range suffixes {
+			// The bare form covers a title that IS just the suffix
+			// (its leading space was trimmed above).
+			if t == strings.TrimSpace(s) {
+				t, changed = "", true
+				continue
+			}
+			if strings.HasSuffix(t, s) {
+				t = strings.TrimSpace(strings.TrimSuffix(t, s))
+				changed = true
+			}
+		}
+		if !changed {
+			break
+		}
+	}
+	if t == "" {
+		return "浏览器"
+	}
+	return t
+}
+
+// startExtPatrol launches the auto-claim patrol. Off Windows the
+// platform candidate source is always empty, so the loop is inert.
+func startExtPatrol() {
+	go func() {
+		for range time.Tick(2 * time.Second) {
+			patrolTick()
+		}
+	}()
+}
+
+func patrolTick() {
+	// Prune + housekeeping first (same as the list handler does on
+	// poll): dead registrations disappear even when the desktop
+	// view is closed, which is also what retires a PID from the
+	// watched set once its last window is gone.
+	extMu.Lock()
+	restamp, place := pruneExtWindowsLocked()
+	pids := deriveBrowserPIDs(extWins)
+	registered := make(map[uint64]bool, len(extWins))
+	for h := range extWins {
+		registered[h] = true
+	}
+	extMu.Unlock()
+	for _, h := range restamp {
+		platformSetAppID(h)
+	}
+	for _, h := range place {
+		tryPlaceExtWindow(h)
+	}
+
+	if len(pids) == 0 || !settingStageAutoClaimBrowser() {
+		return
+	}
+	fresh := patrolFilter(platformPatrolCandidates(pids), pids, registered)
+	for _, c := range fresh {
+		app := cleanAutoClaimTitle(c.Title)
+		extMu.Lock()
+		if _, dup := extWins[c.HWND]; dup {
+			extMu.Unlock()
+			continue
+		}
+		extWins[c.HWND] = &extWindow{
+			HWND: c.HWND, App: app, Title: c.Title, pid: c.PID,
+			browser: true, placed: true, lastTitle: c.Title,
+		}
+		extMu.Unlock()
+		platformSetAppID(c.HWND)
+		logf("winmgr", "info", "台前调度自动认领浏览器新窗口：%s", app)
+	}
 }

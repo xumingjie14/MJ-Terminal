@@ -30,10 +30,19 @@ body{font-family:-apple-system,"SF Pro Display","PingFang SC","Microsoft YaHei",
 #mb-clock{font-variant-numeric:tabular-nums}
 /* ---------- desktop icons ---------- */
 #icons{position:fixed;inset:0;z-index:5;pointer-events:none}
-.icon{position:absolute;width:92px;padding:8px 2px 6px;border:1px solid transparent;border-radius:12px;background:transparent;cursor:pointer;color:#fff;text-align:center;pointer-events:auto;touch-action:none;user-select:none;-webkit-user-select:none}
-.icon.dragging{opacity:.88;z-index:60;cursor:grabbing;filter:drop-shadow(0 10px 18px rgba(0,0,0,.45))}
+.icon{position:absolute;width:92px;padding:8px 2px 6px;border:1px solid transparent;border-radius:12px;background:transparent;cursor:pointer;color:#fff;text-align:center;pointer-events:auto;touch-action:none;user-select:none;-webkit-user-select:none;transition:left .25s ease,top .25s ease,transform .18s ease,opacity .18s ease}
+.icon.dragging{opacity:.9;z-index:60;cursor:grabbing;transform:scale(1.08);filter:drop-shadow(0 14px 24px rgba(0,0,0,.5));transition:transform .18s ease,opacity .18s ease}
 .icon img,.fp-item img{-webkit-user-drag:none;user-drag:none}
 .icon.dropok{background:rgba(120,200,255,.35);border-color:rgba(255,255,255,.6)}
+/* drag placeholder: the empty slot left where the dragged icon was (v0.31) */
+.icon-ph{position:absolute;width:92px;border-radius:12px;background:rgba(255,255,255,.07);border:1.5px dashed rgba(255,255,255,.30);pointer-events:none;z-index:4;transition:left .25s ease,top .25s ease}
+/* "bud" feedback (v0.31): dropping onto this tile is armed -- dropping
+   into a folder, or stacking onto an app to create one. The target
+   blooms a rounded plate and its icon pops; the target's NAME never
+   changes (that was the identity confusion in the field video). */
+.icon.bud{background:rgba(140,210,255,.20);border-color:rgba(255,255,255,.45)}
+.icon.bud .appico{transform:scale(1.22);box-shadow:0 0 0 3px rgba(140,210,255,.55),0 12px 28px rgba(0,0,0,.5)}
+.appico{transition:transform .2s ease,box-shadow .2s ease}
 .appico.folderico{background:rgba(255,255,255,.24);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);display:grid;grid-template-columns:1fr 1fr;gap:3px;padding:8px;box-sizing:border-box}
 .fmini{position:relative;width:100%;aspect-ratio:1;border-radius:6px;background:#f5f5f7;display:flex;align-items:center;justify-content:center;overflow:hidden;font-size:11px;font-weight:700;color:#333}
 .fmini img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;padding:2px;box-sizing:border-box}
@@ -43,14 +52,22 @@ body{font-family:-apple-system,"SF Pro Display","PingFang SC","Microsoft YaHei",
 #ctxmenu.hidden{display:none}
 .ctxitem{padding:8px 12px;border-radius:8px;font-size:13.5px;cursor:pointer}
 .ctxitem:hover{background:rgba(120,160,255,.35)}
-#folderpop{position:fixed;z-index:2500;width:308px;padding:14px;border-radius:16px;background:rgba(30,30,38,.8);backdrop-filter:blur(26px) saturate(170%);-webkit-backdrop-filter:blur(26px) saturate(170%);border:1px solid rgba(255,255,255,.22);box-shadow:0 20px 55px rgba(0,0,0,.55);color:#fff}
+/* folder open state (v0.31): macOS Launchpad folder form -- the
+   desktop dims and blurs behind a centered panel; the title renames
+   in place; no button bar. Click outside the panel to close. */
+#folderpop{position:fixed;inset:0;z-index:2500;display:flex;align-items:center;justify-content:center;background:rgba(14,14,20,.34);backdrop-filter:blur(16px) saturate(150%);-webkit-backdrop-filter:blur(16px) saturate(150%);color:#fff}
 #folderpop.hidden{display:none}
-.fp-head{display:flex;flex-direction:column;gap:2px;margin-bottom:8px}
-.fp-head b{font-size:15px}
-.fp-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
-.fp-item{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 2px;border-radius:10px;cursor:pointer;background:transparent;border:0;color:#fff;font-size:11px;touch-action:none}
+.fp-panel{width:452px;max-width:92vw;max-height:80vh;overflow:auto;padding:22px 22px 18px;border-radius:24px;background:rgba(34,34,44,.72);backdrop-filter:blur(30px) saturate(170%);-webkit-backdrop-filter:blur(30px) saturate(170%);border:1px solid rgba(255,255,255,.22);box-shadow:0 30px 80px rgba(0,0,0,.55)}
+.fp-title{font-size:17px;font-weight:650;text-align:center;color:#fff;cursor:text;padding:5px 10px;border-radius:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fp-title:hover{background:rgba(255,255,255,.08)}
+.fp-title-in{width:100%;text-align:center;font:inherit;font-size:17px;font-weight:650;background:rgba(255,255,255,.12);border:1px solid var(--accent);border-radius:9px;color:#fff;padding:4px 8px;outline:none}
+.fp-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px 6px;margin-top:14px}
+.fp-item{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 2px;border-radius:10px;cursor:pointer;background:transparent;border:0;color:#fff;font-size:11px;touch-action:none;transition:transform .22s ease,opacity .18s ease}
 .fp-item:hover{background:rgba(255,255,255,.12)}
 .fp-item span{display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+.fp-item.drag-src{opacity:.22}
+.fp-ghost{position:fixed;z-index:2600;pointer-events:none;transform:scale(1.08);filter:drop-shadow(0 14px 24px rgba(0,0,0,.5));transition:none}
+.fp-empty{grid-column:1/5;text-align:center;padding:16px 6px}
 .icon:hover{background:rgba(255,255,255,.10)}
 .icon.sel{background:rgba(120,160,255,.30);border-color:rgba(255,255,255,.35)}
 .appico{width:54px;height:54px;margin:0 auto;border-radius:13px;display:flex;align-items:center;justify-content:center;font-size:27px;box-shadow:0 6px 16px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.35);position:relative}
@@ -279,7 +296,7 @@ async function api(p,opt){const r=await fetch(p,opt);let t=await r.text();try{re
    reports "fresh" (no settings file yet), the old local values are
    migrated up once and the local copies dropped. */
 let SETTINGS=null;
-const SETDEF={wallpaper:'tahoe',stageManager:false,idleExitMinutes:30,phoneMode:true,phoneTriggerWidth:1200,phoneWidth:400,chromeCacheMB:200};
+const SETDEF={wallpaper:'tahoe',stageManager:false,idleExitMinutes:30,phoneMode:true,phoneTriggerWidth:1200,phoneWidth:400,chromeCacheMB:200,stageAutoClaimBrowser:true};
 function wallKey(){ if(SETTINGS) return SETTINGS.wallpaper||'tahoe'; return localStorage.getItem('mj-wall')||'tahoe' }
 function saveSetting(patch){
  if(SETTINGS) Object.assign(SETTINGS,patch);
@@ -521,117 +538,422 @@ function renderDesk(){
  LAYOUT.folders.forEach(f=>{ const el=mkDeskIcon('folder:'+f.id,'folder',folderIconHTML(f),f.name,()=>openFolderPop(f.id,el),f.id); place(el,'folder:'+f.id); });
  STOREAPPS.forEach(a=>{ place(mkDeskIcon('store:'+a.id,'native',storeIconHTML(a),a.name,()=>launchStoreApp(a.id)),'store:'+a.id); });
 }
-/* ----- icon dragging ----- */
+/* ----- pure drag logic (v0.31): Launchpad reorder math -----
+   Kept free of DOM access so it can be unit-tested under node. The
+   desktop reduces to a column-major list of fixed slots (columns
+   grow left from the right edge, exactly how deskPos lays out the
+   default slots); the folder grid reduces to the same "insertion
+   index + shifted assignments" shape in row-major form. */
+/*PURE-BEGIN*/
+function dragColOf(cx,baseCX,pitch){ return Math.round((baseCX-cx)/pitch) }
+/* How many of `centers` (given in visual order) rank before the
+   pointer in column-major reading order: smaller column first
+   (column 0 is the rightmost), then top-to-bottom in a column. The
+   result is an insertion index in centers' coordinate space. */
+function dragInsertIndex(centers,px,py,baseCX,pitch){
+ const pc=dragColOf(px,baseCX,pitch);
+ let n=0;
+ for(const c of centers){
+  const cc=dragColOf(c.x,baseCX,pitch);
+  if(cc<pc||(cc===pc&&c.y<py)) n++;
+ }
+ return n;
+}
+/* Final slot index for every item when the item at originIdx moves
+   to targetIdx: a Map visualIndex -> slotIndex covering ALL indices
+   (the dragged item included); the others keep their relative order
+   and slide by one slot. Always a permutation of 0..count-1. */
+function dragShiftMap(count,originIdx,targetIdx){
+ const m=new Map();
+ m.set(originIdx,targetIdx);
+ const others=[]; for(let i=0;i<count;i++) if(i!==originIdx) others.push(i);
+ others.forEach((v,j)=>{ m.set(v, j>=targetIdx ? j+1 : j); });
+ return m;
+}
+/* A copy of arr with the element at `from` moved to `to`. */
+function dragMovedArray(arr,from,to){
+ const a=arr.slice(); const x=a.splice(from,1)[0]; a.splice(to,0,x); return a;
+}
+/* Launchpad rule: a folder emptied by dragging out dissolves;
+   left with one icon it stays a folder. */
+function folderDissolvesAfter(items){ return items.length===0 }
+/*PURE-END*/
+
+/* ----- icon dragging (v0.31): Launchpad logic on the free desktop -----
+   Pick up: the icon grows to 1.08x, translucent with a shadow, and a
+   dashed placeholder holds its slot. During the drag the insertion
+   index is recomputed from the pointer on every move and the other
+   icons SLIDE (transitioned left/top) to open the gap, so the result
+   is visible before release -- letting go never jumps. Hovering a
+   folder tile blooms it immediately; dropping files the icon in
+   (the folder keeps its name, its thumbnail re-renders). Dwelling
+   ~600ms on a web-app icon arms it (same bloom); dropping then
+   creates a folder from the two and opens it with the name ready to
+   edit. A quick pass over an icon never arms -- it just reorders.
+   Esc (or pointer cancel) restores everything, nothing is saved. */
 let dragState=null;
+const DRAG_PITCH=104;
+function dragBaseCX(){ return innerWidth-72 }
+function iconSeq(){
+ /* All desktop icons in visual (column-major) order, each with the
+    slot it currently owns. Slots are spatial anchors: during a drag
+    the ITEMS move between slots, the slots themselves never move. */
+ const els=[...iconsEl.querySelectorAll('.icon')];
+ const items=els.map((el,i)=>({el,key:el.dataset.key,kind:el.dataset.kind,
+   x:parseFloat(el.style.left)||0, y:parseFloat(el.style.top)||0,
+   w:el.offsetWidth||92, h:el.offsetHeight||100, dom:i}));
+ items.sort((a,b)=>{
+  const ca=dragColOf(a.x+a.w/2,dragBaseCX(),DRAG_PITCH), cb=dragColOf(b.x+b.w/2,dragBaseCX(),DRAG_PITCH);
+  if(ca!==cb) return ca-cb;
+  if(a.y!==b.y) return a.y-b.y;
+  return a.dom-b.dom;
+ });
+ return items;
+}
 function attachDrag(el,key,kind){
  el.addEventListener('pointerdown',ev=>{
   if(ev.button!==0) return;
   ev.preventDefault();
   const r=el.getBoundingClientRect();
-  dragState={el,key,kind,sx:ev.clientX,sy:ev.clientY,ox:r.left,oy:r.top,moved:false};
+  dragState={el,key,kind,sx:ev.clientX,sy:ev.clientY,ox:r.left,oy:r.top,active:false};
   try{el.setPointerCapture(ev.pointerId)}catch(e){}
  });
  el.addEventListener('pointermove',ev=>{
   if(!dragState||dragState.el!==el) return;
-  const dx=ev.clientX-dragState.sx, dy=ev.clientY-dragState.sy;
-  if(!dragState.moved&&Math.hypot(dx,dy)<5) return;
-  dragState.moved=true; el.classList.add('dragging');
-  el.style.left=Math.max(0,Math.min(innerWidth-96,dragState.ox+dx))+'px';
-  el.style.top=Math.max(42,Math.min(innerHeight-110,dragState.oy+dy))+'px';
-  if(kind==='web') highlightFolderAt(ev.clientX,ev.clientY,el);
+  const ds=dragState;
+  const dx=ev.clientX-ds.sx, dy=ev.clientY-ds.sy;
+  if(!ds.active){
+   if(Math.hypot(dx,dy)<5) return;
+   beginDrag(ds);
+  }
+  el.style.left=Math.max(0,Math.min(innerWidth-96,ds.ox+dx))+'px';
+  el.style.top=Math.max(42,Math.min(innerHeight-110,ds.oy+dy))+'px';
+  updateDrag(ds,ev.clientX,ev.clientY);
  });
  const up=ev=>{
   if(!dragState||dragState.el!==el) return;
   const ds=dragState; dragState=null;
-  el.classList.remove('dragging'); clearFolderHi();
-  if(!ds.moved) return;
+  if(!ds.active) return;
   suppressClickUntil=Date.now()+300;
-  finishDrop(ds,ev.clientX,ev.clientY,parseFloat(el.style.left)||0,parseFloat(el.style.top)||0);
+  finishDrag(ds,ev.clientX,ev.clientY);
  };
  el.addEventListener('pointerup',up);
- el.addEventListener('pointercancel',up);
-}
-function folderTileAt(x,y,exceptEl){
- let hit=null;
- document.querySelectorAll('.icon[data-fid]').forEach(t=>{
-  if(t===exceptEl) return;
-  const r=t.getBoundingClientRect();
-  if(x>=r.left&&x<=r.right&&y>=r.top&&y<=r.bottom) hit=t;
+ el.addEventListener('pointercancel',()=>{
+  if(!dragState||dragState.el!==el) return;
+  const ds=dragState; dragState=null;
+  if(ds.active){ suppressClickUntil=Date.now()+300; cancelDrag(ds); }
  });
- return hit;
 }
-function highlightFolderAt(x,y,el){
- const hit=folderTileAt(x,y,el);
- document.querySelectorAll('.icon[data-fid]').forEach(t=>t.classList.toggle('dropok',t===hit));
+function beginDrag(ds){
+ const seq=iconSeq();
+ const oi=seq.findIndex(s=>s.el===ds.el);
+ ds.seq=seq; ds.originIdx=oi; ds.targetIdx=oi;
+ ds.slots=seq.map(s=>({x:s.x,y:s.y}));
+ ds.centers=ds.slots.map((s,i)=>({x:s.x+seq[i].w/2,y:s.y+seq[i].h/2}));
+ ds.hoverEl=null; ds.hoverMode='reorder'; ds.armEl=null; ds.armed=false; ds.armTimer=null;
+ const ph=document.createElement('div');
+ ph.className='icon-ph';
+ ph.style.left=ds.slots[oi].x+'px'; ph.style.top=ds.slots[oi].y+'px'; ph.style.height=seq[oi].h+'px';
+ iconsEl.appendChild(ph); ds.ph=ph;
+ ds.el.classList.add('dragging');
+ ds.active=true;
 }
-function clearFolderHi(){document.querySelectorAll('.icon.dropok').forEach(t=>t.classList.remove('dropok'))}
-function finishDrop(ds,cx,cy,x,y){
- if(ds.kind==='web'){
-  const tile=folderTileAt(cx,cy,ds.el);
-  if(tile){
-   const f=folderById(tile.dataset.fid);
-   const url=ds.key.slice(4);
-   if(f&&!f.items.includes(url)) f.items.push(url);
-   delete LAYOUT.pos[ds.key];
-   saveLayout(); renderDesk();
-   return;
+function updateDrag(ds,px,py){
+ /* What is the pointer over? The dragged icon and the placeholder
+    are skipped; everything else is hit-tested at its CURRENT
+    (possibly mid-slide) position -- what the user sees is what
+    counts. */
+ let hit=null;
+ for(const s of ds.seq){
+  if(s.el===ds.el) continue;
+  const r=s.el.getBoundingClientRect();
+  if(px>=r.left&&px<=r.right&&py>=r.top&&py<=r.bottom){ hit=s.el; break; }
+ }
+ let mode='reorder';
+ if(hit&&ds.kind==='web'&&hit.dataset.fid) mode='folder';
+ else if(hit&&ds.kind==='web'&&hit.dataset.kind==='web') mode='stack';
+ /* Stack-to-create arming: only a steady ~600ms dwell on the SAME
+    icon arms it. Moving off (or onto anything else) disarms. */
+ if(mode==='stack'){
+  if(ds.armEl!==hit){
+   disarmDrag(ds);
+   ds.armEl=hit;
+   ds.armTimer=setTimeout(()=>{
+    if(dragState!==ds||ds.armEl!==hit) return;
+    ds.armed=true; hit.classList.add('bud');
+   },600);
+  }
+ } else if(ds.armEl) disarmDrag(ds);
+ /* Folder tiles bloom at once; an armed stack target keeps its
+    bloom. Every other tile stays plain -- names never change. */
+ ds.seq.forEach(s=>{ if(s.el!==hit) s.el.classList.remove('bud'); });
+ if(mode==='folder'&&hit) hit.classList.add('bud');
+ /* Over a folder the dragged icon shrinks, as if into the folder. */
+ ds.el.style.transform=(mode==='folder')?'scale(.55)':'';
+ ds.hoverEl=hit; ds.hoverMode=mode;
+ if(mode!=='reorder') return; /* folder/stack: freeze the reorder gap */
+ let t=dragInsertIndex(ds.centers,px,py,dragBaseCX(),DRAG_PITCH);
+ t=Math.max(0,Math.min(ds.seq.length-1,t));
+ if(t!==ds.targetIdx){ ds.targetIdx=t; applyDragShift(ds); }
+}
+function applyDragShift(ds){
+ const m=dragShiftMap(ds.seq.length,ds.originIdx,ds.targetIdx);
+ ds.seq.forEach((s,i)=>{
+  if(s.el===ds.el) return;
+  const slot=ds.slots[m.get(i)];
+  s.el.style.left=slot.x+'px'; s.el.style.top=slot.y+'px';
+ });
+ if(ds.ph){ ds.ph.style.left=ds.slots[ds.targetIdx].x+'px'; ds.ph.style.top=ds.slots[ds.targetIdx].y+'px'; }
+}
+function disarmDrag(ds){
+ if(ds.armTimer){ clearTimeout(ds.armTimer); ds.armTimer=null; }
+ if(ds.armEl) ds.armEl.classList.remove('bud');
+ ds.armEl=null; ds.armed=false;
+}
+function finishDrag(ds,cx,cy){
+ const el=ds.el;
+ const armedEl=(ds.armed&&ds.armEl)?ds.armEl:null;
+ disarmDrag(ds);
+ ds.seq.forEach(s=>s.el.classList.remove('bud'));
+ el.style.transform='';
+ /* 1) Dropped onto a folder tile: file it in. The folder keeps its
+       name; its thumbnail re-renders from its contents on the next
+       renderDesk. */
+ if(ds.hoverMode==='folder'&&ds.hoverEl&&ds.kind==='web'){
+  const f=folderById(ds.hoverEl.dataset.fid);
+  const url=ds.key.slice(4);
+  if(f&&!f.items.includes(url)) f.items.push(url);
+  delete LAYOUT.pos[ds.key];
+  endDragVisual(ds);
+  saveLayout(); renderDesk();
+  return;
+ }
+ /* 2) Dropped while armed on another web app: create a folder from
+       the two, then open it with the name ready to edit. */
+ if(armedEl&&ds.kind==='web'){
+  const ar=armedEl.getBoundingClientRect();
+  if(cx>=ar.left&&cx<=ar.right&&cy>=ar.top&&cy<=ar.bottom){
+   const turl=armedEl.dataset.key.slice(4), durl=ds.key.slice(4);
+   if(turl!==durl){
+    const id='f'+Date.now().toString(36);
+    const tp={x:Math.round(parseFloat(armedEl.style.left)||0),y:Math.round(parseFloat(armedEl.style.top)||0)};
+    LAYOUT.folders.push({id,name:'文件夹',items:[turl,durl]});
+    LAYOUT.pos['folder:'+id]=tp;
+    delete LAYOUT.pos[armedEl.dataset.key]; delete LAYOUT.pos[ds.key];
+    endDragVisual(ds);
+    saveLayout(); renderDesk();
+    const tile=document.querySelector(`.icon[data-fid="${id}"]`);
+    if(tile) openFolderPop(id,tile,{editTitle:true});
+    return;
+   }
   }
  }
- LAYOUT.pos[ds.key]={x:Math.round(x),y:Math.round(y)};
+ /* 3) Plain reorder (or a drop back home): persist the permutation,
+       then glide the dragged icon from the pointer into its slot. */
+ const m=dragShiftMap(ds.seq.length,ds.originIdx,ds.targetIdx);
+ ds.seq.forEach((s,i)=>{
+  const slot=ds.slots[m.get(i)];
+  if(s.x!==slot.x||s.y!==slot.y) LAYOUT.pos[s.key]={x:Math.round(slot.x),y:Math.round(slot.y)};
+ });
  saveLayout();
+ el.classList.remove('dragging');
+ el.style.left=ds.slots[ds.targetIdx].x+'px';
+ el.style.top=ds.slots[ds.targetIdx].y+'px';
+ if(ds.ph) ds.ph.remove();
 }
-/* ----- folder popup ----- */
-let openFolderEl=null;
-function openFolderPop(fid,anchorEl){
+function endDragVisual(ds){
+ ds.el.classList.remove('dragging');
+ ds.el.style.transform='';
+ if(ds.ph) ds.ph.remove();
+}
+function cancelDrag(ds){
+ disarmDrag(ds);
+ ds.seq.forEach((s,i)=>{
+  s.el.classList.remove('bud');
+  s.el.style.left=ds.slots[i].x+'px'; s.el.style.top=ds.slots[i].y+'px';
+ });
+ endDragVisual(ds);
+}
+/* Insert a desktop icon arriving from a folder at the slot the
+   pointer indicates: icons from that slot on shift one slot further,
+   the last one takes the next default slot position. Mutates
+   LAYOUT.pos only -- the caller saves and re-renders. excludeFid
+   names a folder tile that is about to vanish (dissolved), so it
+   does not take part in the shifting. */
+function desktopInsertAt(key,px,py,excludeFid){
+ const seq=iconSeq().filter(s=>!(excludeFid&&s.key==='folder:'+excludeFid));
+ const centers=seq.map(s=>({x:s.x+s.w/2,y:s.y+s.h/2}));
+ let t=dragInsertIndex(centers,px,py,dragBaseCX(),DRAG_PITCH);
+ t=Math.max(0,Math.min(seq.length,t));
+ const next=deskPos(key,seq.length);
+ if(t===seq.length){ LAYOUT.pos[key]={x:Math.round(next.x),y:Math.round(next.y)}; return; }
+ LAYOUT.pos[key]={x:Math.round(seq[t].x),y:Math.round(seq[t].y)};
+ for(let i=seq.length-1;i>=t;i--){
+  const dest=i+1<seq.length?seq[i+1]:next;
+  LAYOUT.pos[seq[i].key]={x:Math.round(dest.x),y:Math.round(dest.y)};
+ }
+}
+/* ----- folder popup (v0.31): macOS Launchpad folder form -----
+   The desktop dims and blurs behind a centered rounded panel; the
+   title renames in place (click it; Enter or blur commits, Esc
+   cancels); clicking outside the panel closes it -- there is no
+   button bar. Inside, dragging reorders with the same live yield
+   as the desktop (items slide aside via transforms); dragging an
+   icon out of the panel drops it back onto the desktop at the
+   pointed slot and closes the panel. A folder emptied that way
+   dissolves; left with one icon it stays (Launchpad rules). */
+let openFolderEl=null, openFolderId=null, fpDrag=null;
+function openFolderPop(fid,anchorEl,opts){
+ opts=opts||{};
  const f=folderById(fid); if(!f) return;
- openFolderEl=anchorEl;
+ openFolderEl=anchorEl||openFolderEl; openFolderId=fid;
  const pop=document.getElementById('folderpop');
  const items=f.items.map(u=>WEBAPPS.find(a=>a.url===u)).filter(Boolean);
- pop.innerHTML=`<div class="fp-head"><b>${esc(f.name)}</b><span class="mut">${items.length} 个应用 · 点开即用，把图标拖出弹窗即可移回桌面</span></div><div class="fp-grid">${items.map(a=>`<button class="fp-item" data-url="${esc(a.url)}">${webIconHTML(a)}<span>${esc(a.name)}</span></button>`).join('')}</div>${items.length?'':'<p class="mut" style="padding:4px 2px">空的：把桌面上的网站图标拖到这个文件夹上，就能放进来。</p>'}<div class="row" style="margin-top:10px"><button class="btn gray" id="fp-rename">重命名</button><button class="btn gray" id="fp-dissolve">解散文件夹</button><button class="btn" id="fp-close">关闭</button></div>`;
+ pop.innerHTML=`<div class="fp-panel" id="fp-panel"><div class="fp-title" id="fp-title" title="点标题改名">${esc(f.name)}</div><div class="fp-grid" id="fp-grid">${items.length?items.map(a=>`<button class="fp-item" data-url="${esc(a.url)}">${webIconHTML(a)}<span>${esc(a.name)}</span></button>`).join(''):'<p class="mut fp-empty">空的：把桌面上的网站图标拖到这个文件夹上，就能放进来。</p>'}</div></div>`;
  pop.classList.remove('hidden');
- const r=anchorEl.getBoundingClientRect();
- pop.style.left=Math.max(8,Math.min(innerWidth-324,r.right-308))+'px';
- pop.style.top=Math.max(48,Math.min(innerHeight-360,r.top))+'px';
+ pop.onclick=ev=>{ if(ev.target===pop) closeFolderPop(); };
+ document.getElementById('fp-title').onclick=()=>startFolderTitleEdit();
  pop.querySelectorAll('.fp-item').forEach(it=>{
   it.onclick=()=>{ if(Date.now()<suppressClickUntil) return; closeFolderPop(); openWebApp(it.dataset.url); };
-  attachPopupDrag(it,fid);
+  attachFolderItemDrag(it,fid);
  });
- document.getElementById('fp-close').onclick=closeFolderPop;
- document.getElementById('fp-rename').onclick=()=>{ const n=prompt('文件夹名字',f.name); if(n&&n.trim()){ f.name=n.trim().slice(0,24); saveLayout(); renderDesk(); closeFolderPop(); } };
- document.getElementById('fp-dissolve').onclick=()=>{ LAYOUT.folders=LAYOUT.folders.filter(x=>x.id!==fid); saveLayout(); closeFolderPop(); renderDesk(); };
+ if(opts.editTitle) startFolderTitleEdit();
 }
-function closeFolderPop(){ document.getElementById('folderpop').classList.add('hidden'); openFolderEl=null; }
-function attachPopupDrag(it,fid){
- let st=null;
+function startFolderTitleEdit(){
+ const f=folderById(openFolderId); const t=document.getElementById('fp-title');
+ if(!f||!t||t.dataset.editing) return;
+ t.dataset.editing='1';
+ t.innerHTML=`<input class="fp-title-in" id="fp-title-in" maxlength="24" value="${esc(f.name)}">`;
+ const inp=document.getElementById('fp-title-in');
+ inp.focus(); inp.select();
+ let done=false;
+ const commit=ok=>{
+  if(done) return; done=true;
+  const v=inp.value.trim();
+  if(ok&&v&&v!==f.name){ f.name=v.slice(0,24); saveLayout(); renderDesk(); }
+  delete t.dataset.editing;
+  t.textContent=f.name;
+ };
+ inp.onkeydown=ev=>{ ev.stopPropagation(); if(ev.key==='Enter') commit(true); else if(ev.key==='Escape') commit(false); };
+ inp.onblur=()=>commit(true);
+ inp.onclick=ev=>ev.stopPropagation();
+}
+function closeFolderPop(){ document.getElementById('folderpop').classList.add('hidden'); openFolderEl=null; openFolderId=null; }
+function attachFolderItemDrag(it,fid){
  it.addEventListener('pointerdown',ev=>{
   if(ev.button!==0) return;
   ev.preventDefault();
   const r=it.getBoundingClientRect();
-  st={sx:ev.clientX,sy:ev.clientY,ox:r.left,oy:r.top,moved:false};
+  fpDrag={it,fid,url:it.dataset.url,sx:ev.clientX,sy:ev.clientY,ox:r.left,oy:r.top,active:false,mode:'grid',targetIdx:0,originIdx:0};
   try{it.setPointerCapture(ev.pointerId)}catch(e){}
  });
  it.addEventListener('pointermove',ev=>{
-  if(!st) return;
+  if(!fpDrag||fpDrag.it!==it) return;
+  const st=fpDrag;
   const dx=ev.clientX-st.sx, dy=ev.clientY-st.sy;
-  if(!st.moved&&Math.hypot(dx,dy)<6) return;
-  if(!st.moved){ st.moved=true; it.style.position='fixed'; it.style.zIndex='2600'; it.style.width='72px'; it.style.pointerEvents='none'; }
-  it.style.left=(st.ox+dx)+'px'; it.style.top=(st.oy+dy)+'px';
+  if(!st.active){
+   if(Math.hypot(dx,dy)<6) return;
+   beginFolderDrag(st);
+  }
+  st.ghost.style.left=(st.ox+dx)+'px';
+  st.ghost.style.top=(st.oy+dy)+'px';
+  const pr=st.panelRect;
+  const inside=ev.clientX>=pr.left&&ev.clientX<=pr.right&&ev.clientY>=pr.top&&ev.clientY<=pr.bottom;
+  if(inside){
+   st.mode='grid';
+   const t=folderSlotIndexAt(st,ev.clientX,ev.clientY);
+   if(t!==st.targetIdx){ st.targetIdx=t; applyFolderShift(st,false); }
+  } else if(st.mode!=='out'){
+   st.mode='out'; applyFolderShift(st,true);
+  }
  });
  const up=ev=>{
-  if(!st) return;
-  const moved=st.moved; st=null;
-  if(!moved) return;
+  if(!fpDrag||fpDrag.it!==it) return;
+  const st=fpDrag; fpDrag=null;
+  if(!st.active) return;
   suppressClickUntil=Date.now()+300;
-  const url=it.dataset.url;
-  const pop=document.getElementById('folderpop').getBoundingClientRect();
-  const inside=ev.clientX>=pop.left&&ev.clientX<=pop.right&&ev.clientY>=pop.top&&ev.clientY<=pop.bottom;
-  if(inside){ if(openFolderEl) openFolderPop(fid,openFolderEl); return; }
-  const f=folderById(fid); if(f) f.items=f.items.filter(u=>u!==url);
-  LAYOUT.pos['web:'+url]={x:Math.round(Math.max(0,ev.clientX-46)),y:Math.round(Math.max(42,ev.clientY-30))};
-  saveLayout(); closeFolderPop(); renderDesk();
+  finishFolderDrag(st);
  };
  it.addEventListener('pointerup',up);
- it.addEventListener('pointercancel',up);
+ it.addEventListener('pointercancel',()=>{
+  if(!fpDrag||fpDrag.it!==it) return;
+  const st=fpDrag; fpDrag=null;
+  if(st.active) cancelFolderDrag(st);
+ });
+}
+function beginFolderDrag(st){
+ const grid=document.getElementById('fp-grid');
+ const panel=document.getElementById('fp-panel');
+ const items=[...grid.querySelectorAll('.fp-item')];
+ st.items=items;
+ st.originIdx=items.indexOf(st.it);
+ st.targetIdx=st.originIdx;
+ st.slots=items.map(el=>{ const r=el.getBoundingClientRect(); return {x:r.left,y:r.top,w:r.width,h:r.height}; });
+ st.panelRect=panel.getBoundingClientRect();
+ const g=st.it.cloneNode(true);
+ g.classList.add('fp-ghost');
+ const s0=st.slots[st.originIdx];
+ g.style.left=s0.x+'px'; g.style.top=s0.y+'px'; g.style.width=s0.w+'px'; g.style.height=s0.h+'px'; g.style.margin='0';
+ document.getElementById('folderpop').appendChild(g);
+ st.ghost=g;
+ st.it.classList.add('drag-src');
+ st.active=true;
+}
+function folderSlotIndexAt(st,px,py){
+ for(let i=0;i<st.slots.length;i++){
+  const s=st.slots[i];
+  if(px>=s.x&&px<=s.x+s.w&&py>=s.y&&py<=s.y+s.h) return i;
+ }
+ let best=st.originIdx, bd=Infinity;
+ st.slots.forEach((s,i)=>{
+  const d=Math.hypot(px-(s.x+s.w/2),py-(s.y+s.h/2));
+  if(d<bd){ bd=d; best=i; }
+ });
+ return best;
+}
+function applyFolderShift(st,reset){
+ const m=reset?null:dragShiftMap(st.items.length,st.originIdx,st.targetIdx);
+ st.items.forEach((el,i)=>{
+  if(el===st.it) return;
+  if(reset){ el.style.transform=''; return; }
+  const slot=st.slots[m.get(i)], own=st.slots[i];
+  const dx=slot.x-own.x, dy=slot.y-own.y;
+  el.style.transform=(dx||dy)?`translate(${dx}px,${dy}px)`:'';
+ });
+}
+function finishFolderDrag(st){
+ const f=folderById(st.fid);
+ /* The pointer's release point, recovered from the ghost: the
+    ghost rides at (origin + total delta), so ghost pos + the
+    original grab offset is exactly where the pointer let go. */
+ const px=(parseFloat(st.ghost.style.left)||0)+(st.sx-st.ox);
+ const py=(parseFloat(st.ghost.style.top)||0)+(st.sy-st.oy);
+ endFolderDragVisual(st);
+ if(!f) return;
+ if(st.mode==='grid'){
+  if(st.targetIdx!==st.originIdx){
+   f.items=dragMovedArray(f.items,st.originIdx,st.targetIdx);
+   saveLayout(); renderDesk(); /* desktop thumbnail shows the new order */
+  }
+  openFolderPop(st.fid,openFolderEl);
+  return;
+ }
+ /* Dragged out of the panel: back onto the desktop at the pointed
+    slot; the panel closes. */
+ f.items=f.items.filter(u=>u!==st.url);
+ const dissolved=folderDissolvesAfter(f.items);
+ if(dissolved) LAYOUT.folders=LAYOUT.folders.filter(x=>x.id!==st.fid);
+ desktopInsertAt('web:'+st.url,px,py,dissolved?st.fid:null);
+ if(dissolved) delete LAYOUT.pos['folder:'+st.fid];
+ saveLayout(); closeFolderPop(); renderDesk();
+}
+function cancelFolderDrag(st){
+ applyFolderShift(st,true);
+ endFolderDragVisual(st);
+}
+function endFolderDragVisual(st){
+ if(st.ghost) st.ghost.remove();
+ if(st.it) st.it.classList.remove('drag-src');
 }
 /* ----- desktop context menu ----- */
 const ctxEl=document.getElementById('ctxmenu');
@@ -666,7 +988,14 @@ document.addEventListener('pointerdown',ev=>{
  const pop=document.getElementById('folderpop');
  if(pop&&!pop.classList.contains('hidden')&&!ev.target.closest('#folderpop')&&!ev.target.closest('.icon')) closeFolderPop();
 });
-document.addEventListener('keydown',ev=>{ if(ev.key==='Escape'){hideCtx();closeFolderPop();} });
+document.addEventListener('keydown',ev=>{
+ if(ev.key!=='Escape') return;
+ /* An in-flight drag cancels first: everything slides back to its
+    original slot and nothing is saved (Launchpad behavior). */
+ if(dragState&&dragState.active){ const ds=dragState; dragState=null; suppressClickUntil=Date.now()+300; cancelDrag(ds); return; }
+ if(fpDrag&&fpDrag.active){ const st=fpDrag; fpDrag=null; cancelFolderDrag(st); return; }
+ hideCtx(); closeFolderPop();
+});
 
 async function loadWebApps(){
  try{const r=await api('/api/apps');WEBAPPS=r.apps||[]}catch(e){WEBAPPS=[]}
@@ -804,8 +1133,9 @@ function bind(id){
   };
   const paintDesktop=()=>{
    const s=SETTINGS||SETDEF;
-   G('set-main').innerHTML=`<div class="set-page"><div class="set-sec">台前调度</div><div class="set-desc">开启后，桌面只显示当前应用，其他打开的应用缩到左侧成一排实时缩略图，点缩略图就切换过来。菜单栏右侧的 ▦ 也可以随开随关。</div><div class="sm-card"><div class="sm-row"><span>台前调度</span><label class="sm-sw"><input type="checkbox" id="ds-stage" ${stageOn()?'checked':''}><i></i></label></div></div><div class="set-sec">小窗手机宽</div><div class="set-desc">桌面窗口没最大化、或窄于触发宽度时，新打开的网站应用按手机宽度落位，网站多会显示手机版页面。只管打开时摆好，之后随你拖动。</div><div class="sm-card"><div class="sm-row"><span>手机宽模式</span><label class="sm-sw"><input type="checkbox" id="ds-pm" ${s.phoneMode?'checked':''}><i></i></label></div><div class="sm-row"><span>触发宽度（桌面窄于此值，px）</span><input class="set-num" id="ds-ptw" type="number" min="600" max="4000" step="50" value="${s.phoneTriggerWidth}"></div><div class="sm-row"><span>手机宽度（落位宽度，px）</span><input class="set-num" id="ds-pw" type="number" min="280" max="800" step="10" value="${s.phoneWidth}"></div></div><div class="set-sec">外部窗口落位</div><div class="set-desc">从终端机打开的网站应用，打开时自动摆进桌面区域（约 62% × 85%，菜单栏和 Dock 不会被盖住）；摆好之后完全归你，拖动、最大化都不再被拉回。</div></div>`;
+   G('set-main').innerHTML=`<div class="set-page"><div class="set-sec">台前调度</div><div class="set-desc">开启后，桌面只显示当前应用，其他打开的应用缩到左侧成一排实时缩略图，点缩略图就切换过来。菜单栏右侧的 ▦ 也可以随开随关。</div><div class="sm-card"><div class="sm-row"><span>台前调度</span><label class="sm-sw"><input type="checkbox" id="ds-stage" ${stageOn()?'checked':''}><i></i></label></div><div class="sm-row"><span>浏览器新窗口自动纳入台前调度</span><label class="sm-sw"><input type="checkbox" id="ds-autoclaim" ${s.stageAutoClaimBrowser!==false?'checked':''}><i></i></label></div></div><p class="set-note">自动纳入：隔离 Chrome / Firefox 自己新开的窗口（网页弹窗、新窗口、拖出的标签、独立的开发者工具）会自动登记进台前调度，方便切换；只登记、不挪位置。已经登记的窗口不受这个开关影响。</p><div class="set-sec">小窗手机宽</div><div class="set-desc">桌面窗口没最大化、或窄于触发宽度时，新打开的网站应用按手机宽度落位，网站多会显示手机版页面。只管打开时摆好，之后随你拖动。</div><div class="sm-card"><div class="sm-row"><span>手机宽模式</span><label class="sm-sw"><input type="checkbox" id="ds-pm" ${s.phoneMode?'checked':''}><i></i></label></div><div class="sm-row"><span>触发宽度（桌面窄于此值，px）</span><input class="set-num" id="ds-ptw" type="number" min="600" max="4000" step="50" value="${s.phoneTriggerWidth}"></div><div class="sm-row"><span>手机宽度（落位宽度，px）</span><input class="set-num" id="ds-pw" type="number" min="280" max="800" step="10" value="${s.phoneWidth}"></div></div><div class="set-sec">外部窗口落位</div><div class="set-desc">从终端机打开的网站应用，打开时自动摆进桌面区域（约 62% × 85%，菜单栏和 Dock 不会被盖住）；摆好之后完全归你，拖动、最大化都不再被拉回。</div></div>`;
    G('ds-stage').onchange=e=>toggleStage(e.target.checked);
+   G('ds-autoclaim').onchange=async e=>{ const r=await saveSetting({stageAutoClaimBrowser:e.target.checked}); if(r&&r.error){ alert('保存失败：'+r.error); e.target.checked=!e.target.checked; } };
    const savePhone=async()=>{ const r=await saveSetting({phoneMode:G('ds-pm').checked,phoneTriggerWidth:+G('ds-ptw').value||1200,phoneWidth:+G('ds-pw').value||400}); if(r&&r.error) alert('保存失败：'+r.error); };
    G('ds-pm').onchange=savePhone; G('ds-ptw').onchange=savePhone; G('ds-pw').onchange=savePhone;
   };

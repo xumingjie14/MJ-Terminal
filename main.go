@@ -1729,6 +1729,7 @@ func runServer(portFlag int, isDaemon bool) {
 
 	monInit()
 	ocAutoStartInit()
+	startExtPatrol()
 
 	fmt.Println("MJ Light System daemon:", url)
 	daemonPort = actualPort

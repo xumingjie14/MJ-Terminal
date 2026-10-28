@@ -43,17 +43,22 @@ type mjSettings struct {
 	PhoneTriggerWidth int    `json:"phoneTriggerWidth"` // desktop width below which phone mode triggers (px)
 	PhoneWidth        int    `json:"phoneWidth"`        // landed width in phone mode (px)
 	ChromeCacheMB     int    `json:"chromeCacheMB"`     // isolated Chrome --disk-cache-size cap; 0 = no cap
+	// v0.31: Stage Manager auto-claim for browser-spawned windows
+	// (popups, Ctrl+N, undocked DevTools). Default ON; the patrol in
+	// winmgr.go reads it every tick, so toggling applies at once.
+	StageAutoClaimBrowser bool `json:"stageAutoClaimBrowser"`
 }
 
 func defaultSettings() mjSettings {
 	return mjSettings{
-		Wallpaper:         "tahoe",
-		StageManager:      false,
-		IdleExitMinutes:   30,
-		PhoneMode:         true,
-		PhoneTriggerWidth: 1200,
-		PhoneWidth:        400,
-		ChromeCacheMB:     200,
+		Wallpaper:             "tahoe",
+		StageManager:          false,
+		IdleExitMinutes:       30,
+		PhoneMode:             true,
+		PhoneTriggerWidth:     1200,
+		PhoneWidth:            400,
+		ChromeCacheMB:         200,
+		StageAutoClaimBrowser: true,
 	}
 }
 
@@ -152,14 +157,15 @@ func settingsSaveLocked() error {
 func settingsMap() map[string]any {
 	s := settingsGet()
 	return map[string]any{
-		"wallpaper":         s.Wallpaper,
-		"stageManager":      s.StageManager,
-		"idleExitMinutes":   s.IdleExitMinutes,
-		"phoneMode":         s.PhoneMode,
-		"phoneTriggerWidth": s.PhoneTriggerWidth,
-		"phoneWidth":        s.PhoneWidth,
-		"chromeCacheMB":     s.ChromeCacheMB,
-		"fresh":             settingsFresh(),
+		"wallpaper":             s.Wallpaper,
+		"stageManager":          s.StageManager,
+		"idleExitMinutes":       s.IdleExitMinutes,
+		"phoneMode":             s.PhoneMode,
+		"phoneTriggerWidth":     s.PhoneTriggerWidth,
+		"phoneWidth":            s.PhoneWidth,
+		"chromeCacheMB":         s.ChromeCacheMB,
+		"stageAutoClaimBrowser": s.StageAutoClaimBrowser,
+		"fresh":                 settingsFresh(),
 	}
 }
 
@@ -173,6 +179,8 @@ func settingPhone() (enabled bool, triggerWidth, width int) {
 }
 
 func settingChromeCacheMB() int { return settingsGet().ChromeCacheMB }
+
+func settingStageAutoClaimBrowser() bool { return settingsGet().StageAutoClaimBrowser }
 
 // ---------- HTTP ----------
 
@@ -240,6 +248,14 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 				} else if v != next.PhoneWidth {
 					next.PhoneWidth = v
 					changed = append(changed, intLog("phoneWidth", v))
+				}
+			case "stageAutoClaimBrowser":
+				var v bool
+				if json.Unmarshal(val, &v) != nil {
+					fail = "stageAutoClaimBrowser 必须是 true/false"
+				} else if v != next.StageAutoClaimBrowser {
+					next.StageAutoClaimBrowser = v
+					changed = append(changed, boolLog("stageAutoClaimBrowser", v))
 				}
 			case "chromeCacheMB":
 				var v int

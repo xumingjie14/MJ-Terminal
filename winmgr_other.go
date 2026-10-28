@@ -12,6 +12,10 @@ func platformSnapshotWindows(browserPath string) map[uint64]bool {
 	return map[uint64]bool{}
 }
 
+func platformPatrolCandidates(pids map[uint32]bool) []patrolCandidate {
+	return nil
+}
+
 func platformClaimWindow(browserPath string, before, claimed map[uint64]bool) (uint64, uint32, bool) {
 	return 0, 0, false
 }

@@ -30,6 +30,8 @@ var (
 	procIsIconic                    = user32.NewProc("IsIconic")
 	procGetWindowTextW              = user32.NewProc("GetWindowTextW")
 	procGetWindowTextLengthW        = user32.NewProc("GetWindowTextLengthW")
+	procGetClassNameW               = user32.NewProc("GetClassNameW")
+	procGetWindow                   = user32.NewProc("GetWindow")
 	procShowWindow                  = user32.NewProc("ShowWindow")
 	procGetWindowRect               = user32.NewProc("GetWindowRect")
 	procIsZoomed                    = user32.NewProc("IsZoomed")
@@ -122,6 +124,41 @@ func browserWindows(browserPath string) []winCand {
 		if img == base {
 			out = append(out, winCand{hwnd: uint64(hwnd), pid: pid})
 		}
+		return true
+	})
+	return out
+}
+
+// platformPatrolCandidates enumerates the top-level windows owned
+// by the given PIDs (the patrol's watched browser processes) with
+// the facts patrolFilter needs: class, title, visibility, owner and
+// size. PID membership is the isolation boundary -- a window is
+// only even looked at when its owning process IS one of the
+// browsers the daemon itself launched.
+func platformPatrolCandidates(pids map[uint32]bool) []patrolCandidate {
+	var out []patrolCandidate
+	enumTopLevel(func(hwnd uintptr) bool {
+		pid := windowPID(hwnd)
+		if !pids[pid] {
+			return true
+		}
+		visible, _, _ := procIsWindowVisible.Call(hwnd)
+		owner, _, _ := procGetWindow.Call(hwnd, 4) // GW_OWNER
+		var cls [256]uint16
+		n, _, _ := procGetClassNameW.Call(hwnd, uintptr(unsafe.Pointer(&cls[0])), uintptr(len(cls)))
+		class := ""
+		if n > 0 {
+			class = syscall.UTF16ToString(cls[:n])
+		}
+		title, _ := platformWindowTitle(uint64(hwnd))
+		var w, h int32
+		if l, t, r, b, ok := platformWindowRect(uint64(hwnd)); ok {
+			w, h = r-l, b-t
+		}
+		out = append(out, patrolCandidate{
+			HWND: uint64(hwnd), PID: pid, Class: class, Title: title,
+			Visible: visible != 0, Owned: owner != 0, W: w, H: h,
+		})
 		return true
 	})
 	return out
