@@ -1724,12 +1724,15 @@ func runServer(portFlag int, isDaemon bool) {
 	mux.HandleFunc("/api/diag/status", diagStatusHandler)
 	mux.HandleFunc("/api/diag/logs", diagLogsHandler)
 	mux.HandleFunc("/api/diag/export", diagExportHandler)
+	mux.HandleFunc("/api/remote/state", remoteStateHandler)
+	mux.HandleFunc("/api/remote/pairing", remotePairingHandler)
 	srv := &http.Server{Handler: activityMiddleware(diagMiddleware(mux))}
 	mux.HandleFunc("/api/shutdown", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"ok": true, "message": "后台和节点一起退出"})
 		logf("system", "info", "用户从设置退出系统，守护进程关闭")
 		go func() {
 			time.Sleep(300 * time.Millisecond)
+			remoteShutdown()
 			ocStopForShutdown()
 			coreMu.Lock()
 			stopCoreLocked()
@@ -1742,6 +1745,7 @@ func runServer(portFlag int, isDaemon bool) {
 	monInit()
 	ocAutoStartInit()
 	startExtPatrol()
+	remoteInit()
 
 	fmt.Println("MJ Light System daemon:", url)
 	daemonPort = actualPort
@@ -1804,6 +1808,7 @@ func runServer(portFlag int, isDaemon bool) {
 				mins := settingIdleExitMinutes()
 				if mins > 0 && !running && !ocRunning() && time.Now().Unix()-lastActivity.Load() > int64(mins)*60 {
 					logf("system", "info", "空闲超过 %d 分钟且节点未运行，守护进程自动退出", mins)
+					remoteShutdown()
 					ocStopForShutdown()
 					coreMu.Lock()
 					stopCoreLocked()

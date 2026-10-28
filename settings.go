@@ -32,6 +32,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -51,6 +52,12 @@ type mjSettings struct {
 	// OFF only hides the icons -- the files in Data/files and the
 	// import channels are unaffected.
 	FilesOnDesktop bool `json:"filesOnDesktop"`
+	// v0.33: remote assistance (embedded Tailscale/tsnet) master
+	// switch. Default OFF -- when off the networking never starts
+	// and the terminal has exactly the attack surface it had
+	// before v0.33. The remote settings POST path refuses this key:
+	// the channel can never switch itself on or off.
+	RemoteEnabled bool `json:"remoteEnabled"`
 }
 
 func defaultSettings() mjSettings {
@@ -64,6 +71,7 @@ func defaultSettings() mjSettings {
 		ChromeCacheMB:         200,
 		StageAutoClaimBrowser: true,
 		FilesOnDesktop:        true,
+		RemoteEnabled:         false,
 	}
 }
 
@@ -171,6 +179,7 @@ func settingsMap() map[string]any {
 		"chromeCacheMB":         s.ChromeCacheMB,
 		"stageAutoClaimBrowser": s.StageAutoClaimBrowser,
 		"filesOnDesktop":        s.FilesOnDesktop,
+		"remoteEnabled":         s.RemoteEnabled,
 		"fresh":                 settingsFresh(),
 	}
 }
@@ -189,6 +198,30 @@ func settingChromeCacheMB() int { return settingsGet().ChromeCacheMB }
 func settingStageAutoClaimBrowser() bool { return settingsGet().StageAutoClaimBrowser }
 
 func settingFilesOnDesktop() bool { return settingsGet().FilesOnDesktop }
+
+func settingRemoteEnabled() bool { return settingsGet().RemoteEnabled }
+
+// settingsSetRemoteEnabledInternal flips the remote-assistance
+// master switch from inside the daemon (the pairing page's
+// "disconnect and clear pairings" action), going through the same
+// persistence + logging as a settings POST. The remote mux can
+// never reach this: its settings POST refuses the key outright.
+func settingsSetRemoteEnabledInternal(v bool) {
+	setState.Lock()
+	settingsLoadLocked()
+	changed := setState.cur.RemoteEnabled != v
+	setState.cur.RemoteEnabled = v
+	err := settingsSaveLocked()
+	setState.Unlock()
+	if err != nil {
+		logf("settings", "error", "设置保存失败：%v", err)
+		return
+	}
+	if changed {
+		logf("settings", "info", "设置已更新：%s", boolLog("remoteEnabled", v))
+	}
+	remoteKick()
+}
 
 // ---------- HTTP ----------
 
@@ -273,6 +306,14 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 					next.FilesOnDesktop = v
 					changed = append(changed, boolLog("filesOnDesktop", v))
 				}
+			case "remoteEnabled":
+				var v bool
+				if json.Unmarshal(val, &v) != nil {
+					fail = "remoteEnabled 必须是 true/false"
+				} else if v != next.RemoteEnabled {
+					next.RemoteEnabled = v
+					changed = append(changed, boolLog("remoteEnabled", v))
+				}
 			case "chromeCacheMB":
 				var v int
 				if json.Unmarshal(val, &v) != nil || !(v == 0 || (v >= 50 && v <= 2000)) {
@@ -305,6 +346,11 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		for _, c := range changed {
 			logf("settings", "info", "设置已更新：%s", c)
+			if strings.HasPrefix(c, "remoteEnabled") {
+				// v0.33: start/stop the tailnet side right away
+				// instead of waiting for the reconcile tick.
+				remoteKick()
+			}
 		}
 		writeJSON(w, settingsMap())
 	default:

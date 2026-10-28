@@ -1033,7 +1033,12 @@ func ocAutoStartInit() {
 	go ocStart(seq)
 }
 
-func ocStatusHandler(w http.ResponseWriter, r *http.Request) {
+// ocStatusMap builds the full local status object. NOTE: it
+// contains the gateway token in the clear ("token") -- the desktop
+// UI needs it for its copy button. Anything serving this map to a
+// non-local caller must shape it first (see remoteOCStatusMap in
+// remote.go, which strips the token down to hasToken + a mask).
+func ocStatusMap() map[string]any {
 	phase, prog, size, msg, running, starting, healthy, since, viaNode, runMsg := ocSnapshot()
 	installed := ocInstalled()
 	out := map[string]any{
@@ -1083,5 +1088,9 @@ func ocStatusHandler(w http.ResponseWriter, r *http.Request) {
 		iv := ocInstalledVersion()
 		out["updateAvailable"] = installed && iv != "" && m.Version != iv
 	}
-	writeJSON(w, out)
+	return out
+}
+
+func ocStatusHandler(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, ocStatusMap())
 }
