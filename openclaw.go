@@ -93,6 +93,10 @@ type ocState struct {
 	proc     *ocProc
 	stopReq  bool
 	startSeq int64
+
+	Restarts    int
+	LastExit    string
+	restartHist []time.Time // crash-restart attempts inside the budget window
 }
 
 var ocSt = &ocState{Phase: "idle", RunMsg: "未启动"}
@@ -179,25 +183,8 @@ func ocConfigPath() string { return filepath.Join(ocDir(), "state", "openclaw.js
 
 func ocPrefsPath() string { return filepath.Join(ocDir(), "mj-prefs.json") }
 
-func ocViaNodePref() bool {
-	b, err := os.ReadFile(ocPrefsPath())
-	if err != nil {
-		return true // default ON
-	}
-	var p struct {
-		ViaNode *bool `json:"viaNode"`
-	}
-	if json.Unmarshal(b, &p) == nil && p.ViaNode != nil {
-		return *p.ViaNode
-	}
-	return true
-}
-
-func ocSetViaNodePref(on bool) {
-	_ = os.MkdirAll(ocDir(), 0o755)
-	b, _ := json.Marshal(map[string]any{"viaNode": on})
-	_ = os.WriteFile(ocPrefsPath(), b, 0o644)
-}
+// Via-node preference lives with the rest of the OpenClaw prefs
+// in openclaw_plus.go (ocGetPrefs / ocSetViaNodePref).
 
 // ---------- manifest ----------
 
@@ -662,6 +649,7 @@ func ocStartHandler(w http.ResponseWriter, r *http.Request) {
 	ocSt.Starting = true
 	ocSt.Healthy = false
 	ocSt.stopReq = false
+	ocSt.restartHist = nil
 	ocSt.startSeq++
 	seq := ocSt.startSeq
 	ocSt.RunMsg = "启动中…"
@@ -779,11 +767,58 @@ func ocWatchExit(proc *ocProc, logFile *os.File, seq int64) {
 	}
 	if proc.waitErr != nil {
 		ocSt.RunMsg = "已退出（" + proc.waitErr.Error() + "）"
+		ocSt.LastExit = proc.waitErr.Error()
 		logf("openclaw", "error", "小龙虾网关意外退出：%v（细节看组件内 state/logs 的日志）", proc.waitErr)
 	} else {
 		ocSt.RunMsg = "已退出（退出码 0，非手动停止）"
+		ocSt.LastExit = "退出码 0"
 		logf("openclaw", "warn", "小龙虾网关自行退出（非手动停止）")
 	}
+	if ocGetPrefs().CrashRestart {
+		ocScheduleRestartLocked(seq)
+	}
+}
+
+// ocScheduleRestartLocked arranges one crash restart with backoff
+// (5s / 20s / 60s), at most 3 attempts in a 10-minute window.
+// Caller must hold ocSt.mu.
+func ocScheduleRestartLocked(seq int64) {
+	now := time.Now()
+	kept := ocSt.restartHist[:0]
+	for _, t := range ocSt.restartHist {
+		if now.Sub(t) < 10*time.Minute {
+			kept = append(kept, t)
+		}
+	}
+	ocSt.restartHist = kept
+	if len(kept) >= 3 {
+		ocSt.RunMsg += "（自动重启已达上限，先不自动拉了）"
+		logf("openclaw", "error", "小龙虾 10 分钟内已自动重启 3 次，停手不再自动重启（多半是配置或 Key 有问题，先看日志）")
+		return
+	}
+	delay := []time.Duration{5 * time.Second, 20 * time.Second, 60 * time.Second}[len(kept)]
+	ocSt.restartHist = append(ocSt.restartHist, now)
+	ocSt.Restarts++
+	attempt := len(kept) + 1
+	ocSt.RunMsg += fmt.Sprintf("（%d 秒后自动重启，第 %d 次）", int(delay.Seconds()), attempt)
+	logf("openclaw", "warn", "小龙虾将在 %d 秒后自动重启（第 %d 次）", int(delay.Seconds()), attempt)
+	time.AfterFunc(delay, func() {
+		ocSt.mu.Lock()
+		if ocSt.Running || ocSt.Starting || ocSt.stopReq || ocSt.startSeq != seq {
+			ocSt.mu.Unlock()
+			return
+		}
+		ocSt.Starting = true
+		ocSt.Healthy = false
+		ocSt.startSeq++
+		nseq := ocSt.startSeq
+		ocSt.RunMsg = "自动重启中…"
+		ocSt.mu.Unlock()
+		if !ocInstalled() {
+			return
+		}
+		go ocStart(nseq)
+	})
 }
 
 func ocHealthPoll(seq int64, startedAt time.Time) {
@@ -927,6 +962,77 @@ func ocConsoleHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"ok": true})
 }
 
+// ---------- runtime stats ----------
+
+var (
+	ocDiskMu     sync.Mutex
+	ocDiskBytes  int64
+	ocDiskCalcAt time.Time
+)
+
+// ocDiskUsage totals the component folder, cached for a minute --
+// the page polls status every second and node_modules is huge.
+func ocDiskUsage() int64 {
+	ocDiskMu.Lock()
+	defer ocDiskMu.Unlock()
+	if time.Since(ocDiskCalcAt) < time.Minute {
+		return ocDiskBytes
+	}
+	var total int64
+	root := ocDir()
+	_ = filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			if fi, e := d.Info(); e == nil {
+				total += fi.Size()
+			}
+		}
+		return nil
+	})
+	ocDiskBytes, ocDiskCalcAt = total, time.Now()
+	return total
+}
+
+// ocLogTail returns the last n lines of the gateway process log.
+func ocLogTail(n int) []string {
+	path := filepath.Join(ocDir(), "state", "logs", "gateway-process.log")
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	if fi, err := f.Stat(); err == nil && fi.Size() > 256*1024 {
+		_, _ = f.Seek(fi.Size()-256*1024, io.SeekStart)
+	}
+	b, _ := io.ReadAll(f)
+	lines := strings.Split(strings.TrimRight(string(b), "\n"), "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return lines
+}
+
+// ocAutoStartInit starts the gateway at daemon start when the user
+// opted in （小龙虾设置： 打开终端机时自动启动）. Called once from main.
+func ocAutoStartInit() {
+	if !ocInstalled() || !ocGetPrefs().AutoStart {
+		return
+	}
+	ocSt.mu.Lock()
+	if ocSt.Running || ocSt.Starting {
+		ocSt.mu.Unlock()
+		return
+	}
+	ocSt.Starting = true
+	ocSt.Healthy = false
+	ocSt.stopReq = false
+	ocSt.startSeq++
+	seq := ocSt.startSeq
+	ocSt.RunMsg = "启动中…"
+	ocSt.mu.Unlock()
+	logf("openclaw", "info", "小龙虾随终端机自动启动")
+	go ocStart(seq)
+}
+
 func ocStatusHandler(w http.ResponseWriter, r *http.Request) {
 	phase, prog, size, msg, running, starting, healthy, since, viaNode, runMsg := ocSnapshot()
 	installed := ocInstalled()
@@ -952,6 +1058,19 @@ func ocStatusHandler(w http.ResponseWriter, r *http.Request) {
 		out["since"] = since.Unix()
 		out["uptimeText"] = fmtUptime(time.Since(since))
 	}
+	ocSt.mu.Lock()
+	if ocSt.proc != nil && ocSt.proc.cmd != nil && ocSt.proc.cmd.Process != nil && running {
+		out["rssBytes"] = ocTreeRSS(ocSt.proc.cmd.Process.Pid)
+	}
+	out["restarts"] = ocSt.Restarts
+	out["lastExit"] = ocSt.LastExit
+	ocSt.mu.Unlock()
+	if installed {
+		out["diskBytes"] = ocDiskUsage()
+	}
+	prefs := ocGetPrefs()
+	out["autoStart"] = prefs.AutoStart
+	out["crashRestart"] = prefs.CrashRestart
 	if installed {
 		if tok := ocReadToken(); tok != "" {
 			out["hasToken"] = true

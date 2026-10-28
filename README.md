@@ -73,11 +73,13 @@
 托管纪律（2026-10-27 便携验证定版，改动前先读验证报告）：
 
 - **先写配置再启进程**：首次启动前守护进程直接写 `state/openclaw.json`——`gateway.mode=local`（缺它网关拒绝启动）、`logging.file` 指向组件内绝对路径（该路径是绝对的，**每次启动前都核对，组件被挪过位置就改写**，且直接改 JSON 不用 openclaw CLI 改）、`gateway.port=18789`。网关自身不保存令牌（无令牌时它只生成一次性临时令牌，谁都读不回来），所以 provisioning 同时生成一个随机令牌以 `gateway.auth`（mode=token）写入配置，页面从配置读回展示/复制；**令牌与任何 API Key 永不进日志**（脱敏红线同样适用）。
-- **只用前台托管**：守护进程以 `gateway run --port 18789 --bind loopback` 拉起网关并托管（Windows 上进程入 Job Object、关句柄即整树回收；其他平台用进程组），**绝不用 `gateway install`**（Windows 上那是注册计划任务，违背免安装原则）。网关意外退出只在页面标明退出码，v1 不自动重启。
+- **只用前台托管**：守护进程以 `gateway run --port 18789 --bind loopback` 拉起网关并托管（Windows 上进程入 Job Object、关句柄即整树回收；其他平台用进程组），**绝不用 `gateway install`**（Windows 上那是注册计划任务，违背免安装原则）。网关意外退出记入中枢并在页面标明原因；v0.29 起可开「崩溃后自动重启」（退避 5/20/60 秒，10 分钟内最多 3 次，超限停手并报错，多半是配置或 Key 问题）。
 - **出站可走节点**：页面开关「模型流量走本地节点」默认开；开且核心在跑（或能按已保存节点拉起）时给网关子进程注入 `HTTP(S)_PROXY=127.0.0.1:2080`；拉不起则直连启动并在页面与日志中明示「本次直连」，不静默。网关的 stdout/stderr 进组件内 `state/logs/gateway-process.log`，中枢只记生命周期事件（模块 `openclaw`）。
 - **已知残留与清理**：网关的 state-owner 锁目录在 Windows 上是源码写死的 `%LOCALAPPDATA%\OpenClaw`（不读环境变量、无开关；另有读环境变量的路径已由进程级 APPDATA/LOCALAPPDATA 重定向挡进组件 `appdata/`）。守护进程在首次启动前记录基线（组件内 `.mj-lock-baseline.json`：该目录原本是否存在），停止时在进程全停、端口释放后，**仅当基线为原本不存在时才删除它**，清理结果记入日志。
 - **退出联动**：设置→退出系统、空闲自动退出、OTA 交接退出都会先停网关再退守护进程；小龙虾在跑时空闲自动退出不触发。
-- **定位**：约 630 MB 体积、约 1 GB 内存的重型组件，且权限高（能操作电脑、收发消息），只建议在自己的电脑上用；模型 API Key 由用户在小龙虾自己的控制台里自备，本程序不提供 Key 与渠道的配置界面（v1）。
+- **定位**：约 630 MB 体积、约 1 GB 内存的重型组件，且权限高（能操作电脑、收发消息），只建议在自己的电脑上用；消息渠道仍由用户在小龙虾自己的控制台里配。
+
+**页面升级（v0.29）**：状态卡实时显示运行状态、运行时长、进程树内存（Windows 用 Toolhelp 快照 + GetProcessMemoryInfo，其他平台读 /proc）、磁盘占用；设置成分组开关（模型流量走节点 / 随终端机自启 / 崩溃后自动重启，存组件内 `mj-prefs.json`）。**配置向导**：选厂商（OpenAI / Anthropic / DeepSeek / 自定义 OpenAI 兼容接口）、填 API Key、选默认模型——保存走 OpenClaw 自己的 CLI（`config set` / `models set`，写前它自动备份配置、且热生效不用重启网关；自定义厂商按 schema 要求整段声明含 models），守护进程只负责驱动 CLI 与读回状态（只显示 Key 尾号）；「测试连接」用填的或已存的 Key 请求厂商 `/models`（走下载加速通道，节点在跑时经节点）。Key 只在页面→守护进程→组件配置之间流转，永不进日志，CLI 报错回显前先脱敏。页面内嵌网关日志尾巴；数据可一键导出（`state/` 打包 zip，不含日志）与导入（导入前现有 `state/` 改名备份，再用 ocProvision 整理路径）。
 
 构建时 CI 在 windows-latest 上用便携 Node v24.22.1（PATH 钉死 + `--scripts-prepend-node-path=true` + 版本护栏，验证 run #1 的教训）以 npm 本地 prefix 方式组装 OpenClaw 2026.10.8，产物即组件包与清单，随 Release 一起发布。
 

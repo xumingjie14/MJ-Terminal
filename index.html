@@ -654,7 +654,7 @@ function render(id){
  b.innerHTML=`<div style="padding:12px 14px 10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-bottom:1px solid rgba(255,255,255,.08)"><span class="cschip">版本 <b id="cs-ver">…</b></span><span class="cschip"><span class="csdot" id="cs-core-dot"></span>核心 <span id="cs-core">…</span></span><span class="cschip"><span class="csdot" id="cs-node-dot"></span>节点 <span id="cs-node">…</span></span><span class="cschip">运行时长 <span id="cs-up">…</span></span><span class="cschip">日志 <span id="cs-cnt">…</span></span></div><div style="padding:8px 14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-bottom:1px solid rgba(255,255,255,.08)"><select id="cs-level" class="csin"><option value="">全部级别</option><option value="info">信息及以上</option><option value="warn">警告及以上</option><option value="error">只看错误</option></select><select id="cs-module" class="csin"><option value="">全部模块</option><option value="system">系统</option><option value="core">核心</option><option value="node">节点</option><option value="browser">浏览器</option><option value="winmgr">窗口管理</option><option value="ssh">SSH</option><option value="servermon">服务器监控</option><option value="update">更新</option><option value="firefox">Firefox</option><option value="apps">应用商店</option><option value="openclaw">小龙虾</option><option value="api">接口</option></select><input id="cs-q" class="csin" placeholder="搜索日志…" style="flex:1;min-width:100px"><label style="font-size:12.5px;opacity:.9"><input type="checkbox" id="cs-auto" checked> 自动滚动</label><button class="btn gray" id="cs-copy">复制诊断摘要</button><button class="btn gray" id="cs-export">导出日志</button></div><div id="cs-log" style="flex:1;overflow:auto;padding:10px 14px;font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.7;color:#d6e2f0"></div><div style="padding:7px 14px;font-size:12px;opacity:.6;border-top:1px solid rgba(255,255,255,.08)">日志同时存在 EXE 旁 Data/logs/mj.log。出问题时先看这里的红色报错，或点「导出日志」把诊断包发出来定位。</div>`;
  }
  if(id==='appstore') b.innerHTML=`<h3>应用商店 · 便携应用</h3><p class="mut" style="margin-top:6px">这里的都是<b style="color:#fff">免安装的便携版</b>：从官方源直下、装进 EXE 旁的 <b style="color:#fff">Data/apps</b>，程序和数据都跟着文件夹走，宿主电脑不留东西。每个应用上架前都验过包，并钉死了校验和，下载对不上会自动拒绝。</p><div class="row" style="margin-top:10px"><input class="txt" id="st-q" placeholder="搜索应用…"><span class="tag" id="st-count"></span></div><div style="display:flex;gap:12px;margin-top:12px;align-items:flex-start"><div id="st-cats" style="width:102px;flex:none;display:flex;flex-direction:column;gap:4px"></div><div id="st-grid" style="flex:1;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;align-content:start"></div></div><p class="mut" id="st-foot" style="margin-top:12px"></p>`;
- if(id==='openclaw') b.innerHTML=`<h3>小龙虾 OpenClaw（AI 助手组件）</h3><p class="mut" style="margin-top:8px">小龙虾是一个能<b style="color:#fff">操作电脑、收发消息</b>的 AI 助手（OpenClaw）。它是个<b style="color:#fff">按需下载的重型组件</b>，先把丑话说在前面：<br>· <b style="color:#fff">体积约 630 MB</b>（运行时 + 程序本体），装在 EXE 旁的 <b style="color:#fff">Data/openclaw</b>，跟着文件夹走；<br>· 运行时<b style="color:#fff">内存占用约 1 GB</b> 量级，老电脑会明显吃力；<br>· 它权限很大（能跑命令、动文件、替你发消息），<b style="color:#fff">只建议装在自己的电脑上，不要装到公用电脑</b>；<br>· <b style="color:#fff">模型 API 要你自备</b>：装好启动后，在小龙虾自己的控制台页面里填你自己的模型 Key，本页只负责装组件和启停，不碰你的 Key。</p><p style="margin-top:12px"><span class="tag" id="ocinfo">组件状态读取中…</span></p><div class="row" style="margin-top:10px"><button class="btn" id="ocdl">下载组件</button><span class="tag" id="ocprog"></span></div><div id="ocpanel" style="display:none"><div class="row" style="margin-top:14px"><label class="mut" style="font-size:13px"><input type="checkbox" id="ocvianode" checked> 模型流量走本地节点（开着且节点在跑时，模型请求经节点出去；节点起不来会明示本次直连）</label></div><div class="row" style="margin-top:10px"><button class="btn" id="ocstart">启动</button><button class="btn red" id="ocstop">停止</button><button class="btn gray" id="occonsole">打开控制台</button><button class="btn gray" id="ocuninst">卸载组件</button></div><p style="margin-top:10px"><span class="tag" id="ocstat">状态：…</span></p><p class="mut" style="margin-top:10px">网关令牌 <span class="tag" id="octoken">…</span> <button class="btn gray" id="octokencopy">复制令牌</button></p><p class="mut" style="margin-top:6px">打开控制台后如果要求输入令牌，就把令牌粘贴进去。令牌由系统生成、只存在组件自己的配置里，换电脑跟着文件夹走，不用你记。</p></div>`;
+ if(id==='openclaw') b.innerHTML=`<h3>小龙虾 OpenClaw</h3><div class="sm-card" style="margin-top:10px"><div class="sm-row"><span>状态</span><span id="oc-st-state">读取中…</span></div><div class="sm-row"><span>版本</span><span id="oc-st-ver">—</span></div><div class="sm-row"><span>运行时长</span><span id="oc-st-up">—</span></div><div class="sm-row"><span>内存占用（整个进程树）</span><span id="oc-st-rss">—</span></div><div class="sm-row"><span>组件占用磁盘</span><span id="oc-st-disk">—</span></div><div class="sm-row"><span>模型出口</span><span id="oc-st-route">—</span></div></div><div class="row" style="margin-top:10px"><button class="btn" id="oc-dl">下载组件</button><button class="btn gray" id="oc-check">检查更新</button><span class="tag" id="oc-prog"></span></div><div id="oc-main" style="display:none"><div class="row" style="margin-top:12px"><button class="btn" id="oc-start">启动</button><button class="btn red" id="oc-stop">停止</button><button class="btn gray" id="oc-console">打开控制台</button></div><p class="mut" style="margin-top:8px">网关令牌 <span class="tag" id="oc-token">…</span> <button class="btn gray" id="oc-tokcopy">复制令牌</button> <span style="font-size:12px">打开控制台要令牌时粘贴它；令牌存在组件自己的配置里，跟着文件夹走，不用记。</span></p><div class="sm-sec">设置</div><div class="sm-card"><div class="sm-row"><span>模型流量走本地节点</span><label class="sm-sw"><input type="checkbox" id="oc-p-vianode"><i></i></label></div><div class="sm-row"><span>打开终端机时自动启动</span><label class="sm-sw"><input type="checkbox" id="oc-p-autostart"><i></i></label></div><div class="sm-row"><span>崩溃后自动重启（10 分钟内最多 3 次）</span><label class="sm-sw"><input type="checkbox" id="oc-p-crash"><i></i></label></div></div><p class="mut" style="font-size:12px;margin-top:6px">走节点：节点在跑时模型请求经节点出去；节点起不来会明示本次直连，绝不假装走了节点。</p><div class="sm-sec">配置向导 · 模型</div><div class="sm-card"><div class="sm-row"><span>当前配置</span><span id="oc-wiz-cur">读取中…</span></div><div class="row" style="margin-top:8px" id="oc-wiz-provs"><button class="btn" data-p="openai">OpenAI</button><button class="btn gray" data-p="anthropic">Anthropic</button><button class="btn gray" data-p="deepseek">DeepSeek</button><button class="btn gray" data-p="custom">自定义接口</button></div><div class="row" style="margin-top:8px;display:none" id="oc-wiz-idrow"><input class="txt" id="oc-wiz-id" placeholder="厂商标识（小写字母开头，如 myapi）" style="max-width:240px"></div><div class="row" style="margin-top:8px"><input class="txt" id="oc-wiz-base" placeholder="接口地址（留空用官方地址）"></div><div class="row" style="margin-top:8px"><input class="txt" id="oc-wiz-key" type="password" placeholder="API Key（留空 = 不修改已保存的）" autocomplete="off"></div><div class="row" style="margin-top:8px"><input class="txt" id="oc-wiz-model" list="oc-wiz-models" placeholder="模型名，如 gpt-5.1"><datalist id="oc-wiz-models"></datalist></div><div class="row" style="margin-top:8px"><button class="btn" id="oc-wiz-save">保存配置</button><button class="btn gray" id="oc-wiz-test">测试连接</button><span class="tag" id="oc-wiz-msg"></span></div><p class="mut" style="font-size:12px;margin-top:6px">保存走小龙虾自己的配置命令：立即生效、不用重启网关，改前它会自动备份旧配置。Key 只写进组件配置，不进日志。自定义接口按 OpenAI 兼容协议。Telegram 等消息渠道去小龙虾控制台里配。</p></div><div class="sm-sec">运行日志</div><div class="sm-card"><pre id="oc-log" style="max-height:220px;overflow:auto;font-size:11.5px;line-height:1.55;white-space:pre-wrap;word-break:break-all;margin:0">（暂无日志）</pre><div class="row" style="margin-top:6px"><button class="btn gray" id="oc-log-refresh">刷新日志</button><span class="mut" style="font-size:12px">网关自己的输出；终端机的系统事件在「控制台」应用里看（模块：小龙虾）</span></div></div><div class="sm-sec">数据与组件</div><div class="sm-card"><div class="sm-row"><span>数据导出（配置 + 它记住的东西，换电脑用）</span><button class="btn gray" id="oc-export">导出</button></div><div class="sm-row"><span>数据导入（导入前自动备份现有数据）</span><span><input type="file" id="oc-import-file" accept=".zip" style="display:none"><button class="btn gray" id="oc-import">导入…</button></span></div><div class="sm-row"><span>卸载组件（程序、配置、数据全删）</span><button class="btn red" id="oc-uninst">卸载</button></div><p class="mut" style="font-size:12px;margin-top:6px" id="oc-dir"></p></div></div><details style="margin-top:14px"><summary class="mut" style="cursor:pointer;font-size:12.5px">安装须知（重型组件，先看一眼）</summary><p class="mut" style="margin-top:6px;line-height:1.7">小龙虾是一个能<b style="color:#fff">操作电脑、收发消息</b>的 AI 助手。它是<b style="color:#fff">按需下载的重型组件</b>：<br>· <b style="color:#fff">体积约 630 MB</b>，装在 EXE 旁的 Data/openclaw，跟着文件夹走；<br>· 运行时<b style="color:#fff">内存约 1 GB</b> 量级，老电脑会吃力（上面的状态卡能实时看）；<br>· 它权限很大（能跑命令、动文件、替你发消息），<b style="color:#fff">只建议装在自己的电脑上，不要装到公用电脑</b>；<br>· 模型 API Key 自备：在上面的配置向导里填，或去小龙虾自己的控制台里配。</p></details>`;
  if(id==='core') b.innerHTML=`<h3>节点（sing-box）</h3><p class="mut" style="margin-top:8px">粘贴<b style="color:#fff">节点链接</b>或填<b style="color:#fff">订阅地址</b>导入，支持 vless / vmess / trojan / ss / hysteria2，自动生成 sing-box 配置、自动去重。sing-box.exe 在程序同目录的 core 文件夹（完整版已自带）。</p><textarea id="nlink" rows="3" style="width:100%;margin-top:12px" placeholder="粘贴节点链接，如 vless://... 或 ss://..."></textarea><div class="row" style="margin-top:8px"><button class="btn" id="nadd">添加这个节点</button></div><div class="row" style="margin-top:12px"><input class="txt" id="nsub" placeholder="或粘贴订阅地址 https://..."><button class="btn gray" id="nsubbtn">导入订阅</button></div><p style="margin:12px 0"><span class="tag" id="core-status">状态：读取中…</span> <span class="tag" id="ncount"></span></p><div class="row" style="margin-top:2px"><button class="btn gray" id="accel-toggle">软件内全局加速：…</button><span class="tag" id="accel-state">…</span></div><p class="mut" style="margin-top:8px">全局加速开着时：桌面窗口、从软件里点开的链接、终端里跑的命令都走节点；宿主电脑自己的浏览器和程序完全不受影响。桌面窗口在下次打开时按新设置生效（关掉桌面再双击 EXE 即可）。</p><div id="nlist" class="mut"></div><div class="row" style="margin-top:12px"><button class="btn" id="core-start">启动节点</button><button class="btn red" id="core-stop">停止节点</button><button class="btn gray" id="core-refresh">刷新状态</button><button class="btn gray" id="ptest">代理自检</button><button class="btn gray" id="nclear">清空节点</button></div><div class="row" style="margin-top:8px"><button class="btn gray" id="corelogbtn">看 sing-box 日志</button></div><pre class="term" id="corelog" style="min-height:90px;margin-top:10px;display:none"></pre>`;
  if(id==='sys') b.innerHTML=`<h3>外观</h3><p class="mut" style="margin-top:6px">点一张换壁纸，立刻生效。也可以上传你自己的图片当壁纸（存在 EXE 旁的 Data 文件夹，跟着程序走）。</p><div class="wp-grid" id="wp-grid">${Object.entries(WALLPAPERS).map(([k,v])=>`<div class="wp" data-wp="${k}" style="background:${v.css}"><span>${v.n}</span></div>`).join('')}</div><div class="row" style="margin-top:12px"><label class="btn gray" for="wp-file" style="cursor:pointer">上传我的图片…</label><input type="file" id="wp-file" accept="image/*" style="display:none"><button class="btn gray" id="wp-remove">删除自定义壁纸</button><span class="tag" id="wp-status"></span></div><hr style="border-color:rgba(255,255,255,.14);margin:18px 0"><h3>台前调度</h3><p class="mut" style="margin-top:6px">开启后，桌面只显示当前应用，其他打开的应用缩到左侧成一排实时缩略图，点缩略图就切换过来。菜单栏右侧的 ▦ 也可以随开随关。</p><div class="row" style="margin-top:10px"><button class="btn gray" id="stage-toggle">台前调度：…</button><span class="tag" id="stage-state">…</span></div><hr style="border-color:rgba(255,255,255,.14);margin:18px 0"><h3>系统</h3><div class="kv" id="syskv" style="margin-top:10px"><span>读取中…</span></div><hr style="border-color:rgba(255,255,255,.14);margin:18px 0"><h3>软件更新</h3><p class="mut" style="margin-top:6px">当前版本 <b style="color:#fff" id="upd-cur">…</b>。后台启动时会自动检查新版并预下载，你也可以手动检查；点「重启并更新」完成升级（更新时节点断开几秒，自动重连，节点和数据都不动）。仓库是公开的，<b style="color:#fff">不需要令牌</b>；下面这个令牌框只在仓库改回私有后才用得上，平时留空即可。</p><div class="row" style="margin-top:10px"><input class="txt" id="upd-token" type="password" placeholder="更新令牌（公开仓库不用填）" autocomplete="off"><button class="btn gray" id="upd-token-save">保存令牌</button></div><div class="row" style="margin-top:10px"><button class="btn" id="upd-check">检查更新</button><button class="btn gray" id="upd-dl" style="display:none">下载更新</button><button class="btn red" id="upd-apply" style="display:none">重启并更新</button><span class="tag" id="upd-status">…</span></div><div class="row" style="margin-top:16px"><button class="btn red" id="quit">退出系统（停节点 + 关后台）</button></div><p class="mut" style="margin-top:12px">关掉桌面窗口只是隐藏，后台和节点继续跑；再双击 MJ-System.exe 回来。真正断开只有点这个「退出系统」。个人数据都在 EXE 旁的 Data 文件夹，用完带走或删掉即可。</p>`;
  bind(id);
@@ -1139,56 +1139,98 @@ function bind(id){
  }
  if(id==='openclaw'){
    const G=x=>document.getElementById(x);
-   let ocTimer=null, ocToken='';
+   let ocToken='', ocTick=0, ocProv='openai', ocWizLoaded=false;
    const vis=()=>{const w=G('win-openclaw');return !!w&&!w.classList.contains('hidden')};
+   const fmtB=v=>{ v=+v||0; if(v>=1e9) return (v/1e9).toFixed(2)+' GB'; if(v>=1e6) return (v/1e6).toFixed(1)+' MB'; if(v>=1e3) return (v/1e3).toFixed(1)+' KB'; return v+' B'; };
    const maskTok=t=>t?(t.slice(0,4)+'••••••••'+t.slice(-4)):'';
+   const OC_PROV={openai:{base:'https://api.openai.com/v1',models:['gpt-5.1','gpt-5.1-mini','gpt-5.6-luna']},anthropic:{base:'https://api.anthropic.com/v1',models:['claude-sonnet-4-5','claude-opus-4-1']},deepseek:{base:'https://api.deepseek.com/v1',models:['deepseek-chat','deepseek-reasoner']},custom:{base:'',models:[]}};
+   const wizBody=()=>({provider: ocProv==='custom'?(G('oc-wiz-id').value.trim()||'custom'):ocProv, apiKey:G('oc-wiz-key').value.trim(), model:G('oc-wiz-model').value.trim(), baseUrl:G('oc-wiz-base').value.trim()});
+   const paintWiz=async()=>{
+     let r; try{ r=await api('/api/openclaw/wizard'); }catch(e){ return; }
+     const cur=G('oc-wiz-cur'); if(!cur) return;
+     if(r.error){ cur.textContent=r.error; return; }
+     ocWizLoaded=true;
+     const ps=r.providers||[];
+     if(!ps.length){ cur.textContent='还没配置模型，在下面选厂商填 Key'; return; }
+     const names=ps.map(p=>p.id+(p.hasKey?('（Key …'+(p.keyTail||'')+'）'):'（没 Key）')).join('、');
+     cur.textContent=names+(r.primary?(' · 默认模型 '+r.primary):' · 还没设默认模型');
+     if(r.primary&&!G('oc-wiz-model').value){ const i=r.primary.indexOf('/'); if(i>0) G('oc-wiz-model').value=r.primary.slice(i+1); }
+   };
+   const paintLog=async()=>{
+     const el=G('oc-log'); if(!el) return;
+     let r; try{ r=await api('/api/openclaw/logtail'); }catch(e){ return; }
+     const lines=(r.lines||[]); el.textContent=lines.length?lines.join('\n'):'（暂无日志）';
+     el.scrollTop=el.scrollHeight;
+   };
    const paintOC=async()=>{
-     let r;
-     try{ r=await api('/api/openclaw/status'); }catch(e){ return; }
-     const info=G('ocinfo'), prog=G('ocprog'), dl=G('ocdl'), panel=G('ocpanel');
-     if(!info){ if(ocTimer){clearInterval(ocTimer);ocTimer=null;} return; }
-     if(r.installed){
-       info.textContent='已安装小龙虾 '+(r.version||'')+(r.updateAvailable?(' · 有新版 '+(r.available||'')+'（在上面重新下载即可更新）'):'');
-     } else {
-       info.textContent='未安装组件'+(r.available?(' · 可下载版本 '+(r.available||'')+'（约 '+Math.round((r.availableSize||0)/1048576)+' MB）'):'');
-     }
-     if(dl){
-       dl.style.display=r.installed?'none':'';
-       dl.textContent='下载组件'+(r.availableSize?('（约 '+Math.round(r.availableSize/1048576)+' MB，走节点下载）'):'');
-       dl.disabled=(r.phase==='downloading'||r.phase==='extracting');
-     }
-     if(r.phase==='downloading'){ prog.textContent='下载中… '+((r.progress||0)/1048576).toFixed(1)+' / '+((r.size||0)/1048576).toFixed(1)+' MB'; }
+     let r; try{ r=await api('/api/openclaw/status'); }catch(e){ return; }
+     if(!G('oc-st-state')) return;
+     const dot=c=>'<span class="sdot '+(c?'on':'off')+'" style="display:inline-block;vertical-align:1px;margin-right:6px"></span>';
+     let state;
+     if(!r.installed) state=dot(false)+'未安装组件';
+     else if(r.phase==='downloading'||r.phase==='extracting') state=dot(false)+'正在安装…';
+     else if(r.healthy) state=dot(true)+'运行中';
+     else if(r.starting) state=dot(false)+'启动中…（网关起来要十几秒）';
+     else if(r.running) state=dot(false)+'已启动（健康检查中）';
+     else state=dot(false)+(r.runMsg||'已停止');
+     if(r.installed&&r.restarts) state+=' · 累计自动重启 '+r.restarts+' 次';
+     G('oc-st-state').innerHTML=state;
+     G('oc-st-ver').textContent=r.installed?('小龙虾 '+(r.version||'')):(r.available?('可下载 '+(r.available||'')):'—');
+     G('oc-st-up').textContent=(r.running&&r.uptimeText)?r.uptimeText:'—';
+     G('oc-st-rss').textContent=r.running?(r.rssBytes?fmtB(r.rssBytes):'读取中…'):'—';
+     G('oc-st-disk').textContent=r.installed?(r.diskBytes?fmtB(r.diskBytes):'计算中…'):'—';
+     G('oc-st-route').textContent=r.running?(r.viaNode?'经本地节点出去':'直连'+(r.viaNodePref?'（开关是走节点，本次没走成）':'')):'—';
+     const dl=G('oc-dl'), prog=G('oc-prog');
+     if(r.phase==='downloading'){ prog.textContent='下载中… '+fmtB(r.progress||0)+' / '+fmtB(r.size||0); }
      else if(r.phase==='extracting'){ prog.textContent='正在释放组件…'; }
+     else if(r.updateAvailable&&r.installed){ prog.textContent='有新版 '+(r.available||'')+'，点「更新组件」下载'; }
      else { prog.textContent=r.stateMsg||''; }
-     if(panel) panel.style.display=r.installed?'':'none';
+     dl.style.display=(!r.installed||r.updateAvailable)?'':'none';
+     dl.textContent=r.installed?('更新组件到 '+(r.available||'')):('下载组件'+(r.availableSize?('（约 '+fmtB(r.availableSize)+'）'):''));
+     dl.disabled=(r.phase==='downloading'||r.phase==='extracting');
+     G('oc-main').style.display=r.installed?'':'none';
      if(r.installed){
-       const vn=G('ocvianode'); if(vn&&document.activeElement!==vn) vn.checked=r.viaNodePref!==false;
-       const st=G('ocstat'); if(st){
-         let s='状态：'+(r.runMsg||'未启动');
-         if(r.running){ s+=' · 端口 '+(r.port||18789)+(r.uptimeText?(' · 已运行 '+r.uptimeText):'')+' · '+(r.viaNode?'走本地节点':'直连');
-           if(r.viaNodePref&&!r.viaNode) s+='（开关是走节点，本次没走成）'; }
-         st.textContent=s;
-       }
-       const bs=G('ocstart'), bp=G('ocstop'), bc=G('occonsole');
-       if(bs) bs.disabled=!!(r.running||r.starting);
-       if(bp) bp.disabled=!r.running;
-       if(bc) bc.disabled=!r.healthy;
+       const setSw=(id,v)=>{ const el=G(id); if(el&&document.activeElement!==el) el.checked=!!v; };
+       setSw('oc-p-vianode', r.viaNodePref!==false); setSw('oc-p-autostart', r.autoStart); setSw('oc-p-crash', r.crashRestart!==false);
+       G('oc-start').disabled=!!(r.running||r.starting);
+       G('oc-stop').disabled=!r.running;
+       G('oc-console').disabled=!r.healthy;
        ocToken=r.token||'';
-       const tk=G('octoken'); if(tk) tk.textContent=r.hasToken?maskTok(ocToken):'（未设置，打开控制台后在小龙虾里查看）';
-       const tc=G('octokencopy'); if(tc) tc.disabled=!r.hasToken;
+       G('oc-token').textContent=r.hasToken?maskTok(ocToken):'（未设置）';
+       G('oc-tokcopy').disabled=!r.hasToken;
+       G('oc-dir').textContent='组件目录：'+(r.componentDir||'')+'（数据导出不含日志；卸载会连数据一起删除）';
+       if(!ocWizLoaded) paintWiz();
+       ocTick++;
+       if(ocTick%3===0) paintLog();
      }
-     if((r.phase==='downloading'||r.phase==='extracting'||r.starting)&&!ocTimer) ocTimer=setInterval(()=>{ if(vis()) paintOC(); },1000);
-     if(r.phase!=='downloading'&&r.phase!=='extracting'&&!r.starting&&ocTimer){ clearInterval(ocTimer); ocTimer=null; }
    };
    paintOC();
-   setInterval(()=>{ if(vis()) paintOC(); },2500);
-   G('ocdl').onclick=async()=>{ const r=await api('/api/openclaw/install',{method:'POST'}); if(r&&r.error) alert(r.error); paintOC(); };
-   G('ocstart').onclick=async()=>{ const r=await api('/api/openclaw/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({viaNode:G('ocvianode').checked})}); if(r&&r.error) alert(r.error); paintOC(); };
-   G('ocstop').onclick=async()=>{ G('ocstat').textContent='状态：停止中…'; const r=await api('/api/openclaw/stop',{method:'POST'}); if(r&&r.error) alert(r.error); paintOC(); };
-   G('occonsole').onclick=async()=>{ const r=await api('/api/openclaw/console',{method:'POST'}); if(r&&r.error) alert(r.error); };
-   G('ocuninst').onclick=async()=>{ if(!confirm('卸载小龙虾？\n组件程序、它记住的配置和数据都在 Data/openclaw 里，卸载会一并全部删掉，不可恢复。')) return;
-     const r=await api('/api/openclaw/uninstall',{method:'POST'}); if(r&&r.error) alert(r.error); paintOC(); };
-   G('octokencopy').onclick=async()=>{ if(!ocToken) return; const btn=G('octokencopy'); let ok=false;
+   setInterval(()=>{ if(vis()) paintOC(); },1800);
+   G('oc-dl').onclick=async()=>{ const r=await api('/api/openclaw/install',{method:'POST'}); if(r&&r.error) alert(r.error); paintOC(); };
+   G('oc-check').onclick=async()=>{ G('oc-prog').textContent='检查中…'; const r=await api('/api/openclaw/checkupdate',{method:'POST'}); if(r&&r.error){ G('oc-prog').textContent=r.error; return; } G('oc-prog').textContent=r.updateAvailable?('有新版 '+(r.available||'')+' 可更新'):('已是最新（'+(r.current||'')+'）'); paintOC(); };
+   G('oc-start').onclick=async()=>{ const r=await api('/api/openclaw/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({viaNode:G('oc-p-vianode').checked})}); if(r&&r.error) alert(r.error); paintOC(); };
+   G('oc-stop').onclick=async()=>{ const r=await api('/api/openclaw/stop',{method:'POST'}); if(r&&r.error) alert(r.error); paintOC(); };
+   G('oc-console').onclick=async()=>{ const r=await api('/api/openclaw/console',{method:'POST'}); if(r&&r.error) alert(r.error); };
+   const prefSend=()=>{ const body={viaNode:G('oc-p-vianode').checked,autoStart:G('oc-p-autostart').checked,crashRestart:G('oc-p-crash').checked}; api('/api/openclaw/prefs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); };
+   G('oc-p-vianode').onchange=prefSend; G('oc-p-autostart').onchange=prefSend; G('oc-p-crash').onchange=prefSend;
+   G('oc-wiz-provs').querySelectorAll('button').forEach(b=>b.onclick=()=>{
+     ocProv=b.dataset.p;
+     G('oc-wiz-provs').querySelectorAll('button').forEach(x=>x.className=(x===b?'btn':'btn gray'));
+     G('oc-wiz-idrow').style.display=ocProv==='custom'?'':'none';
+     const P=OC_PROV[ocProv]||{base:'',models:[]};
+     G('oc-wiz-base').placeholder=ocProv==='custom'?'接口地址，如 https://example.com/v1（必填）':('接口地址（留空用官方 '+P.base+'）');
+     G('oc-wiz-models').innerHTML=P.models.map(m=>'<option value="'+m+'">').join('');
+     G('oc-wiz-model').placeholder=ocProv==='custom'?'模型名（必填）':('模型名，如 '+P.models[0]);
+   });
+   G('oc-wiz-save').onclick=async()=>{ const m=G('oc-wiz-msg'); m.textContent='保存中（走小龙虾配置命令，要几秒）…'; const r=await api('/api/openclaw/wizard/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(wizBody())}); if(r&&r.error){ m.textContent=r.error; return; } m.textContent='已保存，立即生效'; G('oc-wiz-key').value=''; ocWizLoaded=false; paintWiz(); };
+   G('oc-wiz-test').onclick=async()=>{ const m=G('oc-wiz-msg'); m.textContent='测试中…'; const r=await api('/api/openclaw/wizard/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(wizBody())}); m.textContent=r.error?r.error:(r.message||''); };
+   G('oc-log-refresh').onclick=paintLog;
+   G('oc-export').onclick=()=>{ const a=document.createElement('a'); a.href='/api/openclaw/export'; document.body.appendChild(a); a.click(); a.remove(); };
+   G('oc-import').onclick=()=>G('oc-import-file').click();
+   G('oc-import-file').onchange=async(e)=>{ const f=e.target.files[0]; if(!f) return; if(!confirm('导入这份小龙虾数据？\\n现在的配置和数据会先自动备份（不会删），然后被导入的数据替换。')){ e.target.value=''; return; } const fd=new FormData(); fd.append('file',f); try{ const resp=await fetch('/api/openclaw/import',{method:'POST',body:fd}); const r=await resp.json(); alert(r.error||r.message||'导入完成'); }catch(err){ alert('导入失败：'+err); } e.target.value=''; ocWizLoaded=false; paintOC(); paintWiz(); };
+   G('oc-uninst').onclick=async()=>{ if(!confirm('卸载小龙虾？\\n组件程序、它记住的配置和数据都在 Data/openclaw 里，卸载会一并全部删掉，不可恢复。')) return;
+     const r=await api('/api/openclaw/uninstall',{method:'POST'}); if(r&&r.error) alert(r.error); ocWizLoaded=false; paintOC(); };
+   G('oc-tokcopy').onclick=async()=>{ if(!ocToken) return; const btn=G('oc-tokcopy'); let ok=false;
      try{ await navigator.clipboard.writeText(ocToken); ok=true; }catch(e){
        const ta=document.createElement('textarea'); ta.value=ocToken; ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.select(); try{ ok=document.execCommand('copy'); }catch(e2){} ta.remove(); }
      btn.textContent=ok?'已复制 ✓':'复制失败'; setTimeout(()=>{btn.textContent='复制令牌'},1600); };

@@ -74,3 +74,69 @@ func (p *ocProc) killTree() {
 		_ = p.cmd.Process.Kill()
 	}
 }
+
+// ocTreeRSS sums the working set over the gateway process tree:
+// snapshot all processes, walk the parent chain down from the
+// gateway root pid, and add each process's working set.
+func ocTreeRSS(rootPid int) uint64 {
+	snap, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
+	if err != nil {
+		return 0
+	}
+	defer windows.CloseHandle(snap)
+	ppid := map[uint32]uint32{}
+	var pids []uint32
+	var pe windows.ProcessEntry32
+	pe.Size = uint32(unsafe.Sizeof(pe))
+	if err := windows.Process32First(snap, &pe); err != nil {
+		return 0
+	}
+	for {
+		ppid[pe.ProcessID] = pe.ParentProcessID
+		pids = append(pids, pe.ProcessID)
+		if err := windows.Process32Next(snap, &pe); err != nil {
+			break
+		}
+	}
+	inTree := map[uint32]bool{uint32(rootPid): true}
+	for changed := true; changed; {
+		changed = false
+		for _, pid := range pids {
+			if !inTree[pid] && inTree[ppid[pid]] {
+				inTree[pid] = true
+				changed = true
+			}
+		}
+	}
+	var total uint64
+	for pid := range inTree {
+		h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
+		if err != nil {
+			continue
+		}
+		var counters ocProcMemCounters
+		counters.Size = uint32(unsafe.Sizeof(counters))
+		r1, _, _ := procGetProcessMemoryInfo.Call(uintptr(h),
+			uintptr(unsafe.Pointer(&counters)), uintptr(counters.Size))
+		if r1 != 0 {
+			total += uint64(counters.WorkingSetSize)
+		}
+		_ = windows.CloseHandle(h)
+	}
+	return total
+}
+
+type ocProcMemCounters struct {
+	Size                       uint32
+	PageFaultCount             uint32
+	PeakWorkingSetSize         uintptr
+	WorkingSetSize             uintptr
+	QuotaPeakPagedPoolUsage    uintptr
+	QuotaPagedPoolUsage        uintptr
+	QuotaPeakNonPagedPoolUsage uintptr
+	QuotaNonPagedPoolUsage     uintptr
+	PagefileUsage              uintptr
+	PeakPagefileUsage          uintptr
+}
+
+var procGetProcessMemoryInfo = windows.NewLazySystemDLL("psapi.dll").NewProc("GetProcessMemoryInfo")

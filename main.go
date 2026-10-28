@@ -1690,6 +1690,14 @@ func runServer(portFlag int, isDaemon bool) {
 	mux.HandleFunc("/api/openclaw/stop", ocStopHandler)
 	mux.HandleFunc("/api/openclaw/uninstall", ocUninstallHandler)
 	mux.HandleFunc("/api/openclaw/console", ocConsoleHandler)
+	mux.HandleFunc("/api/openclaw/prefs", ocPrefsHandler)
+	mux.HandleFunc("/api/openclaw/wizard", ocWizardGetHandler)
+	mux.HandleFunc("/api/openclaw/wizard/apply", ocWizardApplyHandler)
+	mux.HandleFunc("/api/openclaw/wizard/test", ocWizardTestHandler)
+	mux.HandleFunc("/api/openclaw/logtail", ocLogTailHandler)
+	mux.HandleFunc("/api/openclaw/checkupdate", ocCheckUpdateHandler)
+	mux.HandleFunc("/api/openclaw/export", ocExportHandler)
+	mux.HandleFunc("/api/openclaw/import", ocImportHandler)
 	mux.HandleFunc("/api/diag/status", diagStatusHandler)
 	mux.HandleFunc("/api/diag/logs", diagLogsHandler)
 	mux.HandleFunc("/api/diag/export", diagExportHandler)
@@ -1709,6 +1717,7 @@ func runServer(portFlag int, isDaemon bool) {
 	})
 
 	monInit()
+	ocAutoStartInit()
 
 	fmt.Println("MJ Light System daemon:", url)
 	daemonPort = actualPort
