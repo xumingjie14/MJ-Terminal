@@ -24,6 +24,9 @@ on:
       - 'settings.go'
       - 'storage.go'
       - 'files.go'
+      - 'remote.go'
+      - 'remote_tsnet.go'
+      - 'remote_stub.go'
       - 'apps.go'
       - 'apps.json'
       - 'openclaw.go'
@@ -53,8 +56,17 @@ jobs:
           Write-Host "singbox.zip bytes: $len"
           if ($len -ne 27010034) { throw "sing-box zip size mismatch: $len" }
 
+      - name: Download Go modules (incl. tailscale/tsnet)
+        shell: pwsh
+        env:
+          GOPROXY: https://proxy.golang.org,direct
+        run: |
+          go mod download
+
       - name: Build single-file EXE (windows/amd64)
         shell: pwsh
+        env:
+          GOPROXY: https://proxy.golang.org,direct
         run: |
           $env:GOOS = "windows"
           $env:GOARCH = "amd64"
@@ -69,7 +81,7 @@ jobs:
           (Get-Item "MJ-System-64bit.zip").Length
           $hash = (Get-FileHash "MJ-System-64bit.zip" -Algorithm SHA256).Hash.ToLower()
           $size = (Get-Item "MJ-System-64bit.zip").Length
-          $manifest = [ordered]@{ version = "0.32"; file = "MJ-System-64bit.zip"; size = $size; sha256 = $hash }
+          $manifest = [ordered]@{ version = "0.33"; file = "MJ-System-64bit.zip"; size = $size; sha256 = $hash }
           $json = $manifest | ConvertTo-Json -Compress
           [IO.File]::WriteAllText((Join-Path $PWD "update.json"), $json, (New-Object System.Text.UTF8Encoding $false))
           Get-Content "update.json"
@@ -164,14 +176,14 @@ jobs:
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.32
-          name: 铭杰终端机 v0.32（64 位单文件版 · 文件导入）
+          tag_name: v0.33
+          name: 铭杰终端机 v0.33（64 位单文件版 · 远程协助）
           body: |
             64 位单文件版：解压后运行 MJ-System.exe（需 64 位 Windows）。
             第一次运行会自动释放内置 sing-box 核心，数据保存在 EXE 旁的 Data/ 文件夹（节点、网站应用、桌面布局都在里面，跟着文件夹走）。
             应用内更新：v0.6 起在「设置 → 软件更新」里完成，仓库公开、免令牌。
             近版功能：网站应用化（真实图标、双击打开、文件夹分组）、软件内全局加速、台前调度（左侧实时缩略图）、窗口统一（外部应用统一调度与开窗落位）、SSH 远程终端、内置调试控制台（状态与日志集中查看、一键导出诊断包）、小窗手机宽（终端未最大化或较窄时网站应用以手机宽打开）、应用商店（官方便携应用直下进 Data/apps，校验钉死）、小龙虾组件、服务器监控面板。
-            本版 v0.32：文件导入——宿主电脑的文件可以递进终端桌面（把文件拖到桌面上松手、桌面右键菜单「从电脑导入文件…」、或复制后到桌面 Ctrl+V 粘贴），副本存在 Data/files，宿主原文件不碰；同名自动改名不覆盖，单文件上限 500 MB。导入的文件与应用图标混排在桌面（可拖动排序，不能进文件夹），图片显示真实缩略图，其余是类型图标；右键可打开 / 改名 / 导出到电脑 / 删除。双击打开全在系统内：PDF 走 SumatraPDF（没装用隔离 Chrome）、图片/文本/CSV 有系统内查看器、DOCX 抽文字预览、XLSX/PPTX 给网页版办公或导出两个诚实选项、ZIP 解压成文件夹；可执行文件双击先弹确认才运行。设置「存储空间」新增「导入的文件」一组，「桌面与 Dock」可关掉桌面文件图标（只隐藏不删文件）。
+            本版 v0.33：远程协助——被你配对批准的操作者（比如你的 AI 助手）可以经你自己的私有 Tailscale 网络远程看终端状态与日志、做协助操作，报 bug 不必再手动导出诊断包。组网库（tsnet）直接编进守护进程：纯用户态、不装软件不要驱动不要管理员，节点状态在 Data/tsnet 跟着文件夹走。设置 → 安全与隐私 里开总开关（默认关），第一次用你自己的 Tailscale 账号登录一次；没配对的设备敲门会出现在待配对区，核对 6 位配对码一致再批准（默认只读档：看状态/日志/诊断包；协助档另加白名单内改设置、节点与小龙虾启停、更新下载与应用）。每条远程请求都记入控制台；文件内容、私钥、节点链接、令牌、退出系统在远程侧根本没有入口。开启时菜单栏常驻「远程协助中」标记，随时可关、可撤销任何人。（仅 64 位版支持，32 位版该功能显示不支持。）
             MJ-Firefox.zip / firefox.json 是 Firefox 组件的安装包与校验清单，MJ-OpenClaw.zip / openclaw.json 是小龙虾组件的安装包与校验清单，都由程序按需下载，手动使用主程序时不用管。
             update.json 是给程序自动更新用的校验清单（版本/大小/SHA-256），手动下载时不用管它。
           files: |
