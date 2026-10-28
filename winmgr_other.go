@@ -59,6 +59,7 @@ func platformShowBackWindow(hwnd uint64) bool {
 	return false
 }
 func platformRestoreShellWindow(hwnd uint64) {}
+func platformCloseWindow(hwnd uint64) bool   { return false }
 func platformRaiseBackdrop(hwnd uint64, shell uint64) bool {
 	return false
 }

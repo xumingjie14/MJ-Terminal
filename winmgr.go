@@ -54,10 +54,23 @@ type extWindow struct {
 	URL   string `json:"url,omitempty"` // URL it was launched with
 	Title string `json:"title"`         // live window title, refreshed on list
 	Shell bool   `json:"shell,omitempty"`
+	// v0.38: live presentation state, sampled on every list call so
+	// the Stage Manager strip can highlight the window the user is
+	// actually in (and dim the minimized ones). Computed on the copy
+	// in extWinListHandler, never stored as truth.
+	Active    bool `json:"active"`
+	Minimized bool `json:"minimized"`
 
 	pid       uint32
 	lastTitle string // title at last AppID stamp; a change triggers a re-stamp
 	placed    bool   // v0.20: one-shot landing placement already done
+	// v0.38: birth-presentation verification (winset.go). A window
+	// whose birth context said it should be on stage is marked
+	// pending; the patrol verifies a beat later that it really is
+	// foreground, and retries the shared raise exactly once if not.
+	presentPending bool
+	presentRetried bool
+	presentExpect  bool
 	// browser marks windows owned by a browser the daemon launched
 	// (isolated Chrome / Firefox component, incl. windows the patrol
 	// auto-claimed from them). The patrol treats further windows of
@@ -448,6 +461,18 @@ func extWinListHandler(w http.ResponseWriter, r *http.Request) {
 		list = append(list, &cp)
 	}
 	extMu.Unlock()
+	// v0.38: sample the live presentation state onto the copies --
+	// which window is foreground right now (the same handle the
+	// v0.37 backdrop logic samples), and which are minimized -- so
+	// the strip can paint the current window bright and dim the
+	// rest. Sampled per call (the strip polls every 4 s), so the
+	// highlight follows the user as they move between the host and
+	// the terminal.
+	fgNow := platformForegroundHWND()
+	for _, cp := range list {
+		cp.Active = fgNow != 0 && cp.HWND == fgNow
+		cp.Minimized = platformWindowIconic(cp.HWND)
+	}
 	// Re-stamp outside the lock: the COM call can be slowish.
 	for _, h := range restamp {
 		platformSetAppID(h)
@@ -491,6 +516,13 @@ func extWinFocusHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"error": "窗口置前失败"})
 		return
 	}
+	// The user just presented this window by hand: any pending
+	// birth-presentation verification for it is moot.
+	extMu.Lock()
+	if e, ok := extWins[body.HWND]; ok {
+		e.presentPending = false
+	}
+	extMu.Unlock()
 	writeJSON(w, map[string]any{"ok": true})
 }
 
@@ -769,6 +801,11 @@ func patrolTick() {
 		}
 	}
 	auditMu.Unlock()
+
+	// v0.38: verify birth presentations -- a window whose birth
+	// said it should be on stage but that still is not foreground
+	// gets exactly one retry through the shared raise (winset.go).
+	presentSweep()
 
 	// v0.37: while the set is tucked away, keep it tucked (a
 	// window claimed a beat before the hide, or re-shown by its

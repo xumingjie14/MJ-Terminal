@@ -257,10 +257,22 @@ table.gridtab td,table.gridtab th{white-space:nowrap;max-width:280px;overflow:hi
 #extstrip{position:fixed;left:10px;bottom:104px;z-index:25;width:148px;display:flex;flex-direction:column;gap:8px}
 #extstrip.hidden{display:none}
 #extstrip .extlab{font-size:11px;color:rgba(255,255,255,.88);text-shadow:0 1px 4px rgba(0,0,0,.85);padding:0 2px}
-.extcard{display:flex;align-items:center;gap:8px;width:100%;padding:9px 10px;border-radius:13px;background:var(--glass);border:1px solid var(--glass-brd);backdrop-filter:blur(24px) saturate(170%);-webkit-backdrop-filter:blur(24px) saturate(170%);box-shadow:0 10px 26px rgba(0,0,0,.42);cursor:pointer;color:#fff;text-align:left;font:inherit}
-.extcard:hover{background:rgba(74,74,88,.62)}
+.extcard{display:flex;align-items:center;gap:8px;width:100%;padding:9px 10px;border-radius:13px;background:var(--glass);border:1px solid var(--glass-brd);backdrop-filter:blur(24px) saturate(170%);-webkit-backdrop-filter:blur(24px) saturate(170%);box-shadow:0 10px 26px rgba(0,0,0,.42);cursor:pointer;color:#fff;text-align:left;font:inherit;opacity:.8;transition:opacity .25s,border-color .25s,box-shadow .25s}
+.extcard:hover{background:rgba(74,74,88,.62);opacity:1}
 .extcard .et{min-width:0;flex:1}
-.extcard .et b{display:block;font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.extcard .et b{display:block;font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.85}
+/* v0.38: the window the user is actually in gets the accent ring,
+   a lit dot and a full-bright title; the rest dim, minimized more. */
+.extcard.mini{opacity:.55}
+.extcard.active{opacity:1;border-color:var(--accent);box-shadow:0 0 0 2px rgba(10,132,255,.55),0 10px 26px rgba(0,0,0,.42)}
+.extcard.active .et b{opacity:1}
+.extcard .actdot{display:none;width:7px;height:7px;border-radius:50%;background:var(--accent);flex:none;box-shadow:0 0 6px rgba(10,132,255,.9)}
+.extcard.active .actdot{display:block}
+/* v0.38: the desktop view's own red traffic light (menubar, far
+   left). Unlike the Edge frame's X it HIDES the view instead of
+   destroying it, so the return from the tray is the same window. */
+#mb-hide{width:13px;height:13px;border-radius:50%;border:0;background:#ff5f57;cursor:pointer;padding:0;flex:none;box-shadow:inset 0 0 2px rgba(0,0,0,.3);color:transparent;font-size:9px;line-height:13px;text-align:center}
+#mb-hide:hover{color:rgba(0,0,0,.55);filter:brightness(1.08)}
 .extcard .et span{display:block;font-size:11px;opacity:.75;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 </style>
 </head>
@@ -268,6 +280,7 @@ table.gridtab td,table.gridtab th{white-space:nowrap;max-width:280px;overflow:hi
 <div id="wall"></div>
 
 <div id="menubar">
+  <button id="mb-hide" title="关闭桌面（藏到托盘，后台和节点继续跑；点托盘图标原样回来）">✕</button>
   <span class="logo" id="mb-logo"> 铭杰</span>
   <span class="mi"><b id="mb-appname">访达</b></span>
   <span class="mi">文件</span><span class="mi">编辑</span><span class="mi">显示</span><span class="mi">窗口</span><span class="mi">帮助</span>
@@ -411,6 +424,10 @@ async function pollRemote(){
 pollRemote();setInterval(pollRemote,10000);
 document.getElementById('mb-remote').onclick=()=>openApp('sys');
 document.getElementById('mb-logo').onclick=()=>openApp('home');
+/* v0.38: the red light hides this view instead of letting it be
+   destroyed (daemon-side SW_HIDE; the tray brings the SAME window
+   back). See shellHideHandler in shellview.go. */
+document.getElementById('mb-hide').onclick=async()=>{ const r=await api('/api/shell/hide',{method:'POST'}).catch(()=>null); if(r&&r.error) toast(r.error); };
 document.getElementById('mb-stage').onclick=()=>toggleStage(!stageOn());
 updateStageUI();
 
@@ -428,16 +445,16 @@ function makeWin(app,i){
    if(ev.target.closest('button'))return;bring(w);
    const sx=ev.clientX-w.offsetLeft, sy=ev.clientY-w.offsetTop;
    function mv(e){w.style.left=Math.max(0,e.clientX-sx)+'px';w.style.top=Math.max(44,e.clientY-sy)+'px'}
-   function up(){removeEventListener('pointermove',mv);removeEventListener('pointerup',up)}
+   function up(){removeEventListener('pointermove',mv);removeEventListener('pointerup',up);saveSession()}
    addEventListener('pointermove',mv);addEventListener('pointerup',up);
  });
- title.addEventListener('dblclick',()=>{w.style.width=w.style.width==='96vw'?'':'96vw';w.style.left=w.style.width?'2vw':'90px'});
+ title.addEventListener('dblclick',()=>{w.style.width=w.style.width==='96vw'?'':'96vw';w.style.left=w.style.width?'2vw':'90px';saveSession()});
  w.querySelector('[data-a="close"]').onclick=()=>{w.classList.add('hidden');onWinClosed(app.id);syncDots()};
  w.addEventListener('pointerdown',()=>{ if(w.classList.contains('staged')) openApp(app.id); });
  w.querySelector('[data-a="min"]').onclick=()=>{w.classList.add('hidden');onWinClosed(app.id);syncDots()};
  winsEl.appendChild(w);return w;
 }
-function bring(w){w.style.zIndex=++z}
+function bring(w){w.style.zIndex=++z;saveSession()}
 function openApp(id){
  let w=document.getElementById('win-'+id);
  if(!w){w=makeWin(APPS.find(a=>a.id===id),APPS.findIndex(a=>a.id===id));render(id)}
@@ -447,6 +464,7 @@ function openApp(id){
  document.getElementById('mb-appname').textContent=APPS.find(a=>a.id===id).n;
  document.querySelectorAll('.icon').forEach(x=>x.classList.toggle('sel',x.dataset.key==='app:'+id));
  syncDots();
+ saveSession();
  /* Settings re-fetches its live rows every time it is opened
     (render/bind only run on first creation). */
  if(id==='sys'&&window.sysRefresh) window.sysRefresh();
@@ -491,6 +509,7 @@ function setFront(id){
  syncDots();
 }
 function onWinClosed(id){
+ saveSession();
  if(!stageOn()||!openSet.has(id)) return;
  openSet.delete(id);
  const w=document.getElementById('win-'+id);
@@ -532,7 +551,7 @@ async function refreshExtStrip(){
  let list=[];
  try{ const r=await api('/api/extwin'); list=(r.windows||[]).filter(x=>!x.shell); }catch(e){}
  if(!list.length){ box.classList.add('hidden'); box.innerHTML=''; return; }
- box.innerHTML=`<div class="extlab">外部应用 · 点一下切过去</div>`+list.map(x=>`<button class="extcard" data-hwnd="${x.hwnd}">${webIconHTML({name:x.app,url:x.url||''},true)}<span class="et"><b>${esc(x.app||'应用')}</b><span>${esc(x.title||x.url||'')}</span></span></button>`).join('');
+ box.innerHTML=`<div class="extlab">外部应用 · 点一下切过去</div>`+list.map(x=>`<button class="extcard${x.active?' active':''}${x.minimized?' mini':''}" data-hwnd="${x.hwnd}"><span class="actdot"></span>${webIconHTML({name:x.app,url:x.url||''},true)}<span class="et"><b>${esc(x.app||'应用')}</b><span>${esc(x.title||x.url||'')}</span></span></button>`).join('');
  box.classList.remove('hidden');
  box.querySelectorAll('.extcard').forEach(c=>c.onclick=async()=>{
    const r=await api('/api/extwin/focus',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hwnd:Number(c.dataset.hwnd)})}).catch(()=>null);
@@ -540,6 +559,63 @@ async function refreshExtStrip(){
  });
 }
 setInterval(refreshExtStrip,4000);
+
+/* ----- desktop session memory (v0.38, tray memory's page half) -----
+   If the view is destroyed for real (the Edge frame's own X --
+   the one close no in-page button can intercept), the rebuilt
+   page used to come back as a bare first-run desktop. This
+   ledger remembers which in-system windows were open, where they
+   sat (for staged windows: the geometry Stage Manager restores
+   from) and their stacking, and replays it on load. It lives in
+   this view's localStorage, same as the shell profile's other
+   per-view state. The daemon half (the view's screen frame) is
+   remembered separately in shellview.go. */
+const SESS_KEY='mj-session';
+let sessTimer=null;
+function snapshotSession(){
+ const wins=[];
+ document.querySelectorAll('.win').forEach(w=>{
+  if(w.classList.contains('hidden')) return;
+  const id=w.id.slice(4);
+  if(!APPS.some(a=>a.id===id)) return;
+  const r={id,z:parseInt(w.style.zIndex||'0',10)||0};
+  if(w.classList.contains('staged')){ try{ const g=JSON.parse(w.dataset.sg||'{}'); r.l=g.l||''; r.t=g.t||''; r.wd=g.wd||''; }catch(e){} }
+  else { r.l=w.style.left; r.t=w.style.top; r.wd=w.style.width; }
+  wins.push(r);
+ });
+ wins.sort((a,b)=>a.z-b.z);
+ return {wins,front:frontApp||''};
+}
+function saveSession(){
+ clearTimeout(sessTimer);
+ sessTimer=setTimeout(()=>{ try{ localStorage.setItem(SESS_KEY,JSON.stringify(snapshotSession())); }catch(e){} },200);
+}
+function restoreSession(){
+ let s=null; try{ s=JSON.parse(localStorage.getItem(SESS_KEY)||'null'); }catch(e){}
+ if(!s||!Array.isArray(s.wins)||!s.wins.length) return;
+ let n=0;
+ for(const r of s.wins){
+  if(!APPS.some(a=>a.id===r.id)) continue; /* the app no longer exists: skip it */
+  openApp(r.id);
+  const w=document.getElementById('win-'+r.id); if(!w) continue;
+  if(w.classList.contains('staged')){ try{ const g=JSON.parse(w.dataset.sg||'{}'); if(r.l)g.l=r.l; if(r.t)g.t=r.t; if(r.wd)g.wd=r.wd; w.dataset.sg=JSON.stringify(g); }catch(e){} }
+  else { if(r.l)w.style.left=r.l; if(r.t)w.style.top=r.t; if(r.wd)w.style.width=r.wd; }
+  n++;
+ }
+ /* The boot default opened 工作站 unconditionally; if the ledger
+    says it was closed, the ledger wins. */
+ if(!s.wins.some(r=>r.id==='home')){
+  const hw=document.getElementById('win-home');
+  if(hw&&!hw.classList.contains('hidden')){ hw.classList.add('hidden'); onWinClosed('home'); }
+ }
+ if(s.front&&APPS.some(a=>a.id===s.front)&&document.getElementById('win-'+s.front)){
+  if(stageOn()) setFront(s.front);
+  else { const w=document.getElementById('win-'+s.front); if(w) bring(w); }
+ }
+ syncDots(); saveSession();
+ if(n) api('/api/shell/restored',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({wins:n})}).catch(()=>{});
+}
+addEventListener('beforeunload',()=>{ try{ localStorage.setItem(SESS_KEY,JSON.stringify(snapshotSession())); }catch(e){} });
 APPS.forEach(a=>{
  if(a.nodesk) return; /* file viewers (v0.32): windows only, no Dock icon */
  const it=document.createElement('div');it.className='ditem';
@@ -2255,7 +2331,7 @@ function bind(id){
  }
 }
 openApp('home');
-(async()=>{ await Promise.all([loadLayout(),loadWebApps(),loadStoreApps(),loadDeskFiles(),settingsReady]); renderDesk(); })();
+(async()=>{ await Promise.all([loadLayout(),loadWebApps(),loadStoreApps(),loadDeskFiles(),settingsReady]); renderDesk(); restoreSession(); })();
 </script>
 </body>
 </html>

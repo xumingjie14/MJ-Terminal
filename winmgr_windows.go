@@ -569,6 +569,20 @@ func platformShowBackWindow(hwnd uint64) bool {
 	return true
 }
 
+// platformCloseWindow asks a window to close itself with a plain
+// WM_CLOSE message -- the same request its own X button sends.
+// No hooks, no injection: the window's owner remains free to
+// refuse or prompt. Used by the desktop page's red button when
+// the user has switched the close-to-tray retreat off (v0.38).
+func platformCloseWindow(hwnd uint64) bool {
+	h := uintptr(hwnd)
+	if r, _, _ := procIsWindow.Call(h); r == 0 {
+		return false
+	}
+	r, _, _ := procPostMessageW.Call(h, 0x0010 /* WM_CLOSE */, 0, 0)
+	return r != 0
+}
+
 // platformRestoreShellWindow un-minimizes the desktop view (the
 // user asked for the set back, e.g. via a Stage Manager click).
 func platformRestoreShellWindow(hwnd uint64) {

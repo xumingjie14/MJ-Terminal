@@ -54,6 +54,27 @@ func TestDecideBackdrop(t *testing.T) {
 	}
 }
 
+func TestDecidePresentRetry(t *testing.T) {
+	cases := []struct {
+		name string
+		f    presentFacts
+		want presentAction
+	}{
+		{"没打过待呈现标记→无事", presentFacts{}, presentDone},
+		{"出生不期待呈现（宿主语境悄悄认领）→无事", presentFacts{Pending: true, ExpectPresent: false, Foreground: false}, presentDone},
+		{"期待呈现且已在前台→验货通过", presentFacts{Pending: true, ExpectPresent: true, Foreground: true}, presentDone},
+		{"期待呈现但不在前台→补提一次", presentFacts{Pending: true, ExpectPresent: true, Foreground: false}, presentRetry},
+		{"补提已用掉、仍不在前台→收手（归用户）", presentFacts{Pending: true, ExpectPresent: true, Foreground: false, RetryUsed: true}, presentDone},
+		{"整套藏着出生的→等整套恢复再验货", presentFacts{Pending: true, ExpectPresent: true, Foreground: false, SetHidden: true}, presentWait},
+		{"整套藏着且已在前台（不可能态）→藏优先，继续等", presentFacts{Pending: true, ExpectPresent: true, Foreground: true, SetHidden: true}, presentWait},
+	}
+	for _, c := range cases {
+		if got := decidePresentRetry(c.f); got != c.want {
+			t.Errorf("%s: decidePresentRetry(%+v) = %v, want %v", c.name, c.f, got, c.want)
+		}
+	}
+}
+
 func TestStepSetVis(t *testing.T) {
 	on := setVisSwitches{MinimizeLink: true, CloseToTray: true}
 	cases := []struct {

@@ -362,10 +362,32 @@ func grpApplyEvent(ev setVisEvent) {
 // a new view opening IS the restore the user asked for.
 func grpShellOpened(hwnd uint64) {
 	trackedShellHWND.Store(hwnd)
+	clearShellCreateInFlight()
 	grpMu.Lock()
 	grpShellIconic = platformWindowIconic(hwnd)
 	grpMu.Unlock()
 	grpApplyEvent(evShellOpened)
+	// v0.38: if the previous view died with a remembered
+	// non-maximized frame, this new view lands back in it instead
+	// of the launch default (tray memory's geometry half).
+	applyRememberedShellGeometry(hwnd)
+}
+
+// grpShowShell brings a LIVE desktop view back onto the screen:
+// un-hides it if the red button tucked it away, un-minimizes it
+// if it was lent to the minimize linkage. The view process and
+// its page are untouched -- this is the zero-reload return the
+// tray-memory fix exists for.
+func grpShowShell(hwnd uint64) {
+	if hwnd == 0 || !platformWindowExists(hwnd) {
+		return
+	}
+	if !platformWindowVisible(hwnd) {
+		platformShowBackWindow(hwnd)
+	}
+	if platformWindowIconic(hwnd) {
+		platformRestoreShellWindow(hwnd)
+	}
 }
 
 // noteShellWindowGone is called by the registry prune when the
@@ -485,6 +507,10 @@ func shellWatchTick() {
 	} else if !iconic && was {
 		grpApplyEvent(evShellRestored)
 	}
+	// v0.38: keep the view's last good frame on record (its own
+	// guard skips hidden/minimized states), so a view that later
+	// dies for real can be rebuilt where it stood.
+	noteShellGeometry(hwnd)
 }
 
 // ---------- birth settlement (placement + backdrop) ----------
@@ -493,8 +519,24 @@ func shellWatchTick() {
 // registry (either claim path). If the set is tucked away the
 // newborn follows it into hiding at once -- a terminal window
 // must never sit alone on the host desktop while its set is
-// hidden. Otherwise it gets its one landing, and the backdrop
-// lift when the context calls for it.
+// hidden.
+//
+// v0.38 reorders the visible path around a field failure: windows
+// born from inside the terminal often never surfaced -- the user
+// had to click their Stage Manager entry by hand. The causes, in
+// the order they bit: the birth path never presented the window
+// at all (landing deliberately leaves activation alone, and a
+// patrol claim is registered silently), so a window born
+// minimized or behind the desktop stayed there; Windows'
+// foreground lock can refuse a background process's raise; and
+// the v0.37 backdrop lift could then slide the desktop OVER a
+// window that had never actually come forward. The settle order
+// is now: land -> PRESENT through platformFocusWindow (the exact
+// function a Stage Manager click uses -- one shared raise, no
+// parallel version) -> backdrop only when the presentation took
+// effect. The window is then marked present-pending; the patrol
+// verifies it really is foreground and retries the shared raise
+// exactly once if not (presentSweep below).
 func settleNewWindow(hwnd uint64, launchCtx bool) {
 	if grpIsHidden() {
 		if platformWindowExists(hwnd) && platformWindowVisible(hwnd) && !platformWindowIconic(hwnd) && platformHideWindow(hwnd) {
@@ -511,16 +553,32 @@ func settleNewWindow(hwnd uint64, launchCtx bool) {
 		}
 		return
 	}
-	doBirthPlacement(hwnd)
 	shell := shellHWND()
-	usable := shell != 0 && shell != hwnd && platformWindowExists(shell) && !platformWindowIconic(shell)
-	if usable && decideBackdrop(backdropFacts{
+	fg := classifyForeground(shell)
+	doBirthPlacement(hwnd)
+	// Presentation is expected when the user is in terminal
+	// context: the daemon opened the window from the desktop UI,
+	// or the foreground at claim time was the desktop or another
+	// claimed window (the click that spawned a popup happened
+	// inside the terminal). In host context the claim stays
+	// silent -- no raise, no focus steal, ever.
+	expect := launchCtx || fg == fgShell || fg == fgClaimed
+	presented := false
+	if expect {
+		// platformFocusWindow restores a minimized window first,
+		// then raises -- the same code path (and the same
+		// AttachThreadInput foreground-lock workaround) as the
+		// Stage Manager click in extWinFocusHandler.
+		presented = platformFocusWindow(hwnd)
+	}
+	usable := shell != 0 && shell != hwnd && platformWindowExists(shell) && !platformWindowIconic(shell) && platformWindowVisible(shell)
+	if presented && usable && decideBackdrop(backdropFacts{
 		Enabled:       settingWinPlaceOnClaim(),
 		Owned:         platformWindowOwned(hwnd),
 		SetHidden:     false,
 		ShellUsable:   true,
 		LaunchContext: launchCtx,
-		Foreground:    classifyForeground(shell),
+		Foreground:    fg,
 	}) {
 		if platformRaiseBackdrop(hwnd, shell) {
 			extMu.Lock()
@@ -530,6 +588,95 @@ func settleNewWindow(hwnd uint64, launchCtx bool) {
 			}
 			extMu.Unlock()
 			logf("winmgr", "info", "开窗礼仪：桌面已垫到新窗口之后：%s", label)
+		}
+	}
+	// Mark for the patrol's verification pass regardless of how
+	// the raise reported itself: focus APIs can claim success a
+	// beat before the window is really up (or fail quietly behind
+	// the foreground lock), and the sweep is the honest judge.
+	extMu.Lock()
+	if e, ok := extWins[hwnd]; ok {
+		e.presentPending = true
+		e.presentExpect = expect
+		e.presentRetried = false
+	}
+	extMu.Unlock()
+}
+
+// ---------- v0.38: birth-presentation verification ----------
+
+type presentFacts struct {
+	Pending       bool // marked at birth, not yet verified
+	ExpectPresent bool // the birth context said this window belongs on stage
+	RetryUsed     bool // the one retry is already spent
+	SetHidden     bool // the whole set is tucked away right now
+	Foreground    bool // the window IS the foreground window now
+}
+
+type presentAction int
+
+const (
+	presentDone  presentAction = iota // verified (or nothing owed): clear the mark
+	presentRetry                      // raise it once, through the shared path
+	presentWait                       // cannot judge while the set is hidden: keep the mark
+)
+
+// decidePresentRetry is the verification rule. A window that was
+// never expected on stage (quiet host-context claim) owes
+// nothing. A window hidden along with its set is judged only
+// after the set returns. Otherwise foreground is the bar, and
+// exactly one retry is owed -- after that the user, not the
+// daemon, owns the window's z-order.
+func decidePresentRetry(f presentFacts) presentAction {
+	if !f.Pending || !f.ExpectPresent {
+		return presentDone
+	}
+	if f.SetHidden {
+		return presentWait
+	}
+	if f.Foreground || f.RetryUsed {
+		return presentDone
+	}
+	return presentRetry
+}
+
+// presentSweep is the patrol's verification pass (called from
+// patrolTick): every present-pending window is judged, and the
+// ones owed a retry get it -- through platformFocusWindow, the
+// shared raise, never a private variant.
+func presentSweep() {
+	fg := platformForegroundHWND()
+	hidden := grpIsHidden()
+	type cand struct {
+		hwnd uint64
+		app  string
+	}
+	var retries []cand
+	extMu.Lock()
+	for h, e := range extWins {
+		if e.Shell || !e.presentPending {
+			continue
+		}
+		switch decidePresentRetry(presentFacts{
+			Pending:       true,
+			ExpectPresent: e.presentExpect,
+			RetryUsed:     e.presentRetried,
+			SetHidden:     hidden,
+			Foreground:    fg != 0 && fg == h,
+		}) {
+		case presentDone:
+			e.presentPending = false
+		case presentRetry:
+			e.presentRetried = true
+			retries = append(retries, cand{h, e.App})
+		}
+	}
+	extMu.Unlock()
+	for _, c := range retries {
+		if platformFocusWindow(c.hwnd) {
+			logf("winmgr", "info", "开窗礼仪：新窗口出生后未露面，已补提呈现：%s", c.app)
+		} else {
+			logf("winmgr", "warn", "开窗礼仪：新窗口补提呈现仍未生效（系统前台锁定？）：%s", c.app)
 		}
 	}
 }

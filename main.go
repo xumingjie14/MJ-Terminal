@@ -1542,12 +1542,17 @@ func findDaemon() string {
 	return ""
 }
 
-func openShellWindow(url string, proxy bool) error {
-	browser := findShellBrowser()
+// spawnShellWindow starts the desktop view's browser process and
+// returns its pre-launch window snapshot + browser path, WITHOUT
+// claiming anything. Claiming is a separate step (openShellWindow
+// / ensureShellView) because v0.38's singleton decides BEFORE
+// spawning whether a view may be created at all.
+func spawnShellWindow(url string, proxy bool) (browser string, before map[uint64]bool, err error) {
+	browser = findShellBrowser()
 	profile := filepath.Join(dataDir(), "ShellProfile")
 	_ = os.MkdirAll(profile, 0o755)
 	if browser == "" {
-		return exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+		return "", nil, exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
 	}
 	// Deliberately NOT waited on: this window may be closed freely, it
 	// no longer owns the backend's lifetime.
@@ -1558,20 +1563,34 @@ func openShellWindow(url string, proxy bool) error {
 		// never depends on the node being alive.
 		args = append(args, "--proxy-server=socks5://127.0.0.1:"+strconv.Itoa(proxyPort), "--proxy-bypass-list=127.0.0.1;localhost")
 	}
-	// Register the desktop window too: it gets the unified
-	// AppUserModelID stamped （丙）, so the taskbar can group it with
-	// the external app windows. When this runs in the short-lived
-	// launcher (fallback path) the registration dies with the process
-	// and simply does nothing; the normal path runs in the daemon.
-	before := platformSnapshotWindows(browser)
+	before = platformSnapshotWindows(browser)
 	if err := exec.Command(browser, args...).Start(); err != nil {
-		return err
+		return "", nil, err
 	}
 	if proxy {
 		logf("browser", "info", "桌面窗口已打开（走节点）")
 	} else {
 		logf("browser", "info", "桌面窗口已打开（直连）")
 	}
+	return browser, before, nil
+}
+
+func openShellWindow(url string, proxy bool) error {
+	browser, before, err := spawnShellWindow(url, proxy)
+	if err != nil {
+		return err
+	}
+	if browser == "" {
+		// No shell browser on this machine: the OS default browser
+		// took the URL (last-resort path); there is no view window
+		// for the daemon to register.
+		return nil
+	}
+	// Register the desktop window too: it gets the unified
+	// AppUserModelID stamped （丙）, so the taskbar can group it with
+	// the external app windows. When this runs in the short-lived
+	// launcher (fallback path) the registration dies with the process
+	// and simply does nothing; the normal path runs in the daemon.
 	trackBrowserLaunch("铭杰工作站", "", browser, before, true)
 	return nil
 }
@@ -1592,11 +1611,16 @@ func shellOpenHandler(w http.ResponseWriter, r *http.Request) {
 		proxy = coreRunningQuick()
 	}
 	url := "http://" + r.Host + "/"
-	if err := openShellWindow(url, proxy); err != nil {
+	// v0.38: find-or-create (shellview.go) -- a live view is
+	// raised, a tucked-away one restored, and a new one spawned
+	// only when the old is truly gone. Double-clicks can no
+	// longer stack up desktop pages.
+	action, err := ensureShellView(url, proxy)
+	if err != nil {
 		writeJSON(w, map[string]any{"error": err.Error()})
 		return
 	}
-	writeJSON(w, map[string]any{"ok": true, "proxy": proxy})
+	writeJSON(w, map[string]any{"ok": true, "proxy": proxy, "action": action})
 }
 
 // askDaemonOpenShell lets the daemon open the desktop window (it
@@ -1756,6 +1780,8 @@ func runServer(portFlag int, isDaemon bool) {
 	mux.HandleFunc("/api/files/run", filesRunHandler)
 	mux.HandleFunc("/api/files/unzip", filesUnzipHandler)
 	mux.HandleFunc("/api/openshell", shellOpenHandler)
+	mux.HandleFunc("/api/shell/hide", shellHideHandler)
+	mux.HandleFunc("/api/shell/restored", shellRestoredHandler)
 	mux.HandleFunc("/api/apps/catalog", appsCatalogHandler)
 	mux.HandleFunc("/api/apps/install", appsInstallHandler)
 	mux.HandleFunc("/api/apps/launch", appsLaunchHandler)
