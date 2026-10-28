@@ -1442,6 +1442,43 @@ func layoutGetHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"layout": nil})
 		return
 	}
+	// v0.35: the desktop regularizes old layouts into a single
+	// non-overlapping order on load (frontend). When the STORED
+	// positions already collide with each other, leave a trace in
+	// the console hub so the owner can see the cleanup happened.
+	// The file itself is served unchanged.
+	var lay struct {
+		Pos map[string]struct {
+			X float64 `json:"x"`
+			Y float64 `json:"y"`
+		} `json:"pos"`
+	}
+	if json.Unmarshal(b, &lay) == nil && len(lay.Pos) > 1 {
+		type pt struct{ x, y float64 }
+		pts := make([]pt, 0, len(lay.Pos))
+		for _, p := range lay.Pos {
+			pts = append(pts, pt{p.X, p.Y})
+		}
+		n := 0
+		for i := 0; i < len(pts); i++ {
+			for j := i + 1; j < len(pts); j++ {
+				dx := pts[i].x - pts[j].x
+				if dx < 0 {
+					dx = -dx
+				}
+				dy := pts[i].y - pts[j].y
+				if dy < 0 {
+					dy = -dy
+				}
+				if dx < 92 && dy < 100 {
+					n++
+				}
+			}
+		}
+		if n > 0 {
+			logf("layout", "warn", "检测到旧布局有 %d 处图标位置重叠，桌面载入时将自动规整为不重叠的顺序", n)
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write(b)
 }

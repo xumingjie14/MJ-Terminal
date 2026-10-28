@@ -568,10 +568,13 @@ function saveLayout(){
  _saveLayoutT=setTimeout(()=>{api('/api/layout/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(LAYOUT)}).catch(()=>{})},120);
 }
 function deskPos(key,slot){
+ /* The pre-v0.35 position of an icon (stored free position, else
+    its old default slot). Since v0.35 this is ONLY a migration
+    input: reconcileDeskOrder reads it once to derive the desktop
+    order from an old layout; painting itself uses grid cells. */
  const p=LAYOUT.pos[key];
- if(p&&typeof p.x==='number'&&typeof p.y==='number') return {x:Math.max(0,Math.min(p.x,innerWidth-96)),y:Math.max(42,Math.min(p.y,innerHeight-120))};
- const col=Math.floor(slot/8), row=slot%8;
- return {x:Math.max(4,innerWidth-118-col*104), y:54+row*104};
+ const stored=(p&&typeof p.x==='number'&&typeof p.y==='number')?p:null;
+ return effPosFor(stored,slot,innerWidth,innerHeight,DRAG_PITCH);
 }
 function folderById(id){return LAYOUT.folders.find(f=>f.id===id)}
 function folderIconHTML(f){
@@ -589,29 +592,163 @@ function mkDeskIcon(key,kind,iconHTML,name,onOpen,fid){
  attachDrag(d,key,kind);
  return d;
 }
-function renderDesk(){
- iconsEl.innerHTML='';
- let slot=0;
- const place=(el,key)=>{const p=deskPos(key,slot++); el.style.left=p.x+'px'; el.style.top=p.y+'px'; iconsEl.appendChild(el);};
- APPS.forEach(a=>{ if(a.nodesk) return; place(mkDeskIcon('app:'+a.id,'app',appIcon(a),a.n,()=>openApp(a.id)),'app:'+a.id); });
+/* ----- desktop order (v0.35): ONE ordered list is the layout truth -----
+   Diagnosis of the pre-v0.35 bugs (icons stacked at rest; one drag
+   reshuffled the whole grid): the renderer and the drag engine kept
+   DIFFERENT position models. renderDesk painted free absolute
+   positions from LAYOUT.pos -- or, for entries without one, a
+   default slot counted in source order (apps, web apps, folders,
+   store apps, files) -- with no collision avoidance between the
+   two, so a default slot could land exactly on a stored position
+   whenever the icon set changed (import, install, folder edits).
+   deskPos also clamped stored positions to the CURRENT window, so
+   positions saved at a larger size piled whole columns/rows onto
+   the clamp edge, and finishDrag then wrote those clamped points
+   back as permanent positions. The drag engine, meanwhile,
+   re-derived its sequence by rounding the free coordinates onto a
+   104px lattice (iconSeq/dragInsertIndex): off-lattice points
+   (clamps, click-point folder positions, glides) rounded into the
+   wrong columns, so the insertion index landed far from the drop
+   point and dragShiftMap permuted a huge range of icons.
+   The fix: DESKORDER -- one ordered list of icon keys covering all
+   four kinds plus folders. renderDesk assigns column-major grid
+   cells strictly by list index (cells are a pure function of the
+   index and the current window size; rows-per-column follows the
+   window height), the drag engine takes its sequence from the same
+   list and measures hit/insertion against the painted rects, and
+   LAYOUT.pos is demoted to a serialization of the list at the
+   current geometry, rewritten after any render whose cells differ.
+   Overlap is impossible by construction; a drag can only permute
+   the range between the old and new index. */
+let DESKORDER=[];
+let deskOrderReady=false;
+let deskNormalized=false;
+function deskCell(i){ return cellPosFor(i,innerWidth,innerHeight,DRAG_PITCH) }
+function collectDeskEntries(){
+ /* The baseline enumeration, in the historical source order. Used
+    for set membership and as the stable tie-break; the PAINTING
+    order is DESKORDER, reconciled from this list. Imported files
+    (v0.32) mix into the same desktop as the app icons, keyed
+    file:<name>; they reorder/yield with the drag engine but can
+    never enter a folder or stack into one (updateDrag only arms
+    those modes for kind 'web'). Hidden wholesale by the
+    filesOnDesktop setting; the files stay in Data/files. */
+ const entries=[];
+ APPS.forEach(a=>{ if(a.nodesk) return; entries.push({key:'app:'+a.id,el:mkDeskIcon('app:'+a.id,'app',appIcon(a),a.n,()=>openApp(a.id))}); });
  const inFolder=new Set(); LAYOUT.folders.forEach(f=>f.items.forEach(u=>inFolder.add(u)));
- WEBAPPS.filter(a=>!inFolder.has(a.url)).forEach(a=>{ place(mkDeskIcon('web:'+a.url,'web',webIconHTML(a),a.name,()=>openWebApp(a.url)),'web:'+a.url); });
- LAYOUT.folders.forEach(f=>{ const el=mkDeskIcon('folder:'+f.id,'folder',folderIconHTML(f),f.name,()=>openFolderPop(f.id,el),f.id); place(el,'folder:'+f.id); });
- STOREAPPS.forEach(a=>{ place(mkDeskIcon('store:'+a.id,'native',storeIconHTML(a),a.name,()=>launchStoreApp(a.id)),'store:'+a.id); });
- /* Imported files (v0.32) mix into the same desktop sequence as
-    the app icons, keyed file:<name> in the same layout store.
-    They reorder/yield with the v0.31 drag engine but can never
-    enter a folder or stack into one (updateDrag only arms those
-    modes for kind 'web'). Hidden wholesale by the filesOnDesktop
-    setting; the files themselves stay in Data/files. */
+ WEBAPPS.filter(a=>!inFolder.has(a.url)).forEach(a=>{ entries.push({key:'web:'+a.url,el:mkDeskIcon('web:'+a.url,'web',webIconHTML(a),a.name,()=>openWebApp(a.url))}); });
+ LAYOUT.folders.forEach(f=>{ const el=mkDeskIcon('folder:'+f.id,'folder',folderIconHTML(f),f.name,()=>openFolderPop(f.id,el),f.id); entries.push({key:'folder:'+f.id,el}); });
+ STOREAPPS.forEach(a=>{ entries.push({key:'store:'+a.id,el:mkDeskIcon('store:'+a.id,'native',storeIconHTML(a),a.name,()=>launchStoreApp(a.id))}); });
  if(!SETTINGS||SETTINGS.filesOnDesktop!==false){
   DESKFILES.forEach(f=>{
    const el=mkDeskIcon('file:'+f.name,'file',fileIconHTML(f),f.name,()=>openDeskFile(f.path,f.kind));
    el.oncontextmenu=ev=>{ ev.preventDefault(); ev.stopPropagation(); showFileCtx(ev.clientX,ev.clientY,f); };
-   place(el,'file:'+f.name);
+   entries.push({key:'file:'+f.name,el});
   });
  }
+ return entries;
 }
+function reconcileDeskOrder(entries){
+ const slotOf=new Map(entries.map((e,i)=>[e.key,i]));
+ if(!deskOrderReady){
+  /* First render after load = the migration. The order is the
+     reading order of where the OLD model would have painted each
+     icon (its stored position, else its old default slot), so the
+     desktop keeps its arrangement -- minus the overlaps, which the
+     old model could encode and this one cannot express. Folder
+     membership and the item set are untouched. If anything had to
+     move (or two icons were painted on top of each other), flag it:
+     the daemon's /api/layout handler also logs stored-position
+     collisions to the console hub (module "layout"). */
+  const deco=entries.map((e,i)=>{
+   const st=LAYOUT.pos[e.key];
+   return {key:e.key,stored:(st&&typeof st.x==='number'&&typeof st.y==='number')?st:null,slot:i};
+  });
+  DESKORDER=orderFromPositions(deco,innerWidth,innerHeight,DRAG_PITCH);
+  deskOrderReady=true;
+  const eff=deco.map(d=>effPosFor(d.stored,d.slot,innerWidth,innerHeight,DRAG_PITCH));
+  const byKey=new Map(deco.map(d=>[d.key,d]));
+  let moved=false;
+  DESKORDER.forEach((k,i)=>{
+   const c=deskCell(i), d=byKey.get(k), p=effPosFor(d.stored,d.slot,innerWidth,innerHeight,DRAG_PITCH);
+   if(p.x!==c.x||p.y!==c.y) moved=true;
+  });
+  if(moved||anyOverlapPos(eff,92,100)>0){
+   deskNormalized=true;
+   console.warn('[mj-desk] 旧布局存在图标重叠或错位，已按原阅读顺序自动规整为不重叠布局');
+  }
+  return;
+ }
+ /* Steady state: surviving keys keep their relative order; keys
+    that vanished drop out; new keys (an imported file, an installed
+    store app, a fresh folder) insert where their stored/default
+    position reads among the CURRENT cells. */
+ const keep=DESKORDER.filter(k=>slotOf.has(k));
+ const have=new Set(keep);
+ for(const fe of entries){
+  if(have.has(fe.key)) continue;
+  const st=LAYOUT.pos[fe.key];
+  const stored=(st&&typeof st.x==='number'&&typeof st.y==='number')?st:null;
+  const p=effPosFor(stored,slotOf.get(fe.key),innerWidth,innerHeight,DRAG_PITCH);
+  const centers=keep.map((k,i)=>{ const c=deskCell(i); return {x:c.x+46,y:c.y+50}; });
+  let t=dragInsertIndex(centers,p.x+46,p.y+50,dragBaseCX(),DRAG_PITCH);
+  t=Math.max(0,Math.min(keep.length,t));
+  keep.splice(t,0,fe.key);
+  have.add(fe.key);
+ }
+ DESKORDER=keep;
+}
+function persistDeskPos(){
+ /* Serialize the order back into LAYOUT.pos at the current
+    geometry (the on-disk format is unchanged: {pos, folders}).
+    Only writes when some cell actually moved. */
+ let dirty=false;
+ DESKORDER.forEach((k,i)=>{
+  const c=deskCell(i), cur=LAYOUT.pos[k];
+  if(!cur||cur.x!==c.x||cur.y!==c.y){ LAYOUT.pos[k]={x:c.x,y:c.y}; dirty=true; }
+ });
+ if(dirty) saveLayout();
+}
+function deskAssertNoOverlap(tag){
+ /* Invariant self-check: after a render (and thereby after every
+    settled drag), no two painted icon rects may overlap. There is
+    no frontend->console-hub reporting path in the product (the
+    diag endpoints are read-only), so violations go to
+    console.error only. */
+ if(dragState&&dragState.active) return;
+ const els=[...iconsEl.querySelectorAll('.icon')];
+ const rs=els.map(el=>el.getBoundingClientRect());
+ const bad=[];
+ for(let i=0;i<rs.length;i++) for(let j=i+1;j<rs.length;j++){
+  const a=rs[i], b=rs[j];
+  const ox=Math.min(a.right,b.right)-Math.max(a.left,b.left);
+  const oy=Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top);
+  if(ox>4&&oy>4) bad.push(els[i].dataset.key+' x '+els[j].dataset.key);
+ }
+ if(bad.length) console.error('[mj-desk] icon overlap self-check failed ('+tag+'): '+bad.join('; '));
+}
+function renderDesk(){
+ const entries=collectDeskEntries();
+ reconcileDeskOrder(entries);
+ const byKey=new Map(entries.map(e=>[e.key,e]));
+ iconsEl.innerHTML='';
+ DESKORDER.forEach((k,i)=>{
+  const en=byKey.get(k); if(!en) return;
+  const c=deskCell(i);
+  en.el.style.left=c.x+'px'; en.el.style.top=c.y+'px';
+  iconsEl.appendChild(en.el);
+ });
+ persistDeskPos();
+ deskAssertNoOverlap('render');
+}
+/* Cells derive from the window size, so a resize re-derives them
+   (order is untouched). Skipped mid-drag; the drop re-renders. */
+let _deskResizeT=null;
+addEventListener('resize',()=>{
+ if(dragState&&dragState.active) return;
+ clearTimeout(_deskResizeT);
+ _deskResizeT=setTimeout(()=>{ if(!(dragState&&dragState.active)) renderDesk(); },180);
+});
 /* ----- pure drag logic (v0.31): Launchpad reorder math -----
    Kept free of DOM access so it can be unit-tested under node. The
    desktop reduces to a column-major list of fixed slots (columns
@@ -648,6 +785,52 @@ function dragShiftMap(count,originIdx,targetIdx){
 function dragMovedArray(arr,from,to){
  const a=arr.slice(); const x=a.splice(from,1)[0]; a.splice(to,0,x); return a;
 }
+/* The pre-v0.35 position of an entry: its stored free position
+   (clamped to the window, the old deskPos rule) or, lacking one,
+   its old default slot -- source-order slots, 8 per column. Kept
+   exact: the v0.35 migration derives the desktop order from where
+   the old model would have painted each icon. */
+function effPosFor(stored,slot,W,H,pitch){
+ if(stored) return {x:Math.max(0,Math.min(stored.x,W-96)),y:Math.max(42,Math.min(stored.y,H-120))};
+ const col=Math.floor(slot/8), row=slot%8;
+ return {x:Math.max(4,W-118-col*pitch), y:54+row*pitch};
+}
+/* Rows per column for the v0.35 grid: as many 104px rows as the
+   window height fits between the menu bar offset and a bottom
+   reserve, at least one. */
+function deskRowsFor(H,pitch){ return Math.max(1,Math.floor((H-130)/pitch)+1) }
+/* The grid cell of list index i (column-major: columns grow left
+   from the right edge, exactly the old default-slot geometry, but
+   rows-per-column follows the window height instead of a fixed 8,
+   so tall desktops stop spilling past the bottom edge). */
+function cellPosFor(i,W,H,pitch){
+ const rows=deskRowsFor(H,pitch);
+ const col=Math.floor(i/rows), row=i%rows;
+ return {x:Math.max(4,W-118-col*pitch), y:54+row*pitch};
+}
+/* The desktop order implied by a set of pre-v0.35 positions:
+   column-major reading order (rightmost column first, top to
+   bottom) over the effective positions, ties broken by x, then by
+   baseline slot -- a total order, so colliding entries still get
+   distinct, deterministic places. entries: [{key, stored, slot}] */
+function orderFromPositions(entries,W,H,pitch){
+ const baseCX=W-72;
+ const deco=entries.map(e=>{
+  const p=effPosFor(e.stored,e.slot,W,H,pitch);
+  return {key:e.key,slot:e.slot,x:p.x,y:p.y,col:dragColOf(p.x+46,baseCX,pitch)};
+ });
+ deco.sort((a,b)=>(a.col-b.col)||(a.y-b.y)||(a.x-b.x)||(a.slot-b.slot));
+ return deco.map(d=>d.key);
+}
+/* How many pairs in a list of top-left points overlap for icons of
+   w x h px. */
+function anyOverlapPos(list,w,h){
+ let n=0;
+ for(let i=0;i<list.length;i++) for(let j=i+1;j<list.length;j++){
+  if(Math.abs(list[i].x-list[j].x)<w&&Math.abs(list[i].y-list[j].y)<h) n++;
+ }
+ return n;
+}
 /* Launchpad rule: a folder emptied by dragging out dissolves;
    left with one icon it stays a folder. */
 function folderDissolvesAfter(items){ return items.length===0 }
@@ -669,20 +852,20 @@ let dragState=null;
 const DRAG_PITCH=104;
 function dragBaseCX(){ return innerWidth-72 }
 function iconSeq(){
- /* All desktop icons in visual (column-major) order, each with the
-    slot it currently owns. Slots are spatial anchors: during a drag
-    the ITEMS move between slots, the slots themselves never move. */
+ /* All desktop icons in THE desktop order (DESKORDER) -- the same
+    list renderDesk painted, so slots, centers and indices describe
+    the arrangement the user actually sees. Slots are spatial
+    anchors: during a drag the ITEMS move between slots, the slots
+    themselves never move. (Pre-v0.35 this list was re-derived by
+    rounding the icons' free coordinates onto the 104px lattice,
+    which disagreed with the painted layout whenever a position was
+    off-lattice; one drag then permuted a huge range of icons.) */
  const els=[...iconsEl.querySelectorAll('.icon')];
- const items=els.map((el,i)=>({el,key:el.dataset.key,kind:el.dataset.kind,
+ const rank=new Map(DESKORDER.map((k,i)=>[k,i]));
+ els.sort((a,b)=>(rank.get(a.dataset.key)??1e9)-(rank.get(b.dataset.key)??1e9));
+ return els.map((el,i)=>({el,key:el.dataset.key,kind:el.dataset.kind,
    x:parseFloat(el.style.left)||0, y:parseFloat(el.style.top)||0,
    w:el.offsetWidth||92, h:el.offsetHeight||100, dom:i}));
- items.sort((a,b)=>{
-  const ca=dragColOf(a.x+a.w/2,dragBaseCX(),DRAG_PITCH), cb=dragColOf(b.x+b.w/2,dragBaseCX(),DRAG_PITCH);
-  if(ca!==cb) return ca-cb;
-  if(a.y!==b.y) return a.y-b.y;
-  return a.dom-b.dom;
- });
- return items;
 }
 function attachDrag(el,key,kind){
  el.addEventListener('pointerdown',ev=>{
@@ -738,7 +921,8 @@ function updateDrag(ds,px,py){
     (possibly mid-slide) position -- what the user sees is what
     counts. */
  let hit=null;
- for(const s of ds.seq){
+ for(let si=ds.seq.length-1;si>=0;si--){
+  const s=ds.seq[si];
   if(s.el===ds.el) continue;
   const r=s.el.getBoundingClientRect();
   if(px>=r.left&&px<=r.right&&py>=r.top&&py<=r.bottom){ hit=s.el; break; }
@@ -822,18 +1006,20 @@ function finishDrag(ds,cx,cy){
    }
   }
  }
- /* 3) Plain reorder (or a drop back home): persist the permutation,
-       then glide the dragged icon from the pointer into its slot. */
- const m=dragShiftMap(ds.seq.length,ds.originIdx,ds.targetIdx);
- ds.seq.forEach((s,i)=>{
-  const slot=ds.slots[m.get(i)];
-  if(s.x!==slot.x||s.y!==slot.y) LAYOUT.pos[s.key]={x:Math.round(slot.x),y:Math.round(slot.y)};
- });
- saveLayout();
+ /* 3) Plain reorder (or a drop back home): move the key inside
+       THE order (ds.seq is DESKORDER order, so the indices line
+       up), glide the dragged icon from the pointer into its slot,
+       then re-render: the repaint lands every icon on its new cell
+       and persistDeskPos serializes the order back to LAYOUT.pos.
+       Positions cannot jump -- the glide target IS the cell the
+       repaint will assign. */
+ const target=ds.targetIdx;
+ DESKORDER=dragMovedArray(DESKORDER,ds.originIdx,target);
  el.classList.remove('dragging');
- el.style.left=ds.slots[ds.targetIdx].x+'px';
- el.style.top=ds.slots[ds.targetIdx].y+'px';
+ el.style.left=ds.slots[target].x+'px';
+ el.style.top=ds.slots[target].y+'px';
  if(ds.ph) ds.ph.remove();
+ renderDesk();
 }
 function endDragVisual(ds){
  ds.el.classList.remove('dragging');
@@ -849,23 +1035,21 @@ function cancelDrag(ds){
  endDragVisual(ds);
 }
 /* Insert a desktop icon arriving from a folder at the slot the
-   pointer indicates: icons from that slot on shift one slot further,
-   the last one takes the next default slot position. Mutates
-   LAYOUT.pos only -- the caller saves and re-renders. excludeFid
+   pointer indicates: the key is spliced into THE order at the
+   insertion index measured over the currently painted cells (the
+   same counting the desktop drag uses), and the caller's
+   save + re-render paints and persists the result. excludeFid
    names a folder tile that is about to vanish (dissolved), so it
-   does not take part in the shifting. */
+   takes no part in the sequence. */
 function desktopInsertAt(key,px,py,excludeFid){
  const seq=iconSeq().filter(s=>!(excludeFid&&s.key==='folder:'+excludeFid));
  const centers=seq.map(s=>({x:s.x+s.w/2,y:s.y+s.h/2}));
  let t=dragInsertIndex(centers,px,py,dragBaseCX(),DRAG_PITCH);
  t=Math.max(0,Math.min(seq.length,t));
- const next=deskPos(key,seq.length);
- if(t===seq.length){ LAYOUT.pos[key]={x:Math.round(next.x),y:Math.round(next.y)}; return; }
- LAYOUT.pos[key]={x:Math.round(seq[t].x),y:Math.round(seq[t].y)};
- for(let i=seq.length-1;i>=t;i--){
-  const dest=i+1<seq.length?seq[i+1]:next;
-  LAYOUT.pos[seq[i].key]={x:Math.round(dest.x),y:Math.round(dest.y)};
- }
+ const keys=seq.map(s=>s.key).filter(k=>k!==key);
+ keys.splice(Math.min(t,keys.length),0,key);
+ DESKORDER=keys;
+ delete LAYOUT.pos[key];
 }
 /* ----- folder popup (v0.31): macOS Launchpad folder form -----
    The desktop dims and blurs behind a centered rounded panel; the
