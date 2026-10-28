@@ -81,7 +81,7 @@ jobs:
           (Get-Item "MJ-System-64bit.zip").Length
           $hash = (Get-FileHash "MJ-System-64bit.zip" -Algorithm SHA256).Hash.ToLower()
           $size = (Get-Item "MJ-System-64bit.zip").Length
-          $manifest = [ordered]@{ version = "0.34"; file = "MJ-System-64bit.zip"; size = $size; sha256 = $hash }
+          $manifest = [ordered]@{ version = "0.35"; file = "MJ-System-64bit.zip"; size = $size; sha256 = $hash }
           $json = $manifest | ConvertTo-Json -Compress
           [IO.File]::WriteAllText((Join-Path $PWD "update.json"), $json, (New-Object System.Text.UTF8Encoding $false))
           Get-Content "update.json"
@@ -92,7 +92,7 @@ jobs:
         run: |
           $ffver = "153.5.1esr"
           $url = "https://download-installer.cdn.mozilla.net/pub/firefox/releases/$ffver/win64/zh-CN/Firefox%20Setup%20$ffver.exe"
-          Invoke-WebRequest -Uri "https://download-installer.cdn.mozilla.net/pub/firefox/releases/$ffver/win64/zh-CN/Firefox%20Setup%20$ffver.exe" -OutFile "ffsetup.exe"
+          Invoke-WebRequest -Uri $url -OutFile "ffsetup.exe"
           $ilen = (Get-Item "ffsetup.exe").Length
           Write-Host "ffsetup.exe bytes: $ilen"
           if ($ilen -lt 50000000) { throw "Firefox installer too small: $ilen" }
@@ -121,6 +121,9 @@ jobs:
           $runtimeDir = Join-Path $comp "runtime"
           $appDir = Join-Path $comp "app"
           New-Item -ItemType Directory -Force -Path $runtimeDir, $appDir | Out-Null
+          # Portable Node: official win-x64 zip from nodejs.org, its
+          # contents land directly in component\runtime (node.exe at
+          # the runtime root), same layout as the validation runs.
           $nodeZip = Join-Path $stage "node.zip"
           Invoke-WebRequest -Uri "https://nodejs.org/dist/v$nodeVer/node-v$nodeVer-win-x64.zip" -OutFile $nodeZip
           Write-Host "node zip bytes: $((Get-Item $nodeZip).Length)"
@@ -128,6 +131,12 @@ jobs:
           Copy-Item -Path (Join-Path $stage "node-x\node-v$nodeVer-win-x64\*") -Destination $runtimeDir -Recurse -Force
           $nodeExe = Join-Path $runtimeDir "node.exe"
           if (!(Test-Path $nodeExe)) { throw "node.exe missing after extract" }
+          # Runtime pinning (validation run #1 died right here: install
+          # scripts resolved bare `node` to the runner's preinstalled
+          # Node 22 and OpenClaw's version check aborted the install).
+          # Same triple pinning as openclaw-validate.yml: PATH first,
+          # --scripts-prepend-node-path=true, absolute-path calls, and
+          # a fail-fast guard before installing anything.
           $env:PATH = "$runtimeDir;$env:PATH"
           $nodeV = (& $nodeExe -v).Trim()
           Write-Host "node -v = $nodeV"
@@ -135,6 +144,10 @@ jobs:
           $resolvedNode = (Get-Command node -ErrorAction Stop).Source
           if (-not ($resolvedNode -like "$runtimeDir*")) { throw "node resolves outside component runtime: $resolvedNode" }
           $npm = Join-Path $runtimeDir "npm.cmd"
+          # npm local-prefix install of the pinned OpenClaw into
+          # component\app. The npm cache stays in the staging area,
+          # never inside the component; the zip ships runtime + app
+          # only (state is provisioned by the daemon at first start).
           $env:npm_config_cache = Join-Path $stage "npm-cache"
           $pkg = [ordered]@{ dependencies = [ordered]@{ openclaw = $ocVer } }
           ($pkg | ConvertTo-Json) | Set-Content (Join-Path $appDir "package.json") -Encoding utf8
@@ -163,14 +176,14 @@ jobs:
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.34
-          name: 铭杰终端机 v0.34（64 位单文件版 · 链接打开修复）
+          tag_name: v0.35
+          name: 铭杰终端机 v0.35（64 位单文件版 · 桌面图标修复）
           body: |
             64 位单文件版：解压后运行 MJ-System.exe（需 64 位 Windows）。
             第一次运行会自动释放内置 sing-box 核心，数据保存在 EXE 旁的 Data/ 文件夹（节点、网站应用、桌面布局都在里面，跟着文件夹走）。
             应用内更新：v0.6 起在「设置 → 软件更新」里完成，仓库公开、免令牌。
             近版功能：网站应用化（真实图标、双击打开、文件夹分组）、软件内全局加速、台前调度（左侧实时缩略图）、窗口统一（外部应用统一调度与开窗落位）、SSH 远程终端、内置调试控制台（状态与日志集中查看、一键导出诊断包）、小窗手机宽（终端未最大化或较窄时网站应用以手机宽打开）、应用商店（官方便携应用直下进 Data/apps，校验钉死）、小龙虾组件、服务器监控面板。
-            本版 v0.34：单点修复——设置 → 安全与隐私 的 Tailscale「打开登录页」原来会跳到这台电脑的默认浏览器打开，现在改在终端自己的隔离浏览器里打开（点按钮由守护进程把登录链接交给隔离浏览器，经节点与否沿用既有规则），不会再跑到系统外面去。同类收紧：系统里点开的链接现在一律先进终端的隔离浏览器（加速开着走节点、关着直连），只有隔离浏览器根本起不来时才用电脑的默认浏览器兜底，并在控制台留一条记录。远程协助的其他逻辑没有任何改动。
+            本版 v0.35：桌面图标布局修复——旧版本里图标位置是各存各的自由坐标，渲染与拖拽两边对位置的理解不一致，于是会出现图标静止不动时就叠在一起、一拖动整屏图标大洗牌。本版把桌面收成一份统一的有序名单：系统应用、网站应用、文件夹、商店应用、导入文件共用同一顺序依次落格，重叠在结构上不可能发生；拖动时只移动新旧位置之间的图标，其余纹丝不动，落点仍是松手前就可见的实时让位。升级后第一次打开桌面，旧布局会按原来的阅读顺序自动规整成不重叠的排列（图标与文件夹成员一个不少），控制台（模块「布局」）会留一条记录；窗口大小改变时图标按同一顺序重新落格，不再挤压重叠。
             MJ-Firefox.zip / firefox.json 是 Firefox 组件的安装包与校验清单，MJ-OpenClaw.zip / openclaw.json 是小龙虾组件的安装包与校验清单，都由程序按需下载，手动使用主程序时不用管。
             update.json 是给程序自动更新用的校验清单（版本/大小/SHA-256），手动下载时不用管它。
           files: |
