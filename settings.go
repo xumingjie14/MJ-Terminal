@@ -158,6 +158,13 @@ type mjSettings struct {
 	NodeTestURL        string `json:"nodeTestURL"`
 	NodeTestTimeoutMs  int    `json:"nodeTestTimeoutMs"`
 	NodeClashAPI       bool   `json:"nodeClashAPI"`
+	// v0.50: the global summon hotkey (hotkey.go). One unmodified
+	// function key registered with the host OS so the terminal can
+	// be recalled from anywhere: "F8" (default) / "F9" / "F7" /
+	// "off". Changing it re-registers immediately; a key another
+	// program already owns leaves the daemon unregistered and the
+	// Settings page shows the conflict state (GET /api/hotkey/status).
+	SummonHotkey string `json:"summonHotkey"`
 }
 
 func defaultSettings() mjSettings {
@@ -206,8 +213,11 @@ func defaultSettings() mjSettings {
 		NodeTestURL:           "http://www.gstatic.com/generate_204",
 		NodeTestTimeoutMs:     5000,
 		NodeClashAPI:          true,
+		SummonHotkey:          "F8",
 	}
 }
+
+var summonHotkeys = map[string]bool{"F8": true, "F9": true, "F7": true, "off": true}
 
 var nodeStartModes = map[string]bool{"last": true, "rule": true, "global": true, "direct": true}
 
@@ -401,6 +411,9 @@ func sanitizeSettings(s mjSettings) mjSettings {
 	if s.NodeTestTimeoutMs < 1000 || s.NodeTestTimeoutMs > 15000 {
 		s.NodeTestTimeoutMs = d.NodeTestTimeoutMs
 	}
+	if !summonHotkeys[s.SummonHotkey] {
+		s.SummonHotkey = d.SummonHotkey
+	}
 	return s
 }
 
@@ -493,6 +506,7 @@ func settingsMap() map[string]any {
 		"nodeTestURL":             s.NodeTestURL,
 		"nodeTestTimeoutMs":       s.NodeTestTimeoutMs,
 		"nodeClashAPI":            s.NodeClashAPI,
+		"summonHotkey":            s.SummonHotkey,
 		"fresh":                   settingsFresh(),
 	}
 }
@@ -537,6 +551,8 @@ func settingNodeTestURL() string { return settingsGet().NodeTestURL }
 func settingNodeTestTimeoutMs() int { return settingsGet().NodeTestTimeoutMs }
 
 func settingNodeClashAPI() bool { return settingsGet().NodeClashAPI }
+
+func settingSummonHotkey() string { return settingsGet().SummonHotkey }
 
 // settingsSetRemoteEnabledInternal flips the remote-assistance
 // master switch from inside the daemon (the pairing page's
@@ -798,6 +814,14 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 					next.NodeClashAPI = v
 					changed = append(changed, boolLog("nodeClashAPI", v))
 				}
+			case "summonHotkey":
+				var v string
+				if json.Unmarshal(val, &v) != nil || !summonHotkeys[v] {
+					fail = "summonHotkey 须为 F8 / F9 / F7 / off"
+				} else if v != next.SummonHotkey {
+					next.SummonHotkey = v
+					changed = append(changed, "summonHotkey = "+v)
+				}
 			case "chromeCacheMB":
 				var v int
 				if json.Unmarshal(val, &v) != nil || !(v == 0 || (v >= 50 && v <= 2000)) {
@@ -840,6 +864,11 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 				// right away (the patrol would catch up within a
 				// tick anyway; the kick removes the wait).
 				immerseKick()
+			}
+			if strings.HasPrefix(c, "summonHotkey") {
+				// v0.50: a new summon key re-registers with the OS
+				// right away (unregister old, register new).
+				hotkeyKick()
 			}
 		}
 		writeJSON(w, settingsMap())

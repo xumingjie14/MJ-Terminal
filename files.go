@@ -178,6 +178,12 @@ func filesListHandler(w http.ResponseWriter, r *http.Request) {
 		Ext  string `json:"ext"`
 		Kind string `json:"kind"`
 		Dir  bool   `json:"dir"`
+		// Mtime is the entry's modification time (unix ms). v0.50:
+		// the Files app's Finder face shows it as 导入时间 -- the
+		// library stores no separate import timestamp, and an
+		// imported file's mtime IS its arrival time (the copy
+		// preserves nothing older; unzip results carry their own).
+		Mtime int64 `json:"mtime"`
 	}
 	out := []fitem{}
 	for _, e := range entries {
@@ -186,6 +192,9 @@ func filesListHandler(w http.ResponseWriter, r *http.Request) {
 			continue // .thumbs and import temp files are bookkeeping
 		}
 		it := fitem{Name: name, Path: name, Dir: e.IsDir()}
+		if fi, err := e.Info(); err == nil {
+			it.Mtime = fi.ModTime().UnixMilli()
+		}
 		if e.IsDir() {
 			it.Kind = "dir"
 			it.Size = dirSize(filepath.Join(filesDir(), name))
@@ -223,11 +232,12 @@ func filesSubListHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	base := strings.TrimPrefix(r.URL.Query().Get("path"), "./")
 	type sitem struct {
-		Name string `json:"name"`
-		Path string `json:"path"`
-		Size int64  `json:"size"`
-		Kind string `json:"kind"`
-		Dir  bool   `json:"dir"`
+		Name  string `json:"name"`
+		Path  string `json:"path"`
+		Size  int64  `json:"size"`
+		Kind  string `json:"kind"`
+		Dir   bool   `json:"dir"`
+		Mtime int64  `json:"mtime"` // unix ms, see filesListHandler
 	}
 	out := []sitem{}
 	for _, e := range entries {
@@ -235,8 +245,11 @@ func filesSubListHandler(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		it := sitem{Name: e.Name(), Path: base + "/" + e.Name(), Dir: e.IsDir(), Kind: fileKindOf(e.Name(), e.IsDir())}
-		if fi, ierr := e.Info(); ierr == nil && !e.IsDir() {
-			it.Size = fi.Size()
+		if fi, ierr := e.Info(); ierr == nil {
+			it.Mtime = fi.ModTime().UnixMilli()
+			if !e.IsDir() {
+				it.Size = fi.Size()
+			}
 		}
 		out = append(out, it)
 	}

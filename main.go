@@ -1588,6 +1588,10 @@ func runBootExtras() {
 func onVaultUnlocked() {
 	monHold.Store(false)
 	loadLinksOnce()
+	// v0.50: in locked boot the hotkey registered against the
+	// default key (Data was sealed when settings first loaded);
+	// re-apply now that the real settings are readable.
+	hotkeyKick()
 	startServicesOnce()
 	autostartCore()
 	runBootExtras()
@@ -1880,6 +1884,8 @@ func runServer(portFlag int, isDaemon bool) {
 	mux.HandleFunc("/api/notify/dismiss", notifyDismissHandler)
 	mux.HandleFunc("/api/notify/clear-source", notifyClearSourceHandler)
 	mux.HandleFunc("/api/notify/stream", notifyStreamHandler)
+	mux.HandleFunc("/api/view/stream", viewStreamHandler)
+	mux.HandleFunc("/api/hotkey/status", hotkeyStatusHandler)
 	mux.HandleFunc("/api/wallpaper", wallpaperHandler)
 	mux.HandleFunc("/api/list", listFiles)
 	mux.HandleFunc("/api/run", runCmd)
@@ -2016,6 +2022,11 @@ func runServer(portFlag int, isDaemon bool) {
 			requestDaemonExit(exitUser)
 		}()
 	})
+
+	// v0.50: the global summon hotkey starts in BOTH boot modes --
+	// while the vault is sealed, F8 is how the password screen is
+	// recalled. Registration itself touches no Data.
+	hotkeyStart()
 
 	if !lockedBoot {
 		startServicesOnce()

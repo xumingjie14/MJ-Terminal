@@ -43,9 +43,104 @@ body{font-family:-apple-system,"SF Pro Display","PingFang SC","Microsoft YaHei",
 #ccpanel{position:fixed;top:46px;right:10px;width:356px;border-radius:20px;padding:14px;z-index:1500;transition:opacity .28s ease,transform .28s ease}
 /* v0.48: the 铭杰 (Apple-position) menu + the vault lock screen */
 #mbmenu{position:fixed;top:46px;left:10px;width:264px;border-radius:14px;padding:6px;z-index:1600}
-#mbmenu .mbm-it{padding:6px 12px;border-radius:8px;font-size:13.5px;cursor:pointer;color:#fff;white-space:nowrap}
-#mbmenu .mbm-it:hover{background:rgba(10,132,255,.85)}
-#mbmenu .mbm-sep{height:1px;background:rgba(255,255,255,.18);margin:5px 10px}
+#mbmenu.hidden{display:none}
+#mbmenu .mbm-it,#mbdrop .mbm-it{padding:6px 12px;border-radius:8px;font-size:13.5px;cursor:pointer;color:#fff;white-space:nowrap}
+#mbmenu .mbm-it:hover,#mbdrop .mbm-it:hover{background:rgba(10,132,255,.85)}
+#mbmenu .mbm-sep,#mbdrop .mbm-sep{height:1px;background:rgba(255,255,255,.18);margin:5px 10px}
+/* v0.50: the full menu bar （文件/编辑/显示/窗口/帮助 + front-app menu)
+   drops from #mbdrop; items carry macOS state grammar -- a check
+   column for toggles, a right-aligned shortcut, greyed when the
+   context does not apply (never a dead item). */
+#mbdrop{position:fixed;top:46px;min-width:252px;border-radius:14px;padding:6px;z-index:1600}
+#mbdrop.hidden{display:none}
+#mbdrop .mbm-it.dis{opacity:.38;pointer-events:none}
+#mbdrop .mbm-it .mbm-ck{display:inline-block;width:17px;margin-left:-5px}
+#mbdrop .mbm-it .mbm-key{float:right;opacity:.6;margin-left:30px;font-size:12.5px}
+#mbdrop .mbm-it .mbm-sub{opacity:.6;font-size:12px}
+#menubar .mi.on{background:rgba(255,255,255,.18);border-radius:6px}
+#menubar .mi{padding:2px 7px;margin:0 -7px}
+#mb-spot{cursor:pointer;display:inline-flex;align-items:center;padding:3px 4px;border-radius:6px}
+#mb-spot:hover,#mb-spot.on{background:rgba(255,255,255,.16)}
+/* v0.50 Launchpad: full-screen paged grid over the blurred
+   wallpaper; one layout source with the desktop (DESKORDER). */
+#launchpad{position:fixed;inset:0;z-index:2400;display:flex;flex-direction:column;align-items:center;padding:8vh 3vw 4vh;background:rgba(16,16,24,.34);backdrop-filter:blur(36px) saturate(160%);-webkit-backdrop-filter:blur(36px) saturate(160%);color:#fff}
+#launchpad.hidden{display:none}
+#launchpad.open{animation:lpIn .24s ease}
+@keyframes lpIn{from{opacity:0;transform:scale(1.045)}to{opacity:1;transform:scale(1)}}
+#lp-q{width:min(330px,72vw);padding:8px 16px;border-radius:10px;border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.16);color:#fff;font-size:15px;outline:none;text-align:left}
+#lp-q::placeholder{color:rgba(255,255,255,.55)}
+#lp-pages{flex:1;width:100%;position:relative;overflow:hidden;margin-top:3.2vh}
+.lp-page{position:absolute;inset:0;display:grid;justify-content:center;align-content:start}
+.lp-item{width:108px;background:none;border:0;color:#fff;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:7px;padding:10px 2px;border-radius:14px;font:inherit;touch-action:none;user-select:none;-webkit-user-select:none}
+.lp-item:hover{background:rgba(255,255,255,.08)}
+.lp-item .appico{width:62px;height:62px;border-radius:15px;font-size:30px;pointer-events:none}
+.lp-item .lpn{font-size:12.5px;text-shadow:0 1px 5px rgba(0,0,0,.6);line-height:1.3;text-align:center;max-width:102px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;pointer-events:none}
+.lp-item.dragsrc{opacity:.3}
+.lp-ghost{position:fixed;z-index:2450;pointer-events:none;transform:scale(1.06);filter:drop-shadow(0 14px 24px rgba(0,0,0,.5))}
+#lp-dots{display:flex;gap:8px;padding-top:12px;min-height:8px}
+#lp-dots i{width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,.35);cursor:pointer}
+#lp-dots i.on{background:#fff}
+.lp-empty{opacity:.65;font-size:15px;margin-top:8vh}
+/* v0.50 Spotlight: floating card, grouped results, full keyboard. */
+#spotlight{position:fixed;inset:0;z-index:2700;display:flex;justify-content:center;padding-top:15vh}
+#spotlight.hidden{display:none}
+#spot-card{width:min(620px,92vw);height:fit-content;border-radius:16px;overflow:hidden}
+#spotlight.open #spot-card{animation:spotIn .18s ease}
+@keyframes spotIn{from{opacity:0;transform:scale(.965) translateY(-8px)}to{opacity:1;transform:scale(1) translateY(0)}}
+#spot-in{width:100%;box-sizing:border-box;background:transparent;border:0;outline:none;color:#fff;font-size:22px;padding:15px 18px 11px;font:inherit;font-size:22px}
+#spot-in::placeholder{color:rgba(255,255,255,.45)}
+#spot-res{max-height:54vh;overflow:auto;padding:2px 8px 10px}
+.spot-gh{font-size:11.5px;letter-spacing:.05em;opacity:.55;padding:10px 10px 3px}
+.spot-it{display:flex;align-items:center;gap:11px;padding:6px 10px;border-radius:9px;cursor:pointer;font-size:14.5px;color:#fff}
+.spot-it.sel{background:rgba(10,132,255,.85)}
+.spot-it .appico{width:30px;height:30px;border-radius:8px;font-size:16px;flex:none}
+.spot-it .sic{width:30px;height:30px;border-radius:8px;flex:none;display:flex;align-items:center;justify-content:center;font-size:16px;background:rgba(255,255,255,.14)}
+.spot-it .snm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.spot-it .sub{margin-left:auto;font-size:12px;opacity:.55;white-space:nowrap;padding-left:10px}
+.spot-none{padding:16px 12px;opacity:.6;font-size:14px}
+/* v0.50 Files as Finder: sidebar + toolbar + views + preview. */
+.fv{display:flex;flex-direction:column;height:100%}
+.fv-path{padding:11px 16px 7px;font-size:13px;opacity:.78}
+.fv-path b{color:#fff;font-weight:600}
+.fv-main{flex:1;display:flex;min-height:0}
+.fv-side{width:176px;flex:none;border-right:1px solid rgba(255,255,255,.1);padding:8px;display:flex;flex-direction:column;gap:2px;overflow:auto}
+.fv-sit{padding:6px 10px;border-radius:8px;cursor:pointer;font-size:13.5px;display:flex;justify-content:space-between;gap:6px;color:#fff}
+.fv-sit:hover{background:rgba(255,255,255,.08)}
+.fv-sit.on{background:rgba(10,132,255,.8)}
+.fv-sit .cnt{opacity:.6;font-size:12px}
+.fv-center{flex:1;display:flex;flex-direction:column;min-width:0}
+.fv-tools{display:flex;gap:8px;align-items:center;padding:8px 12px;border-bottom:1px solid rgba(255,255,255,.08);flex-wrap:wrap}
+.fv-tools .seg button.on{background:rgba(255,255,255,.88);color:#111;font-weight:600}
+.fv-q{flex:1;min-width:110px;max-width:230px;margin-left:auto;padding:5px 11px;border-radius:8px;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.1);color:#fff;font-size:13px;outline:none}
+.fv-q::placeholder{color:rgba(255,255,255,.5)}
+.fv-sorts{padding:5px 9px;border-radius:8px;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.1);color:#fff;font-size:13px;outline:none}
+.fv-sorts option{color:#111}
+.fv-body{flex:1;overflow:auto;padding:12px}
+.fv-grid{display:grid;grid-template-columns:repeat(auto-fill,98px);gap:6px}
+.fv-it{width:98px;background:none;border:0;color:#fff;font:inherit;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px;padding:9px 4px;border-radius:12px;user-select:none;-webkit-user-select:none}
+.fv-it:hover{background:rgba(255,255,255,.07)}
+.fv-it.sel{background:rgba(10,132,255,.48)}
+.fv-it .appico{width:52px;height:52px;pointer-events:none}
+.fv-it .fvn{font-size:12px;text-align:center;line-height:1.3;max-width:94px;word-break:break-all;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;pointer-events:none}
+table.fv-tab{width:100%;border-collapse:collapse;font-size:13px;color:#fff}
+.fv-tab th{text-align:left;padding:5px 8px;opacity:.65;font-weight:600;cursor:pointer;white-space:nowrap;border-bottom:1px solid rgba(255,255,255,.14);user-select:none}
+.fv-tab td{padding:5px 8px;border-bottom:1px solid rgba(255,255,255,.05);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:300px}
+.fv-tab tbody tr{cursor:pointer}
+.fv-tab tbody tr.sel td{background:rgba(10,132,255,.42)}
+.fv-cols{display:flex;height:100%}
+.fv-col{width:208px;flex:none;overflow:auto;border-right:1px solid rgba(255,255,255,.09);padding:6px}
+.fv-col .fv-it{width:100%;flex-direction:row;justify-content:flex-start;padding:6px 8px;gap:9px}
+.fv-col .fv-it .appico{width:28px;height:28px;border-radius:7px;font-size:14px;flex:none}
+.fv-col .fv-it .fvn{text-align:left;max-width:140px}
+.fv-colh{font-size:11.5px;opacity:.55;padding:4px 8px;letter-spacing:.04em}
+.fv-prev{width:240px;flex:none;border-left:1px solid rgba(255,255,255,.1);padding:16px 14px;overflow:auto;text-align:center}
+.fv-prev .appico{width:78px;height:78px;border-radius:17px;font-size:35px}
+.fv-prev img.fv-thumb{max-width:100%;max-height:170px;border-radius:10px;box-shadow:0 8px 22px rgba(0,0,0,.4)}
+.fv-pname{font-weight:650;font-size:14.5px;margin-top:11px;word-break:break-all;line-height:1.4}
+.fv-pmeta{margin-top:9px;font-size:12.5px;opacity:.78;line-height:1.85;text-align:left}
+.fv-pbtns{display:flex;flex-direction:column;gap:7px;margin-top:13px}
+.fv-pbtns .btn{width:100%}
+.fv-none{opacity:.6;font-size:13.5px;padding:22px 6px;text-align:center}
 #lockscreen{position:fixed;inset:0;z-index:3000;display:none;background:rgba(16,16,22,.42);backdrop-filter:blur(28px) saturate(150%);-webkit-backdrop-filter:blur(28px) saturate(150%)}
 #lockscreen.show{display:flex;align-items:center;justify-content:center}
 .lk-card{text-align:center;color:#fff;width:min(340px,86vw)}
@@ -418,14 +513,15 @@ table.gridtab td,table.gridtab th{white-space:nowrap;max-width:280px;overflow:hi
 <div id="menubar">
   <button id="mb-hide" title="关闭桌面（藏到托盘，后台和节点继续跑；点托盘图标原样回来）">✕</button>
   <span class="logo" id="mb-logo"> 铭杰</span>
-  <span class="mi"><b id="mb-appname">访达</b></span>
-  <span class="mi">文件</span><span class="mi">编辑</span><span class="mi">显示</span><span class="mi">窗口</span><span class="mi">帮助</span>
+  <span class="mi" id="mb-m-app"><b id="mb-appname">访达</b></span>
+  <span class="mi" id="mb-m-file">文件</span><span class="mi" id="mb-m-edit">编辑</span><span class="mi" id="mb-m-view">显示</span><span class="mi" id="mb-m-win">窗口</span><span class="mi" id="mb-m-help">帮助</span>
   <span class="sp"></span>
   <span class="right">
     <span id="mb-remote" title="远程协助状态（点开设置查看）"><span id="mb-rdot"></span><span id="mb-rtxt">远程协助中</span></span>
     <span id="mb-node" title="节点状态"><span id="mb-dot"></span><span id="mb-nodetxt">节点</span></span>
     <span id="mb-stage" title="台前调度：只显示当前应用">▦</span>
     <span>📶</span><span>🔋</span>
+    <span id="mb-spot" title="聚焦搜索（F5 或 Ctrl+Space）"><svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.6" fill="none" stroke="#fff" stroke-width="1.7"/><line x1="10.6" y1="10.6" x2="14.4" y2="14.4" stroke="#fff" stroke-width="1.9" stroke-linecap="round"/></svg></span>
     <span id="mb-cc" title="控制中心"><svg width="18" height="18" viewBox="0 0 20 20" aria-hidden="true"><rect x="1" y="2.6" width="18" height="6.4" rx="3.2" fill="rgba(255,255,255,.38)"/><circle cx="14.2" cy="5.8" r="2.7" fill="#fff"/><rect x="1" y="11" width="18" height="6.4" rx="3.2" fill="rgba(255,255,255,.38)"/><circle cx="5.8" cy="14.2" r="2.7" fill="#fff"/></svg></span>
     <span id="mb-priv" title="远程协助进行中"></span>
     <span id="mb-clock" title="通知中心">--</span>
@@ -433,6 +529,7 @@ table.gridtab td,table.gridtab th{white-space:nowrap;max-width:280px;overflow:hi
 </div>
 
 <div id="mbmenu" class="glasspanel hidden"></div>
+<div id="mbdrop" class="glasspanel hidden"></div>
 <div id="icons"></div>
 <div id="wins"></div>
 <div id="extstrip" class="hidden"></div>
@@ -441,6 +538,8 @@ table.gridtab td,table.gridtab th{white-space:nowrap;max-width:280px;overflow:hi
 <div id="ncenter" class="glasspanel nc-off"><div id="nc-scroll"></div><div class="nc-foot"><button id="nc-editbtn">编辑小部件</button></div></div>
 <div id="banners"></div>
 <div id="folderpop" class="hidden"></div>
+<div id="launchpad" class="hidden"><input id="lp-q" type="text" placeholder="搜索" autocomplete="off"><div id="lp-pages"></div><div id="lp-dots"></div></div>
+<div id="spotlight" class="hidden"><div id="spot-card" class="glasspanel"><input id="spot-in" type="text" placeholder="聚焦搜索" autocomplete="off"><div id="spot-res"></div></div></div>
 <div id="dropveil" class="hidden">松开，把文件导入到终端桌面</div>
 <div id="toast" class="hidden"></div>
 <input type="file" id="deskimp" multiple style="display:none">
@@ -494,7 +593,7 @@ async function api(p,opt){const r=await fetch(p,opt);let t=await r.text();try{re
    reports "fresh" (no settings file yet), the old local values are
    migrated up once and the local copies dropped. */
 let SETTINGS=null;
-const SETDEF={wallpaper:'tahoe',stageManager:false,idleExitMinutes:30,phoneMode:true,phoneTriggerWidth:1200,phoneWidth:400,chromeCacheMB:200,stageAutoClaimBrowser:true,filesOnDesktop:true,remoteEnabled:false,winPlaceOnClaim:true,winHideOnMinimize:true,winCloseToTray:true,immersiveMode:false,desktopFullscreen:false,dockPosition:'bottom',dockAutoHide:false,dockIconSize:52,cc_show_immersive:true,cc_show_stage:true,cc_show_fullscreen:true,cc_show_dockhide:true,cc_show_remote:true,cc_show_wallpaper:true,notify_allow_sandbox:true,notify_allow_update:true,notify_allow_servermon:true,notify_allow_node:true,notify_allow_remote:true,notify_allow_files:true,notify_banner_sandbox:true,notify_banner_update:true,notify_banner_servermon:true,notify_banner_node:true,notify_banner_remote:true,notify_banner_files:true,nc_widgets:'[{"id":"calendar","show":true},{"id":"server","show":true},{"id":"node","show":true}]',exitClosesApps:true,nodeStartMode:'last',nodeSubAuto:true,nodeSubIntervalMin:360,nodeTestURL:'http://www.gstatic.com/generate_204',nodeTestTimeoutMs:5000,nodeClashAPI:true};
+const SETDEF={wallpaper:'tahoe',stageManager:false,idleExitMinutes:30,phoneMode:true,phoneTriggerWidth:1200,phoneWidth:400,chromeCacheMB:200,stageAutoClaimBrowser:true,filesOnDesktop:true,remoteEnabled:false,winPlaceOnClaim:true,winHideOnMinimize:true,winCloseToTray:true,immersiveMode:false,desktopFullscreen:false,dockPosition:'bottom',dockAutoHide:false,dockIconSize:52,cc_show_immersive:true,cc_show_stage:true,cc_show_fullscreen:true,cc_show_dockhide:true,cc_show_remote:true,cc_show_wallpaper:true,notify_allow_sandbox:true,notify_allow_update:true,notify_allow_servermon:true,notify_allow_node:true,notify_allow_remote:true,notify_allow_files:true,notify_banner_sandbox:true,notify_banner_update:true,notify_banner_servermon:true,notify_banner_node:true,notify_banner_remote:true,notify_banner_files:true,nc_widgets:'[{"id":"calendar","show":true},{"id":"server","show":true},{"id":"node","show":true}]',exitClosesApps:true,nodeStartMode:'last',nodeSubAuto:true,nodeSubIntervalMin:360,nodeTestURL:'http://www.gstatic.com/generate_204',nodeTestTimeoutMs:5000,nodeClashAPI:true,summonHotkey:'F8'};
 function wallKey(){ if(SETTINGS) return SETTINGS.wallpaper||'tahoe'; return localStorage.getItem('mj-wall')||'tahoe' }
 /* v0.46 Dock basics: position + auto-hide are view-side behaviours
    over daemon settings (same pattern as the wallpaper). */
@@ -599,13 +698,19 @@ function makeWin(app,i){
    function up(){removeEventListener('pointermove',mv);removeEventListener('pointerup',up);saveSession()}
    addEventListener('pointermove',mv);addEventListener('pointerup',up);
  });
- title.addEventListener('dblclick',()=>{w.style.width=w.style.width==='96vw'?'':'96vw';w.style.left=w.style.width?'2vw':'90px';saveSession()});
+ title.addEventListener('dblclick',()=>zoomWin(w));
+ /* v0.50: the green light was decorative until now -- it runs
+    the same zoom as the title double-click and the 窗口 menu. */
+ w.querySelector('.l-max').onclick=()=>zoomWin(w);
  w.querySelector('[data-a="close"]').onclick=()=>{w.classList.add('hidden');onWinClosed(app.id);syncDots()};
  w.addEventListener('pointerdown',()=>{ if(w.classList.contains('staged')) openApp(app.id); });
  w.querySelector('[data-a="min"]').onclick=()=>{w.classList.add('hidden');onWinClosed(app.id);syncDots()};
  winsEl.appendChild(w);return w;
 }
 function bring(w){w.style.zIndex=++z;saveSession()}
+/* v0.50: the one zoom behaviour (title double-click, green
+   traffic light, 窗口 → 缩放 all call this). */
+function zoomWin(w){ if(!w) return; w.style.width=w.style.width==='96vw'?'':'96vw'; w.style.left=w.style.width?'2vw':'90px'; saveSession(); }
 function openApp(id){
  let w=document.getElementById('win-'+id);
  if(!w){w=makeWin(APPS.find(a=>a.id===id),APPS.findIndex(a=>a.id===id));render(id)}
@@ -1306,7 +1411,7 @@ function openFolderPop(fid,anchorEl,opts){
  pop.onclick=ev=>{ if(ev.target===pop) closeFolderPop(); };
  document.getElementById('fp-title').onclick=()=>startFolderTitleEdit();
  pop.querySelectorAll('.fp-item').forEach(it=>{
-  it.onclick=()=>{ if(Date.now()<suppressClickUntil) return; closeFolderPop(); openWebApp(it.dataset.url); };
+  it.onclick=()=>{ if(Date.now()<suppressClickUntil) return; closeFolderPop(); if(window.__lpClose) window.__lpClose(); openWebApp(it.dataset.url); };
   attachFolderItemDrag(it,fid);
  });
  if(opts.editTitle) startFolderTitleEdit();
@@ -1469,7 +1574,7 @@ function newFolder(x,y){
  if(tile) openFolderPop(id,tile);
 }
 document.addEventListener('contextmenu',ev=>{
- if(ev.target.closest('.win')||ev.target.closest('#dockwrap')||ev.target.closest('#menubar')||ev.target.closest('#folderpop')||ev.target.closest('#ctxmenu')) return;
+ if(ev.target.closest('.win')||ev.target.closest('#dockwrap')||ev.target.closest('#menubar')||ev.target.closest('#folderpop')||ev.target.closest('#ctxmenu')||ev.target.closest('#launchpad')||ev.target.closest('#spotlight')||ev.target.closest('#mbdrop')) return;
  ev.preventDefault(); showCtx(ev.clientX,ev.clientY);
 });
 document.addEventListener('dragstart',ev=>{
@@ -1577,6 +1682,7 @@ async function importFiles(fileList,via){
  }
  importBusy=false;
  await loadDeskFiles(); renderDesk();
+ if(window.__filesRefresh) window.__filesRefresh(); /* v0.50: an open Finder window repaints too */
  if(fails.length) alert('有 '+fails.length+' 个文件没导入成功：\n'+fails.join('\n'));
  else if(ok) toast('已导入 '+ok+' 个文件到桌面');
 }
@@ -1909,7 +2015,14 @@ function render(id){
  const b=document.getElementById('body-'+id);
  if(id==='home') b.innerHTML=`<h2 style="margin-bottom:8px">铭杰工作站</h2><p class="mut">真功能版：终端执行的是这台电脑的真实命令，文件打开的是真实目录，浏览器是独立档案的 Chrome，节点在后台常驻。<br>关掉桌面窗口只是隐藏，后台和节点继续跑；再双击 EXE 就能回来，彻底退出在「设置」里。</p><p style="margin-top:14px"><span class="tag" id="home-sys">正在读取系统信息…</span></p><div class="row" style="margin-top:16px"><button class="btn" onclick="openApp('term')">打开终端</button><button class="btn gray" onclick="openApp('files')">打开文件</button><button class="btn gray" onclick="openApp('sys')">换壁纸</button></div>`;
  if(id==='term') b.innerHTML=`<pre class="term" id="tout">铭杰终端（真实命令）\r\n试试：dir、ipconfig、ping 223.5.5.5、systeminfo、tasklist\r\n</pre><div class="row" style="margin-top:10px"><span id="prompt" class="tag">…</span><input class="txt" id="tin" placeholder="输入命令，回车执行" autocomplete="off"><button class="btn" id="trun">执行</button></div><div class="row" style="margin-top:8px"><button class="btn gray" data-cmd="systeminfo">系统信息</button><button class="btn gray" data-cmd="ipconfig">IP 配置</button><button class="btn gray" data-cmd="dir">当前目录</button><button class="btn gray" data-cmd="tasklist">进程</button></div><p style="margin-top:8px"><span class="tag" id="term-accel">节点加速：…</span></p>`;
- if(id==='files') b.innerHTML=`<div class="row"><button class="btn gray" id="fup">↑ 上级</button><button class="btn gray" id="fhome">主目录</button><input class="pathin" id="fpath"><button class="btn" id="fgo">打开</button></div><div id="flist" style="margin-top:10px" class="mut">加载中…</div>`;
+ if(id==='files'){ b.style.padding='0';
+  /* v0.50 Finder face (bind in the v0.50 script): sidebar smart
+     groups / toolbar / icon-list-column views / preview pane,
+     all over the SAME Data/files library and open routing the
+     desktop icons use. The window title area carries the honest
+     virtual path: 文稿库 is a single-layer library. */
+  b.innerHTML=`<div class="fv"><div class="fv-path">文稿库 <span style="opacity:.6">›</span> <b id="fv-crumb">全部文件</b><span style="opacity:.55;font-size:12px">　· 单层文稿库（Data/files），不是电脑上的文件夹</span></div><div class="fv-main"><div class="fv-side" id="fv-side"></div><div class="fv-center"><div class="fv-tools"><span class="seg" id="fv-viewseg"><button data-v="icon">图标</button><button data-v="list">列表</button><button data-v="cols">分栏</button></span><select class="fv-sorts" id="fv-sort" title="排序"><option value="name">名称</option><option value="size">大小</option><option value="kind">类型</option><option value="mtime">导入时间</option></select><button class="btn gray" id="fv-import">导入…</button><input class="fv-q" id="fv-q" type="text" placeholder="搜索当前分组" autocomplete="off"></div><div class="fv-body" id="fv-body"></div></div><div class="fv-prev" id="fv-prev"></div></div></div>`;
+ }
  if(id==='browser') b.innerHTML=`<h3>谷歌浏览器（独立窗口）</h3><p class="mut" style="margin-top:8px">这个浏览器和公用电脑自己的浏览器是分开的：独立档案存在 EXE 旁边的 Data 文件夹，历史、Cookie、登录都在你自己的档案里。<br><b style="color:#fff">走节点打开时，只有这个窗口的流量走节点</b>，不会改这台电脑的系统代理。</p><div class="row" style="margin-top:14px"><input class="txt" id="burl" value="https://www.google.com"></div><div class="row" style="margin-top:10px"><button class="btn" id="bproxy">🚀 走节点打开 Chrome</button><button class="btn gray" id="bdirect">直连打开 Chrome</button><button class="btn gray" id="btest">代理自检</button></div><p style="margin-top:12px"><span class="tag" id="bstatus">连不上时先点「代理自检」，它会告诉你卡在哪一步</span></p><hr style="border-color:rgba(255,255,255,.14);margin:18px 0"><h3>网站应用（钉到桌面）</h3><p class="mut" style="margin-top:6px">下面的网站已经钉在桌面右侧，点开就是<b style="color:#fff">应用化的干净窗口</b>：没有地址栏、没有标签页，像打开一个 App，自动走节点（全局加速开着时）。适合 X、YouTube 这种固定要去的网站。</p><div id="walist" class="mut" style="margin-top:10px">加载中…</div><div class="row" style="margin-top:12px"><input class="txt" id="waname" placeholder="名字，如 GitHub" style="max-width:150px"><input class="txt" id="waurl" placeholder="网址，如 https://github.com"></div><div class="row" style="margin-top:8px"><button class="btn" id="waadd">＋ 钉到桌面</button><span class="tag" id="wastatus"></span></div><hr style="border-color:rgba(255,255,255,.14);margin:18px 0"><h3>谷歌云同步（换电脑不丢登录）</h3><p class="mut" style="margin-top:6px">Chrome 的登录搬不了家（被那台电脑的 Windows 账户锁着），但<b style="color:#fff">开启谷歌同步</b>后，换一台电脑打开终端机，在隔离 Chrome 里登一次谷歌，密码、书签、历史就会同步回来，各网站的登录基本点一下就恢复。同步的开关在 Chrome 里面，下面这个按钮会直接把同步设置页在隔离 Chrome 中打开。</p><div class="row" style="margin-top:10px"><button class="btn" id="bsync">打开同步设置</button><span class="tag" id="bsyncst">打开后在 Chrome 里点「开启同步」并登录谷歌账户</span></div>`;
  if(id==='firefox') b.innerHTML=`<h3>Firefox（系统内浏览器 · 登录可搬家）</h3><p class="mut" style="margin-top:8px">这是装在咱们系统里面的 Firefox，用自己的档案（EXE 旁 Data/FirefoxProfile）。和 Chrome 不一样，<b style="color:#fff">Firefox 的登录、Cookie、历史都锁在档案自己身上</b>：把文件夹带到另一台电脑打开，登录状态样，这是专门用来装需要登录的网站的浏览器。建议进 Firefox 后给档案设一个<b style="color:#fff">主密码</b>（设置 → 隐私与安全 → 主密码），文件夹在别人手里也解不开。宿主机自己的 Firefox 与它互不相干。</p><p style="margin-top:12px"><span class="tag" id="ffinfo">组件状态读取中…</span></p><div class="row" style="margin-top:10px"><button class="btn" id="ffdl">下载 Firefox 组件</button><span class="tag" id="ffprog"></span></div><div class="row" style="margin-top:14px"><input class="txt" id="ffurl" placeholder="网址（留空开主页），如 https://github.com"></div><div class="row" style="margin-top:10px"><button class="btn" id="ffopen">🚀 走节点打开</button><button class="btn gray" id="ffopenapp">应用化打开（走节点）</button><button class="btn gray" id="ffopend">直连打开</button></div><p class="mut" style="margin-top:10px">应用化＝隐藏标签栏和地址栏的干净窗口，在 Firefox <b style="color:#fff">冷启动时</b>生效：Firefox 已经开着时，先关掉它再点应用化打开。Firefox 开着时再点打开，会提示已在运行——直接用那个窗口就行。</p><p style="margin-top:8px"><span class="tag" id="ffstatus"></span></p>`;
  if(id==='ssh') b.innerHTML=`<h3>SSH 远程终端</h3><p class="mut" style="margin-top:6px">连接、私钥、服务器指纹都存在 EXE 旁的 <b style="color:#fff">Data/ssh</b> 里，跟着文件夹走。密码和私钥口令只在连接时输入、<b style="color:#fff">不保存</b>。第一次连某台服务器会记下它的指纹，之后每次校验，对不上会拦住。</p><div class="row" style="margin-top:10px"><select id="sshconn" class="txt" style="max-width:250px"></select><button class="btn gray" id="sshnew">＋ 新建</button><button class="btn gray" id="sshedit">编辑</button><button class="btn gray" id="sshdel">删除</button></div><div id="sshform" style="display:none;margin-top:10px"><div class="row"><input class="txt" id="sf_name" placeholder="名字，如 新加坡服务器" style="max-width:170px"><input class="txt" id="sf_host" placeholder="主机 / IP"><input class="txt" id="sf_port" placeholder="端口" value="22" style="max-width:80px"><input class="txt" id="sf_user" placeholder="用户名" style="max-width:120px"></div><div class="row" style="margin-top:8px"><label class="mut">登录方式 <select id="sf_auth" class="txt"><option value="key">密钥</option><option value="password">密码</option></select></label><select id="sf_key" class="txt" style="max-width:170px"></select><label class="mut"><input type="checkbox" id="sf_proxy"> 走节点连接</label></div><div class="row" style="margin-top:8px"><input class="txt" id="sf_keyname" placeholder="新密钥名（导入时填，如 id_sg）" style="max-width:210px"></div><textarea id="sf_keydata" rows="3" style="width:100%;margin-top:6px" placeholder="粘贴私钥内容导入（可选，存进 Data/ssh/keys；已存的密钥在上面选）"></textarea><div class="row" style="margin-top:8px"><button class="btn" id="sfsave">保存连接</button><span class="tag" id="sfst"></span></div></div><div class="row" style="margin-top:12px"><input class="txt" id="sshpass" type="password" placeholder="密码 / 私钥口令（连接时输，不保存）" style="max-width:250px" autocomplete="off"><button class="btn" id="sshgo">连接</button><button class="btn gray" id="sshstop">断开</button><span class="tag" id="sshst">未连接</span></div><div id="sshterm" style="margin-top:10px;height:300px;background:#0b0e14;border-radius:10px;padding:6px;overflow:hidden"></div><hr style="border-color:rgba(255,255,255,.14);margin:16px 0"><h3>文件（SFTP）</h3><p class="mut" style="margin-top:4px">共用上面的终端连接传文件，不用再输一次密码。</p><div class="row" style="margin-top:8px"><span class="tag" id="sfpath">未连接</span><button class="btn gray" id="sfup">↑ 上级</button><button class="btn gray" id="sfrefresh">刷新</button><button class="btn gray" id="sfmkdir">新建文件夹</button><button class="btn gray" id="sfupload">上传文件</button><input type="file" id="sffile" style="display:none"></div><div id="sflist" class="mut" style="margin-top:8px">连上服务器后，这里能浏览、上传、下载、删除远程文件。</div>`;
@@ -1982,18 +2095,6 @@ async function loadSys(){
  const el=document.getElementById('home-sys'); if(el) el.textContent=`${sysInfo.os}/${sysInfo.arch} · ${sysInfo.hostname} · CPU ${sysInfo.numCPU} 核 · 主目录 ${sysInfo.home}`;
  const kv=document.getElementById('syskv'); if(kv) kv.innerHTML=Object.entries({电脑名:sysInfo.hostname,系统:sysInfo.os,架构:sysInfo.arch,CPU核数:sysInfo.numCPU,主目录:sysInfo.home,程序目录:sysInfo.exeDir,数据目录:sysInfo.dataDir,当前时间:sysInfo.time}).map(([k,v])=>`<span class="mut">${k}</span><span>${esc(v)}</span>`).join('');
  const pr=document.getElementById('prompt'); if(pr) pr.textContent=sysInfo.home||'>';
-}
-
-let curPath='';
-async function loadFiles(p){
- const r=await api('/api/list?path='+encodeURIComponent(p||''));
- if(r.error){document.getElementById('flist').textContent='打开失败：'+r.error;return}
- curPath=r.path;document.getElementById('fpath').value=curPath;
- document.getElementById('flist').innerHTML=`<table>${r.items.map(it=>`<tr class="file" data-p="${esc(it.path)}" data-d="${it.dir}"><td>${it.dir?'📁':'📄'}</td><td>${esc(it.name)}</td><td>${it.dir?'':(it.size/1024).toFixed(1)+' KB'}</td></tr>`).join('')}</table>`;
- document.querySelectorAll('tr.file').forEach(tr=>tr.ondblclick=async()=>{
-   if(tr.dataset.d==='true') loadFiles(tr.dataset.p);
-   else await api('/api/open',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:tr.dataset.p})});
- });
 }
 
 let history=[],hi=-1;
@@ -2239,8 +2340,13 @@ function bind(id){
   const paintGeneral=()=>{
    const s=SETTINGS||SETDEF;
    const opts=[[0,'不自动'],[15,'15 分钟'],[30,'30 分钟'],[60,'60 分钟']];
-   G('set-main').innerHTML=`<div class="set-page"><div class="set-sec">守护进程</div><div class="set-desc">节点没在运行、也没人操作时，守护进程多久后自动退出。节点或小龙虾在跑时不会自动退出。改完立刻生效。</div><div class="sm-card"><div class="sm-row"><span>空闲自动退出</span><span class="sm-seg" id="gn-idle">${opts.map(([v,n])=>`<button data-v="${v}" class="${s.idleExitMinutes===v?'on':''}">${n}</button>`).join('')}</span></div></div><div class="set-sec">退出</div><div class="set-desc">关掉桌面窗口只是隐藏，后台和节点继续跑；再双击 MJ-System.exe 回来。真正断开只有点这个「退出系统」。个人数据都在 EXE 旁的 Data 文件夹，用完带走或删掉即可。</div><div class="sm-card"><div class="sm-row"><span>退出时关闭打开的应用</span><label class="sm-sw"><input type="checkbox" id="gn-closeapps" ${s.exitClosesApps!==false?'checked':''}><i></i></label></div></div><p class="set-note">开启时，从设置退出、托盘退出或顶栏「关机」，会先请终端机打开的应用（隔离浏览器、商店应用、盒内应用）自己关，等几秒还不退的才结束进程，不留后台。更新交接不关应用；空闲自动退出也不关——除非启用了保险库（上锁前必须先关应用）。</p><div class="row"><button class="btn red" id="gn-quit">退出系统（停节点 + 关后台）</button></div></div>`;
+   G('set-main').innerHTML=`<div class="set-page"><div class="set-sec">守护进程</div><div class="set-desc">节点没在运行、也没人操作时，守护进程多久后自动退出。节点或小龙虾在跑时不会自动退出。改完立刻生效。</div><div class="sm-card"><div class="sm-row"><span>空闲自动退出</span><span class="sm-seg" id="gn-idle">${opts.map(([v,n])=>`<button data-v="${v}" class="${s.idleExitMinutes===v?'on':''}">${n}</button>`).join('')}</span></div></div><div class="set-sec">全局召唤热键</div><div class="set-desc">在任何界面（包括游戏里）按一下这个键，终端机整套唤回并打开聚焦搜索；保险库锁定时唤出的是密码屏。热键由守护进程向系统注册，退出终端机即注销，不留常驻。</div><div class="sm-card"><div class="sm-row"><span>召唤热键</span><span class="sm-seg" id="gn-hotkey">${['F8','F9','F7','off'].map(k=>`<button data-k="${k}" class="${(s.summonHotkey||'F8')===k?'on':''}">${k==='off'?'关闭':k}</button>`).join('')}</span></div><div class="sm-row"><span>注册状态</span><span class="set-val" id="gn-hk-state">读取中…</span></div></div><p class="set-note">状态显示「被占用」说明这个键已被别的程序抢注（游戏、录屏、输入法常见），换 F9 / F7 或关闭即可；改键即时重新注册，不用重启。</p><div class="set-sec">退出</div><div class="set-desc">关掉桌面窗口只是隐藏，后台和节点继续跑；再双击 MJ-System.exe 回来。真正断开只有点这个「退出系统」。个人数据都在 EXE 旁的 Data 文件夹，用完带走或删掉即可。</div><div class="sm-card"><div class="sm-row"><span>退出时关闭打开的应用</span><label class="sm-sw"><input type="checkbox" id="gn-closeapps" ${s.exitClosesApps!==false?'checked':''}><i></i></label></div></div><p class="set-note">开启时，从设置退出、托盘退出或顶栏「关机」，会先请终端机打开的应用（隔离浏览器、商店应用、盒内应用）自己关，等几秒还不退的才结束进程，不留后台。更新交接不关应用；空闲自动退出也不关——除非启用了保险库（上锁前必须先关应用）。</p><div class="row"><button class="btn red" id="gn-quit">退出系统（停节点 + 关后台）</button></div></div>`;
    G('gn-idle').querySelectorAll('button').forEach(b=>b.onclick=async()=>{ const r=await saveSetting({idleExitMinutes:+b.dataset.v}); if(r&&r.error){ alert('保存失败：'+r.error); return; } G('gn-idle').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); });
+   /* v0.50: summon hotkey row -- segmented key choice + the
+      daemon's live registration state (GET /api/hotkey/status). */
+   const hkPaint=async()=>{ const el=G('gn-hk-state'); if(!el) return; try{ const st=await api('/api/hotkey/status'); if(!document.getElementById('gn-hk-state')) return; el.textContent=st.key==='off'?'已关闭':(!st.supported?'当前平台不支持':(st.registered?('已注册（'+st.key+'）'):('未注册：'+(st.note||'未知原因')))); }catch(e){ el.textContent='读取失败'; } };
+   hkPaint(); setTimeout(hkPaint,600);
+   G('gn-hotkey').querySelectorAll('button').forEach(b=>b.onclick=async()=>{ const r=await saveSetting({summonHotkey:b.dataset.k}); if(r&&r.error){ alert('保存失败：'+r.error); return; } G('gn-hotkey').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); setTimeout(hkPaint,350); });
    G('gn-quit').onclick=async()=>{ await api('/api/shutdown',{method:'POST'}); document.body.innerHTML='<div style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;font-size:20px;color:#fff;text-shadow:0 2px 10px #000">已退出，节点和后台都停了</div>'; };
    G('gn-closeapps').onchange=async e=>{ const r=await saveSetting({exitClosesApps:e.target.checked}); if(r&&r.error){ alert('保存失败：'+r.error); e.target.checked=!e.target.checked; } };
   };
@@ -2284,10 +2390,12 @@ function bind(id){
    loadSys();
  }
  if(id==='files'){
-   loadFiles('');
-   document.getElementById('fgo').onclick=()=>loadFiles(document.getElementById('fpath').value);
-   document.getElementById('fhome').onclick=()=>loadFiles('');
-   document.getElementById('fup').onclick=()=>{let p=curPath.replace(/[\\/]+$/,'');let i=Math.max(p.lastIndexOf('\\'),p.lastIndexOf('/'));if(i>0)loadFiles(p.slice(0,i));else if(i===0)loadFiles(p.slice(0,1))};
+   /* v0.50: the Finder face is bound by the v0.50 script block
+      (window.__bindFiles); the pre-v0.50 host-directory browser
+      that lived here is gone -- its /api/list endpoint stays in
+      the daemon untouched, the window simply no longer browses
+      host folders (that was never the terminal's model). */
+   if(window.__bindFiles) window.__bindFiles();
  }
  if(id==='browser'){
    const openB=async(proxy)=>{
@@ -3401,6 +3509,792 @@ openApp('home');
   </div>
 </div>
 <script>
+/* ----- v0.50: menu bar completion / Launchpad / Spotlight / Finder -----
+   UI replication piece #3, in the v0.47 shell pattern: every
+   surface below is a shell over existing machinery -- the menus
+   dispatch to the same settings keys and window buttons the rest
+   of the UI uses, Launchpad reads the desktop's ONE layout list
+   (DESKORDER + the folder model), Spotlight indexes only data
+   the daemon already serves, and the Files app's Finder face
+   sits on the unchanged Data/files endpoints and open routing.
+   Nothing here bypasses the vault: while sealed, the lock screen
+   covers the whole view, and Spotlight/Launchpad additionally
+   refuse to open. */
+const ANIM_LP_MS=240;   // Launchpad fade + slight scale (CSS #launchpad.open)
+const ANIM_SPOT_MS=180; // Spotlight card pop (CSS #spotlight.open)
+const SPOT_RECENT_KEY='mj-spot-recent';
+const SPOT_SETPAGES=[['appearance','外观'],['desktop','桌面与 Dock'],['notify','通知'],['network','节点与网络'],['browser','浏览器'],['components','组件'],['isolation','应用隔离'],['storage','存储空间'],['security','安全与隐私'],['general','通用'],['about','关于'],['update','软件更新']];
+
+/* === spot pure (node-testable) === */
+/* Match tier of a candidate name against the query: 2 = prefix,
+   1 = substring, 0 = no match (case-insensitive). An empty query
+   tiers everything 1 (neutral -- the empty state is ordered by
+   recency and source order instead). */
+function spotTier(q,name){
+ const s=(q||'').trim().toLowerCase(); if(!s) return 1;
+ const n=(name||'').toLowerCase();
+ if(n.startsWith(s)) return 2;
+ if(n.indexOf(s)>=0) return 1;
+ return 0;
+}
+/* Rank {key,name} items for Spotlight: with a query, drop
+   non-matches and order by tier (prefix before substring), then
+   by recency weight (earlier in recentKeys = heavier), then by
+   original order. Without a query, order by recency weight then
+   original order. Input is not mutated. */
+function spotRankList(items,q,recentKeys){
+ const rec=recentKeys||[];
+ const wgt=k=>{ const i=rec.indexOf(k); return i<0?0:rec.length-i; };
+ const has=!!(q||'').trim();
+ const dec=(items||[]).map((it,i)=>({it,i,t:spotTier(q,it.name),w:wgt(it.key)}));
+ const keep=has?dec.filter(d=>d.t>0):dec;
+ keep.sort((a,b)=>(b.t-a.t)||(b.w-a.w)||(a.i-b.i));
+ return keep.map(d=>d.it);
+}
+/* === end spot pure === */
+
+/* === lp pure (node-testable) === */
+/* Launchpad grid dimensions for a viewport: columns 5-8, rows
+   3-6, following the viewport so a small desktop window still
+   paginates instead of clipping. */
+function lpDims(w,h){
+ const cols=Math.max(5,Math.min(8,Math.round(w/175)));
+ const rows=Math.max(3,Math.min(6,Math.floor(h/175)));
+ return {cols,rows,per:cols*rows};
+}
+function lpPageCount(count,w,h){ return Math.max(1,Math.ceil(count/lpDims(w,h).per)); }
+function lpPageOfIndex(idx,w,h){ return Math.floor(idx/lpDims(w,h).per); }
+/* How many of `centers` (row-major visual order, {x,y} centres)
+   rank before the pointer in row-major reading order: an item
+   ranks before when its row is above the pointer's row, or it
+   shares the pointer's row and sits left of it. The pointer's
+   row is the painted row nearest to it vertically. */
+function lpInsertIndex(centers,px,py){
+ if(!centers||!centers.length) return 0;
+ const rowsY=[];
+ for(const c of centers){ if(!rowsY.some(y=>Math.abs(y-c.y)<3)) rowsY.push(c.y); }
+ rowsY.sort((a,b)=>a-b);
+ let pr=0,bd=Infinity;
+ rowsY.forEach((y,i)=>{ const d=Math.abs(y-py); if(d<bd){ bd=d; pr=i; } });
+ let n=0;
+ for(const c of centers){
+  const ri=rowsY.findIndex(y=>Math.abs(y-c.y)<3);
+  if(ri<pr||(ri===pr&&c.x<px)) n++;
+ }
+ return n;
+}
+/* Launchpad's own name filter (distinct from Spotlight): the
+   keys of entries whose name contains the query, in entry
+   order; an empty query keeps everything. */
+function lpFilterKeys(entries,q){
+ const s=(q||'').trim().toLowerCase();
+ if(!s) return (entries||[]).map(e=>e.key);
+ return (entries||[]).filter(e=>e.name.toLowerCase().indexOf(s)>=0).map(e=>e.key);
+}
+/* === end lp pure === */
+
+/* === fv pure (node-testable) === */
+/* The Finder's smart groups over the Data/files library. kind
+   comes from the daemon's fileKindOf; the library is a single
+   flat layer, so groups are by TYPE, not by folder. */
+const FV_GROUPS=[
+ {id:'all',n:'全部文件'},{id:'recent',n:'最近导入'},{id:'image',n:'图片'},
+ {id:'doc',n:'文档'},{id:'sheet',n:'表格'},{id:'zip',n:'压缩包'},{id:'other',n:'其他'}
+];
+function fvGroupOf(f){
+ switch(f&&f.kind){
+  case 'image': return 'image';
+  case 'pdf': case 'text': case 'docx': case 'pptx': return 'doc';
+  case 'csv': case 'xlsx': return 'sheet';
+  case 'zip': return 'zip';
+  default: return 'other'; // exe, dir, other
+ }
+}
+function fvInGroup(f,gid){
+ if(gid==='all'||gid==='recent') return true;
+ return fvGroupOf(f)===gid;
+}
+function fvSortList(list,key,dir){
+ const d=(dir<0)?-1:1;
+ const grpRank=f=>FV_GROUPS.findIndex(g=>g.id===fvGroupOf(f));
+ const byName=(a,b)=>a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+ const cmp={
+  name:byName,
+  size:(a,b)=>((a.size||0)-(b.size||0))||byName(a,b),
+  kind:(a,b)=>(grpRank(a)-grpRank(b))||byName(a,b),
+  mtime:(a,b)=>((a.mtime||0)-(b.mtime||0))||byName(a,b)
+ }[key]||byName;
+ return (list||[]).slice().sort((a,b)=>d*cmp(a,b));
+}
+/* The visible list for a group + in-window search + sort.
+   'recent' is the newest FV_RECENT_CAP by mtime across the
+   whole library (search still applies inside it). */
+const FV_RECENT_CAP=30;
+function fvVisible(files,gid,q,sortKey,sortDir){
+ let list=(files||[]).filter(f=>fvInGroup(f,gid));
+ if(gid==='recent'){
+  list=list.slice().sort((a,b)=>((b.mtime||0)-(a.mtime||0))||a.name.toLowerCase().localeCompare(b.name.toLowerCase())).slice(0,FV_RECENT_CAP);
+ }
+ const s=(q||'').trim().toLowerCase();
+ if(s) list=list.filter(f=>f.name.toLowerCase().indexOf(s)>=0);
+ if(gid==='recent'&&sortKey==='mtime') return list; // already mtime-desc
+ return fvSortList(list,sortKey,sortDir);
+}
+/* Selection helpers: toggle one path in/out of a selection
+   array; the inclusive range between two paths in the visible
+   order (shift-click). Both pure, both return new arrays. */
+function fvToggleSel(sel,path){
+ const s=new Set(sel||[]);
+ if(s.has(path)) s.delete(path); else s.add(path);
+ return Array.from(s);
+}
+function fvRangeSel(paths,anchor,to){
+ const i=(paths||[]).indexOf(anchor), j=(paths||[]).indexOf(to);
+ if(i<0||j<0) return [to];
+ const a=Math.min(i,j), b=Math.max(i,j);
+ return paths.slice(a,b+1);
+}
+/* === end fv pure === */
+
+const $50=id=>document.getElementById(id);
+function vaultLockedNow(){ return !!(window.__vault&&window.__vault.locked); }
+function fvFmtSize(n){ n=+n||0; if(n>=1073741824) return (n/1073741824).toFixed(2)+' GB'; if(n>=1048576) return (n/1048576).toFixed(1)+' MB'; if(n>=1024) return (n/1024).toFixed(1)+' KB'; return n+' B'; }
+function fvFmtTime(ms){ if(!ms) return '—'; const d=new Date(ms); return d.toLocaleDateString('zh-CN')+' '+d.toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',hour12:false}); }
+function fvKindName(kind){ return {image:'图片',pdf:'PDF 文档',text:'文本',csv:'表格',docx:'Word 文档',xlsx:'Excel 表格',pptx:'PPT 演示',zip:'压缩包',exe:'程序',dir:'文件夹',other:'文件'}[kind]||'文件'; }
+
+/* ----- recents （最近打开）: one ledger for Spotlight, fed by
+   wrapping the same open entry points the desktop uses, so a
+   launch from anywhere (desktop, Dock, Launchpad, menus) counts
+   exactly like a desktop click. ----- */
+function spotRecentGet(){ try{ const a=JSON.parse(localStorage.getItem(SPOT_RECENT_KEY)||'[]'); return Array.isArray(a)?a:[]; }catch(e){ return []; } }
+function spotRecentPut(key){ if(!key) return; const a=spotRecentGet().filter(k=>k!==key); a.unshift(key); try{ localStorage.setItem(SPOT_RECENT_KEY,JSON.stringify(a.slice(0,12))); }catch(e){} }
+function recWrap(fname,keyOf){ const orig=window[fname]; if(typeof orig!=='function') return; window[fname]=function(){ const k=keyOf.apply(null,arguments); if(k) spotRecentPut(k); return orig.apply(this,arguments); }; }
+recWrap('openApp',id=>'app:'+id);
+recWrap('openDeskFile',p=>'file:'+p);
+recWrap('openWebApp',u=>'web:'+u);
+recWrap('launchStoreApp',id=>'store:'+id);
+recWrap('launchBoxApp',id=>'box:'+id);
+/* Reopening the Files app repaints the Finder (data may have
+   changed while it sat hidden). */
+(function(){ const orig=window.openApp; window.openApp=function(id){ const r=orig.apply(this,arguments); if(id==='files'&&$50('fv-body')) paintFiles(); return r; }; })();
+
+/* ================= menu bar: the five menus + front-app menu == */
+const mbdrop=$50('mbdrop');
+let mbOpenFor=null, lastEditTarget=null;
+document.addEventListener('focusin',e=>{
+ const t=e.target;
+ if(t&&(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.isContentEditable)) lastEditTarget=t;
+});
+function closeMbMenu(){
+ mbdrop.classList.add('hidden');
+ document.querySelectorAll('#menubar .mi.on').forEach(x=>x.classList.remove('on'));
+ mbOpenFor=null;
+}
+function mbItem(label,opts){
+ opts=opts||{};
+ const d=document.createElement('div');
+ d.className='mbm-it'+(opts.dis?' dis':'');
+ d.innerHTML='<span class="mbm-ck">'+(opts.check?'✓':'')+'</span>'+esc(label)
+  +(opts.sub?' <span class="mbm-sub">'+esc(opts.sub)+'</span>':'')
+  +(opts.key?'<span class="mbm-key">'+esc(opts.key)+'</span>':'');
+ if(!opts.dis&&opts.fn) d.onclick=()=>{ closeMbMenu(); opts.fn(); };
+ return d;
+}
+function mbSep(){ const d=document.createElement('div'); d.className='mbm-sep'; return d; }
+function activeWinEl(){
+ let best=null,bz=-1;
+ document.querySelectorAll('.win').forEach(w=>{
+  if(w.classList.contains('hidden')||w.classList.contains('staged')) return;
+  const zi=parseInt(w.style.zIndex||'0',10)||0;
+  if(zi>=bz){ bz=zi; best=w; }
+ });
+ return best;
+}
+function winOfApp(id){ return document.getElementById('win-'+id); }
+function openMbMenu(spanId,builder){
+ const span=$50(spanId); if(!span) return;
+ document.querySelectorAll('#menubar .mi.on').forEach(x=>x.classList.remove('on'));
+ span.classList.add('on');
+ mbOpenFor=spanId;
+ const rect=span.getBoundingClientRect();
+ mbdrop.style.left=Math.max(6,Math.min(rect.left-2,innerWidth-270))+'px';
+ mbdrop.innerHTML='<div class="mbm-it dis">…</div>';
+ mbdrop.classList.remove('hidden');
+ const fill=items=>{
+  if(mbOpenFor!==spanId) return; // a faster hover already moved on
+  mbdrop.innerHTML='';
+  items.forEach(n=>mbdrop.appendChild(n));
+ };
+ const out=builder();
+ if(out&&typeof out.then==='function') out.then(fill); else fill(out);
+}
+function mbToggle(spanId,builder){
+ if(mbOpenFor===spanId){ closeMbMenu(); return; }
+ openMbMenu(spanId,builder);
+}
+function buildAppMenu(){
+ const a=APPS.find(x=>x.id===lastApp)||APPS[0];
+ const w=winOfApp(a.id);
+ const open=!!w&&!w.classList.contains('hidden');
+ const items=[ mbItem('打开「'+a.n+'」',{fn:()=>openApp(a.id)}) ];
+ items.push(mbSep());
+ items.push(mbItem('最小化',{dis:!open,fn:()=>{ const b=w.querySelector('[data-a="min"]'); if(b) b.click(); }}));
+ items.push(mbItem('关闭窗口',{dis:!w,fn:()=>{ const b=w.querySelector('[data-a="close"]'); if(b) b.click(); }}));
+ return items;
+}
+function buildFileMenu(){
+ const aw=activeWinEl();
+ return [
+  mbItem('导入文件…',{fn:()=>{ const f=$50('deskimp'); if(f) f.click(); }}),
+  mbItem('新建文件夹',{fn:()=>newFolder(Math.round(innerWidth/2),Math.round(innerHeight/3))}),
+  mbSep(),
+  mbItem('关闭窗口',{key:'⌘W',dis:!aw,fn:()=>{ const b=aw.querySelector('[data-a="close"]'); if(b) b.click(); }})
+ ];
+}
+function editTarget(){
+ const ae=document.activeElement;
+ if(ae&&(ae.tagName==='INPUT'||ae.tagName==='TEXTAREA'||ae.isContentEditable)) return ae;
+ if(lastEditTarget&&document.contains(lastEditTarget)) return lastEditTarget;
+ return null;
+}
+function editDispatch(cmd,label){
+ const t=editTarget(); if(!t) return;
+ t.focus();
+ let ok=false;
+ try{ ok=document.execCommand(cmd); }catch(e){}
+ if(ok) return;
+ if(cmd==='paste'&&navigator.clipboard&&navigator.clipboard.readText){
+  navigator.clipboard.readText().then(txt=>{
+   if(t.setRangeText){ const s=t.selectionStart||0, e=t.selectionEnd||0; t.setRangeText(txt,s,e,'end'); t.dispatchEvent(new Event('input',{bubbles:true})); }
+   else if(t.isContentEditable){ document.execCommand('insertText',false,txt); }
+  }).catch(()=>toast('粘贴不可用：浏览器未授权读取剪贴板'));
+  return;
+ }
+ toast('当前输入框不支持'+label);
+}
+function buildEditMenu(){
+ const has=!!editTarget();
+ return [
+  mbItem('剪切',{key:'⌘X',dis:!has,fn:()=>editDispatch('cut','剪切')}),
+  mbItem('复制',{key:'⌘C',dis:!has,fn:()=>editDispatch('copy','复制')}),
+  mbItem('粘贴',{key:'⌘V',dis:!has,fn:()=>editDispatch('paste','粘贴')}),
+  mbItem('全选',{key:'⌘A',dis:!has,fn:()=>editDispatch('selectAll','全选')})
+ ];
+}
+function buildViewMenu(){
+ const s=SETTINGS||SETDEF;
+ const flip=async patch=>{ const r=await saveSetting(patch); if(r&&r.error) alert('保存失败：'+r.error); };
+ return [
+  mbItem('沉浸模式',{check:!!s.immersiveMode,fn:()=>flip({immersiveMode:!s.immersiveMode})}),
+  mbItem('桌面全屏',{check:!!s.desktopFullscreen,fn:()=>flip({desktopFullscreen:!s.desktopFullscreen})}),
+  mbItem('台前调度',{check:stageOn(),fn:()=>toggleStage(!stageOn())}),
+  mbItem('Dock 自动隐藏',{check:dockAutoHideOn(),fn:async()=>{ await flip({dockAutoHide:!dockAutoHideOn()}); applyDockLayout(); }})
+ ];
+}
+async function buildWinMenu(){
+ const aw=activeWinEl();
+ const items=[
+  mbItem('最小化',{dis:!aw,fn:()=>{ const b=aw.querySelector('[data-a="min"]'); if(b) b.click(); }}),
+  mbItem('缩放',{dis:!aw,fn:()=>zoomWin(aw)})
+ ];
+ const inSys=APPS.filter(a=>{
+  const w=winOfApp(a.id);
+  return w&&!w.classList.contains('hidden');
+ });
+ let ext=[];
+ try{ const r=await api('/api/extwin'); ext=(r.windows||[]).filter(x=>!x.shell); }catch(e){}
+ if(inSys.length||ext.length) items.push(mbSep());
+ inSys.forEach(a=>{
+  const front=stageOn()?frontApp===a.id:(aw&&aw.id==='win-'+a.id);
+  items.push(mbItem(a.n,{check:front,fn:()=>openApp(a.id)}));
+ });
+ ext.forEach(x=>{
+  items.push(mbItem(x.app||'外部应用',{sub:x.title||'',fn:async()=>{
+   const r=await api('/api/extwin/focus',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hwnd:x.hwnd})}).catch(()=>null);
+   if(r&&r.error) toast(r.error);
+  }}));
+ });
+ return items;
+}
+function buildHelpMenu(){
+ const ver=(typeof sysInfo!=='undefined'&&sysInfo&&sysInfo.version)?('v'+sysInfo.version):'';
+ const gotoSys=pid=>{ openApp('sys'); const go=()=>{ if(window.sysGoto) window.sysGoto(pid); }; go(); setTimeout(go,150); };
+ return [
+  mbItem('打开控制台',{fn:()=>openApp('console')}),
+  mbItem('导出诊断包',{fn:()=>{ const a=document.createElement('a'); a.href='/api/diag/export'; document.body.appendChild(a); a.click(); a.remove(); }}),
+  mbSep(),
+  mbItem('关于铭杰终端机',{sub:ver,fn:()=>gotoSys('about')})
+ ];
+}
+const MB_BUILDERS={'mb-m-app':buildAppMenu,'mb-m-file':buildFileMenu,'mb-m-edit':buildEditMenu,'mb-m-view':buildViewMenu,'mb-m-win':buildWinMenu,'mb-m-help':buildHelpMenu};
+Object.keys(MB_BUILDERS).forEach(id=>{
+ const span=$50(id); if(!span) return;
+ span.addEventListener('click',e=>{ e.stopPropagation(); mbToggle(id,MB_BUILDERS[id]); });
+ span.addEventListener('mouseenter',()=>{ if(mbOpenFor&&mbOpenFor!==id) openMbMenu(id,MB_BUILDERS[id]); });
+});
+document.addEventListener('mousedown',e=>{
+ if(!mbOpenFor) return;
+ if(mbdrop.contains(e.target)) return;
+ if(e.target.closest&&e.target.closest('#menubar')) return;
+ closeMbMenu();
+});
+
+/* ================= Launchpad ================= */
+const lpEl=$50('launchpad'), lpPagesEl=$50('lp-pages'), lpDotsEl=$50('lp-dots'), lpQ=$50('lp-q');
+let lpIsOpen=false, lpPage=0, lpDrag=null, lpWheelAt=0;
+function lpEntries(){
+ const byKey={}, out=[];
+ const push=(key,name,iconHTML,open)=>{ byKey[key]={key,name,iconHTML,open}; };
+ APPS.forEach(a=>{ if(!a.nodesk) push('app:'+a.id,a.n,appIcon(a),()=>openApp(a.id)); });
+ const inFolder=new Set(); LAYOUT.folders.forEach(f=>f.items.forEach(u=>inFolder.add(u)));
+ WEBAPPS.filter(a=>!inFolder.has(a.url)).forEach(a=>push('web:'+a.url,a.name,webIconHTML(a),()=>openWebApp(a.url)));
+ LAYOUT.folders.forEach(f=>push('folder:'+f.id,f.name,folderIconHTML(f),el=>openFolderPop(f.id,el)));
+ STOREAPPS.forEach(a=>push('store:'+a.id,a.name,storeIconHTML(a),()=>launchStoreApp(a.id)));
+ BOXAPPS.forEach(a=>push('box:'+a.id,a.name,storeIconHTML(a),()=>launchBoxApp(a.id)));
+ DESKORDER.forEach(k=>{ if(byKey[k]) out.push(byKey[k]); });
+ Object.keys(byKey).forEach(k=>{ if(!out.some(e=>e.key===k)) out.push(byKey[k]); });
+ return out;
+}
+function lpVisible(){
+ const all=lpEntries();
+ const keys=new Set(lpFilterKeys(all,lpQ.value));
+ return all.filter(e=>keys.has(e.key));
+}
+function openLP(){
+ if(vaultLockedNow()) return;
+ closeMbMenu(); closeSpot();
+ lpIsOpen=true; lpPage=0; lpQ.value='';
+ lpEl.classList.remove('hidden');
+ lpEl.classList.remove('open'); void lpEl.offsetWidth; lpEl.classList.add('open');
+ paintLP();
+ setTimeout(()=>{ try{ lpQ.focus(); }catch(e){} },40);
+}
+function closeLP(){ if(!lpIsOpen) return; lpIsOpen=false; lpEl.classList.add('hidden'); }
+window.__lpClose=()=>closeLP();
+function lpPageGo(d){
+ const pages=lpPageCount(lpVisible().length,innerWidth,innerHeight);
+ const np=Math.max(0,Math.min(pages-1,lpPage+d));
+ if(np!==lpPage){ lpPage=np; paintLP(); }
+}
+function paintLP(){
+ const vis=lpVisible();
+ const dims=lpDims(innerWidth,innerHeight);
+ const pages=lpPageCount(vis.length,innerWidth,innerHeight);
+ if(lpPage>=pages) lpPage=pages-1;
+ if(lpPage<0) lpPage=0;
+ lpPagesEl.innerHTML='';
+ if(!vis.length) lpPagesEl.innerHTML='<div class="lp-empty">没有匹配的应用</div>';
+ for(let p=0;p<pages;p++){
+  const pg=document.createElement('div');
+  pg.className='lp-page';
+  pg.style.display=p===lpPage?'grid':'none';
+  pg.style.gridTemplateColumns='repeat('+dims.cols+',108px)';
+  pg.style.columnGap='26px'; pg.style.rowGap='22px';
+  vis.slice(p*dims.per,(p+1)*dims.per).forEach(en=>pg.appendChild(lpItemEl(en,vis)));
+  lpPagesEl.appendChild(pg);
+ }
+ lpDotsEl.innerHTML=pages>1?vis.map((_,i)=>i).filter(i=>i<pages).map(i=>'<i data-p="'+i+'" class="'+(i===lpPage?'on':'')+'"></i>').join(''):'';
+ lpDotsEl.querySelectorAll('i').forEach(d=>d.onclick=()=>{ lpPage=+d.dataset.p; paintLP(); });
+}
+function lpItemEl(en,vis){
+ const b=document.createElement('button');
+ b.className='lp-item'; b.dataset.key=en.key;
+ b.innerHTML=en.iconHTML+'<span class="lpn">'+esc(en.name)+'</span>';
+ b.onclick=()=>{
+  if(Date.now()<suppressClickUntil) return;
+  if(en.key.indexOf('folder:')===0){ en.open(b); return; } // folder opens in place, over Launchpad
+  closeLP(); en.open();
+ };
+ b.addEventListener('pointerdown',ev=>{
+  if(ev.button!==0||lpQ.value.trim()) return; // no reordering inside search results
+  const r=b.getBoundingClientRect();
+  lpDrag={el:b,en,sx:ev.clientX,sy:ev.clientY,ox:r.left,oy:r.top,active:false};
+  try{ b.setPointerCapture(ev.pointerId); }catch(e){}
+ });
+ b.addEventListener('pointermove',ev=>{
+  if(!lpDrag||lpDrag.el!==b) return;
+  const st=lpDrag, dx=ev.clientX-st.sx, dy=ev.clientY-st.sy;
+  if(!st.active){
+   if(Math.hypot(dx,dy)<6) return;
+   const g=b.cloneNode(true);
+   g.classList.add('lp-ghost');
+   g.style.left=st.ox+'px'; g.style.top=st.oy+'px'; g.style.width=b.offsetWidth+'px'; g.style.margin='0';
+   document.body.appendChild(g);
+   st.ghost=g; st.active=true;
+   b.classList.add('dragsrc');
+   suppressClickUntil=Date.now()+400;
+  }
+  st.ghost.style.left=(st.ox+dx)+'px';
+  st.ghost.style.top=(st.oy+dy)+'px';
+  st.px=ev.clientX; st.py=ev.clientY;
+ });
+ const finish=commit=>{
+  if(!lpDrag||lpDrag.el!==b) return;
+  const st=lpDrag; lpDrag=null;
+  if(st.ghost) st.ghost.remove();
+  b.classList.remove('dragsrc');
+  if(!st.active) return;
+  suppressClickUntil=Date.now()+300;
+  if(!commit) return;
+  const dims=lpDims(innerWidth,innerHeight);
+  const pageItems=vis.slice(lpPage*dims.per,(lpPage+1)*dims.per);
+  const originInPage=pageItems.findIndex(e=>e.key===st.en.key);
+  if(originInPage<0) return;
+  const pageEls=[...lpPagesEl.querySelectorAll('.lp-page')].find(pg=>pg.style.display!=='none');
+  if(!pageEls) return;
+  const centers=[...pageEls.querySelectorAll('.lp-item')].map(el=>{ const r=el.getBoundingClientRect(); return {x:r.left+r.width/2,y:r.top+r.height/2}; });
+  let cnt=lpInsertIndex(centers,st.px!=null?st.px:st.sx,st.py!=null?st.py:st.sy);
+  const selfC=centers[originInPage];
+  const selfBefore=selfC&&(selfC.y<st.py-40||(Math.abs(selfC.y-st.py)<=40&&selfC.x<st.px));
+  let toInPage=cnt-(selfBefore?1:0);
+  toInPage=Math.max(0,Math.min(pageItems.length-1,toInPage));
+  if(toInPage===originInPage) return;
+  const fromVis=lpPage*dims.per+originInPage, toVis=lpPage*dims.per+toInPage;
+  const visKeys=vis.map(e=>e.key);
+  const moved=dragMovedArray(visKeys,fromVis,toVis);
+  /* write back through the SAME slots of DESKORDER: only the
+     Launchpad-visible keys permute, everything else (imported
+     file icons) keeps its exact place -- one layout source. */
+  const slotOf=new Map(); DESKORDER.forEach((k,i)=>{ if(visKeys.indexOf(k)>=0) slotOf.set(k,i); });
+  const next=DESKORDER.slice();
+  moved.forEach((k,i)=>{ next[slotOf.get(visKeys[i])]=k; });
+  DESKORDER=next;
+  persistDeskPos(); renderDesk(); paintLP();
+ };
+ b.addEventListener('pointerup',()=>finish(true));
+ b.addEventListener('pointercancel',()=>finish(false));
+ return b;
+}
+lpQ.addEventListener('input',()=>{ lpPage=0; paintLP(); });
+lpQ.addEventListener('keydown',e=>{
+ if(e.key==='Enter'){
+  const vis=lpVisible();
+  if(vis.length){ const en=vis[0]; if(en.key.indexOf('folder:')===0){ en.open(null); } else { closeLP(); en.open(); } }
+ }
+ e.stopPropagation();
+});
+lpEl.addEventListener('click',e=>{ if(e.target===lpEl||e.target===lpPagesEl||e.target.classList.contains('lp-page')) closeLP(); });
+lpEl.addEventListener('wheel',e=>{
+ if(!lpIsOpen) return;
+ const now=Date.now(); if(now-lpWheelAt<240) return;
+ if(Math.abs(e.deltaY)<8) return;
+ lpWheelAt=now;
+ lpPageGo(e.deltaY>0?1:-1);
+},{passive:true});
+addEventListener('resize',()=>{ if(lpIsOpen) paintLP(); });
+/* Dock entry: Launchpad sits right after the first pinned app
+   （工作站， the Finder slot), where macOS keeps it. It is a
+   launcher, not an app: no running dot, no window. */
+(function(){
+ const it=document.createElement('div');
+ it.className='ditem';
+ it.innerHTML='<span class="dlabel">启动台</span><button class="dockbtn" title="启动台"><div class="appico" style="background:linear-gradient(180deg,#9a9aa2,#55555e)"><svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true"><g fill="#fff"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="11.5" y="3" width="7" height="7" rx="2"/><rect x="20" y="3" width="7" height="7" rx="2"/><rect x="3" y="11.5" width="7" height="7" rx="2"/><rect x="11.5" y="11.5" width="7" height="7" rx="2"/><rect x="20" y="11.5" width="7" height="7" rx="2"/><rect x="3" y="20" width="7" height="7" rx="2"/><rect x="11.5" y="20" width="7" height="7" rx="2"/><rect x="20" y="20" width="7" height="7" rx="2"/></g></svg></div></button>';
+ it.querySelector('.dockbtn').onclick=()=>{ lpIsOpen?closeLP():openLP(); };
+ if(dockEl.children.length>1) dockEl.insertBefore(it,dockEl.children[1]);
+ else dockEl.appendChild(it);
+})();
+
+/* ================= Spotlight ================= */
+const spotEl=$50('spotlight'), spotIn=$50('spot-in'), spotRes=$50('spot-res');
+let spotIsOpen=false, spotFlat=[], spotSel=0, spotNodesCache=null, spotNodesAt=0;
+function openSpot(){
+ if(vaultLockedNow()) return;
+ closeMbMenu(); closeLP();
+ spotIsOpen=true;
+ spotEl.classList.remove('hidden');
+ spotEl.classList.remove('open'); void spotEl.offsetWidth; spotEl.classList.add('open');
+ spotIn.value=''; spotSel=0;
+ paintSpot();
+ loadSpotNodes();
+ setTimeout(()=>{ try{ spotIn.focus(); }catch(e){} },20);
+}
+function closeSpot(){ if(!spotIsOpen) return; spotIsOpen=false; spotEl.classList.add('hidden'); }
+async function loadSpotNodes(){
+ if(spotNodesCache&&Date.now()-spotNodesAt<15000) return;
+ try{
+  const st=await api('/api/nodepro/status');
+  const rows=[];
+  (st.groups||[]).forEach(g=>(g.nodes||[]).forEach(n=>{
+   if(g.kind==='virtual') rows.push({target:n.id,name:n.name});
+   else if(n.isWarp) rows.push({target:'warp',name:'WARP 中继'});
+   else rows.push({target:n.id,name:n.name});
+  }));
+  spotNodesCache=rows; spotNodesAt=Date.now();
+ }catch(e){ spotNodesCache=[]; spotNodesAt=Date.now(); }
+ if(spotIsOpen) paintSpot();
+}
+function spotCatalog(){
+ const rec=spotRecentGet();
+ const apps=lpEntries().filter(e=>e.key.indexOf('folder:')!==0)
+  .map(e=>({key:e.key,name:e.name,icon:e.iconHTML,run:()=>e.open()}));
+ const files=DESKFILES.map(f=>({key:'file:'+f.path,name:f.name,icon:fileIconHTML(f),sub:fvKindName(f.kind),run:()=>openDeskFile(f.path,f.kind)}));
+ const sets=SPOT_SETPAGES.map(([id,n])=>({key:'set:'+id,name:n,icon:'<div class="appico g-sys">⚙️</div>',sub:'设置',run:()=>{ openApp('sys'); const go=()=>{ if(window.sysGoto) window.sysGoto(id); }; go(); setTimeout(go,150); }}));
+ const nodes=(spotNodesCache||[]).map(n=>({key:'node:'+n.target,name:n.name,icon:'<div class="appico g-core">🚀</div>',sub:'节点',run:async()=>{ const r=await api('/api/nodepro/select',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({target:n.target})}).catch(()=>null); if(r&&r.error) alert('切换失败：'+r.error); else { toast('已切换到 '+n.name); pollNode(); } }}));
+ const acts=[];
+ if(window.__vault&&window.__vault.enabled) acts.push({key:'act:lock',name:'锁定屏幕',icon:'<div class="sic">🔒</div>',run:async()=>{ if(!confirm('锁定屏幕会关闭终端机内打开的应用，并把全部数据加密上锁。继续？')) return; const r=await api('/api/vault/lock',{method:'POST'}).catch(()=>null); if(r&&r.error){ alert(r.error); return; } if(window.__vaultShowLock) window.__vaultShowLock(); }});
+ acts.push({key:'act:console',name:'打开控制台',icon:'<div class="sic">≡</div>',run:()=>openApp('console')});
+ acts.push({key:'act:update',name:'检查更新',icon:'<div class="sic">⬆</div>',run:()=>{ openApp('sys'); const go=()=>{ if(window.sysGoto) window.sysGoto('update'); }; go(); setTimeout(go,150); }});
+ acts.push({key:'act:off',name:'关机…',icon:'<div class="sic">⏻</div>',run:async()=>{ if(!confirm('关机将退出终端机。继续？')) return; await api('/api/shutdown',{method:'POST'}).catch(()=>{}); document.body.innerHTML='<div style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;font-size:20px;color:#fff;text-shadow:0 2px 10px #000">已关机</div>'; }});
+ return {rec,apps,files,sets,nodes,acts};
+}
+function paintSpot(){
+ const q=spotIn.value;
+ const c=spotCatalog();
+ let groups=[];
+ if(!(q||'').trim()){
+  const byKey={};
+  [...c.apps,...c.files,...c.sets,...c.nodes,...c.acts].forEach(it=>{ byKey[it.key]=it; });
+  const recItems=c.rec.map(k=>byKey[k]).filter(Boolean).slice(0,8);
+  if(recItems.length) groups.push({g:'最近打开',items:recItems});
+  groups.push({g:'操作',items:c.acts});
+ } else {
+  const cap=xs=>spotRankList(xs,q,c.rec).slice(0,6);
+  const g1=cap(c.apps); if(g1.length) groups.push({g:'应用',items:g1});
+  const g2=cap(c.files); if(g2.length) groups.push({g:'文件',items:g2});
+  const g3=cap(c.sets); if(g3.length) groups.push({g:'设置',items:g3});
+  const g4=cap(c.nodes); if(g4.length) groups.push({g:'节点',items:g4});
+  const g5=cap(c.acts); if(g5.length) groups.push({g:'操作',items:g5});
+ }
+ spotFlat=[];
+ groups.forEach(gr=>gr.items.forEach(it=>spotFlat.push(it)));
+ if(spotSel>=spotFlat.length) spotSel=Math.max(0,spotFlat.length-1);
+ if(!spotFlat.length){ spotRes.innerHTML='<div class="spot-none">没有找到「'+esc(q)+'」</div>'; return; }
+ let idx=-1;
+ spotRes.innerHTML=groups.map(gr=>'<div class="spot-gh">'+esc(gr.g)+'</div>'+gr.items.map(it=>{
+  idx++;
+  return '<div class="spot-it'+(idx===spotSel?' sel':'')+'" data-i="'+idx+'">'+it.icon+'<span class="snm">'+esc(it.name)+'</span>'+(it.sub?'<span class="sub">'+esc(it.sub)+'</span>':'')+'</div>';
+ }).join('')).join('');
+ spotRes.querySelectorAll('.spot-it').forEach(el=>{
+  const it=spotFlat[+el.dataset.i];
+  el.onclick=()=>runSpotItem(it);
+  el.onmousemove=()=>{ const i=+el.dataset.i; if(spotSel!==i){ spotSel=i; spotPaintSel(); } };
+ });
+}
+function spotPaintSel(){
+ spotRes.querySelectorAll('.spot-it').forEach(el=>el.classList.toggle('sel',+el.dataset.i===spotSel));
+ const el=spotRes.querySelector('.spot-it[data-i="'+spotSel+'"]');
+ if(el) el.scrollIntoView({block:'nearest'});
+}
+function spotMove(d){
+ if(!spotFlat.length) return;
+ spotSel=(spotSel+d+spotFlat.length)%spotFlat.length;
+ spotPaintSel();
+}
+function runSpotItem(it){
+ if(!it) return;
+ closeSpot();
+ spotRecentPut(it.key);
+ it.run();
+}
+spotIn.addEventListener('input',()=>{ spotSel=0; paintSpot(); });
+spotEl.addEventListener('click',e=>{ if(e.target===spotEl) closeSpot(); });
+$50('mb-spot').addEventListener('click',e=>{ e.stopPropagation(); spotIsOpen?closeSpot():openSpot(); });
+
+/* ---- invocation: F5 / Ctrl+Space inside this view, the menu-bar
+   magnifier (above), and the daemon's view channel for F8. The
+   capture phase + preventDefault is what keeps F5 from reloading
+   the shell; F5 inside claimed EXTERNAL windows never reaches
+   this view and is not ours to touch. ---- */
+document.addEventListener('keydown',e=>{
+ if(e.key==='F5'){
+  e.preventDefault();
+  if(!vaultLockedNow()){ spotIsOpen?closeSpot():openSpot(); }
+  return;
+ }
+ if(e.code==='Space'&&e.ctrlKey&&!e.metaKey&&!e.altKey&&!e.shiftKey){
+  e.preventDefault();
+  if(!vaultLockedNow()){ spotIsOpen?closeSpot():openSpot(); }
+  return;
+ }
+ if(spotIsOpen){
+  if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); closeSpot(); }
+  else if(e.key==='ArrowDown'){ e.preventDefault(); spotMove(1); }
+  else if(e.key==='ArrowUp'){ e.preventDefault(); spotMove(-1); }
+  else if(e.key==='Enter'){ e.preventDefault(); runSpotItem(spotFlat[spotSel]); }
+  return;
+ }
+ if(lpIsOpen){
+  if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); closeLP(); }
+  else if(e.key==='ArrowRight'){ e.preventDefault(); lpPageGo(1); }
+  else if(e.key==='ArrowLeft'){ e.preventDefault(); lpPageGo(-1); }
+  return;
+ }
+ if(mbOpenFor&&e.key==='Escape'){ closeMbMenu(); }
+},true);
+document.addEventListener('keyup',e=>{ if(e.key==='F5') e.preventDefault(); },true);
+try{
+ const es=new EventSource('/api/view/stream');
+ es.onmessage=ev=>{
+  try{ const m=JSON.parse(ev.data); if(m&&m.cmd==='spotlight'&&!vaultLockedNow()) openSpot(); }catch(e){}
+ };
+}catch(e){}
+
+/* ================= Files as Finder ================= */
+const FV={group:'all',view:'icon',sort:'name',dir:1,q:'',sel:new Set(),anchor:null};
+function fvVisibleList(){ return fvVisible(DESKFILES,FV.group,FV.q,FV.sort,FV.dir); }
+async function paintFiles(){
+ if(!$50('fv-body')) return;
+ await loadDeskFiles();
+ paintFvSide(); paintFvBody(); paintFvPrev();
+ const crumb=$50('fv-crumb');
+ if(crumb) crumb.textContent=(FV_GROUPS.find(g=>g.id===FV.group)||{}).n||'全部文件';
+}
+function paintFvSide(){
+ const side=$50('fv-side'); if(!side) return;
+ const counts={};
+ DESKFILES.forEach(f=>{ const g=fvGroupOf(f); counts[g]=(counts[g]||0)+1; });
+ side.innerHTML=FV_GROUPS.map(g=>{
+  const c=g.id==='all'?DESKFILES.length:(g.id==='recent'?Math.min(FV_RECENT_CAP,DESKFILES.length):(counts[g.id]||0));
+  return '<div class="fv-sit '+(FV.group===g.id?'on':'')+'" data-g="'+g.id+'"><span>'+g.n+'</span><span class="cnt">'+c+'</span></div>';
+ }).join('');
+ side.querySelectorAll('.fv-sit').forEach(el=>el.onclick=()=>{ FV.group=el.dataset.g; FV.sel.clear(); FV.anchor=null; paintFiles(); });
+}
+function fvSelClick(f,ev,visible){
+ if(ev.shiftKey&&FV.anchor){
+  fvRangeSel(visible.map(x=>x.path),FV.anchor,f.path).forEach(p=>FV.sel.add(p));
+ } else if(ev.ctrlKey||ev.metaKey){
+  FV.sel=new Set(fvToggleSel(Array.from(FV.sel),f.path));
+  FV.anchor=f.path;
+ } else {
+  FV.sel=new Set([f.path]); FV.anchor=f.path;
+ }
+ paintFvBody(); paintFvPrev();
+}
+function fvItemHTML(f){
+ return '<button class="fv-it '+(FV.sel.has(f.path)?'sel':'')+'" data-p="'+esc(f.path)+'">'+fileIconHTML(f)+'<span class="fvn">'+esc(f.name)+'</span></button>';
+}
+function fvBindItems(root,visible){
+ root.querySelectorAll('.fv-it,[data-fvrow]').forEach(el=>{
+  const f=visible.find(x=>x.path===el.dataset.p); if(!f) return;
+  el.addEventListener('click',ev=>{ if(Date.now()<suppressClickUntil) return; fvSelClick(f,ev,visible); });
+  el.addEventListener('dblclick',()=>openDeskFile(f.path,f.kind));
+  el.addEventListener('contextmenu',ev=>{
+   ev.preventDefault(); ev.stopPropagation();
+   if(!FV.sel.has(f.path)){ FV.sel=new Set([f.path]); FV.anchor=f.path; paintFvBody(); paintFvPrev(); }
+   fvShowCtx(ev.clientX,ev.clientY,f);
+  });
+ });
+}
+function paintFvBody(){
+ const body=$50('fv-body'); if(!body) return;
+ const visible=fvVisibleList();
+ if(FV.view==='list'){
+  if(!visible.length){ body.innerHTML='<div class="fv-none">这个分组里还没有文件。把文件拖进来，或点「导入…」。</div>'; return; }
+  const arrow=k=>FV.sort===k?(FV.dir>0?' ↑':' ↓'):'';
+  body.innerHTML='<table class="fv-tab"><thead><tr>'
+   +'<th data-k="name">名称'+arrow('name')+'</th><th data-k="size">大小'+arrow('size')+'</th><th data-k="kind">类型'+arrow('kind')+'</th><th data-k="mtime">导入时间'+arrow('mtime')+'</th>'
+   +'</tr></thead><tbody>'
+   +visible.map(f=>'<tr data-fvrow data-p="'+esc(f.path)+'" class="'+(FV.sel.has(f.path)?'sel':'')+'"><td>'+esc(f.name)+'</td><td>'+(f.dir?'—':fvFmtSize(f.size))+'</td><td>'+fvKindName(f.kind)+'</td><td>'+fvFmtTime(f.mtime)+'</td></tr>').join('')
+   +'</tbody></table>';
+  body.querySelectorAll('th[data-k]').forEach(th=>th.onclick=()=>{
+   const k=th.dataset.k;
+   if(FV.sort===k) FV.dir=-FV.dir;
+   else { FV.sort=k; FV.dir=(k==='mtime')?-1:1; }
+   paintFvBody();
+  });
+  fvBindItems(body,visible);
+  return;
+ }
+ if(FV.view==='cols'){
+  const groupFiles=pid=>DESKFILES.filter(f=>fvGroupOf(f)===pid);
+  body.innerHTML='<div class="fv-cols"><div class="fv-col"><div class="fv-colh">分组</div>'
+   +FV_GROUPS.filter(g=>g.id!=='all'&&g.id!=='recent').map(g=>'<button class="fv-it '+(FV.group===g.id?'sel':'')+'" data-gcol="'+g.id+'"><span class="fvn" style="font-size:13.5px">'+g.n+'</span><span class="cnt" style="opacity:.55;font-size:12px;margin-left:auto">'+groupFiles(g.id).length+'</span></button>').join('')
+   +'</div><div class="fv-col"><div class="fv-colh">'+esc((FV_GROUPS.find(g=>g.id===FV.group)||{}).n||'')+'</div>'
+   +(visible.length?visible.map(f=>fvItemHTML(f)).join(''):'<div class="fv-none">空的</div>')
+   +'</div></div>';
+  body.querySelectorAll('[data-gcol]').forEach(el=>el.onclick=()=>{ FV.group=el.dataset.gcol; FV.sel.clear(); FV.anchor=null; paintFiles(); });
+  fvBindItems(body,visible);
+  return;
+ }
+ body.innerHTML=visible.length
+  ? '<div class="fv-grid">'+visible.map(f=>fvItemHTML(f)).join('')+'</div>'
+  : '<div class="fv-none">这个分组里还没有文件。把文件拖进来，或点「导入…」。</div>';
+ fvBindItems(body,visible);
+}
+function fvSelFiles(){ return DESKFILES.filter(f=>FV.sel.has(f.path)); }
+async function fvDeleteFiles(files){
+ if(!files.length) return;
+ if(!confirm('删除选中的 '+files.length+' 个文件？\n删的是终端里的副本（在 Data/files 里），电脑上的原文件不受影响。')) return;
+ let ok=0, fails=0;
+ for(const f of files){
+  const r=await api('/api/files/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:f.name})}).catch(()=>null);
+  if(!r||r.error){ fails++; continue; }
+  ok++; delete LAYOUT.pos['file:'+f.name];
+ }
+ saveLayout();
+ FV.sel.clear();
+ await loadDeskFiles(); renderDesk(); paintFiles();
+ if(fails) alert(fails+' 个文件删除失败');
+ else toast('已删除 '+ok+' 个文件');
+}
+async function fvRenameFile(f){
+ const nn=prompt('新名字（不能带路径）',f.name);
+ if(!nn||nn.trim()===f.name) return;
+ const r=await api('/api/files/rename',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({old:f.name,new:nn.trim()})}).catch(()=>null);
+ if(!r||r.error){ alert('改名失败：'+((r&&r.error)||'接口没回应')); return; }
+ if(LAYOUT.pos['file:'+f.name]){ LAYOUT.pos['file:'+r.name]=LAYOUT.pos['file:'+f.name]; delete LAYOUT.pos['file:'+f.name]; }
+ FV.sel=new Set([r.name]);
+ saveLayout();
+ await loadDeskFiles(); renderDesk(); paintFiles();
+}
+function fvShowCtx(x,y,f){
+ const sel=fvSelFiles();
+ if(sel.length>1){
+  ctxEl.innerHTML='<div class="ctxitem" id="fvx-exp">导出选中的 '+sel.length+' 个到电脑</div><div class="ctxitem" id="fvx-del" style="color:#ff9d97">删除选中的 '+sel.length+' 个</div>';
+  ctxEl.classList.remove('hidden');
+  ctxEl.style.left=Math.min(x,innerWidth-240)+'px';
+  ctxEl.style.top=Math.min(y,innerHeight-140)+'px';
+  $50('fvx-exp').onclick=()=>{ hideCtx(); sel.forEach(exportDeskFile); };
+  $50('fvx-del').onclick=()=>{ hideCtx(); fvDeleteFiles(sel); };
+  return;
+ }
+ showFileCtx(x,y,f);
+}
+function paintFvPrev(){
+ const pv=$50('fv-prev'); if(!pv) return;
+ const sel=fvSelFiles();
+ if(sel.length>1){
+  pv.innerHTML='<div class="fv-pname">已选中 '+sel.length+' 个文件</div><div class="fv-pmeta">总大小：'+fvFmtSize(sel.reduce((a,f)=>a+(f.size||0),0))+'</div>'
+   +'<div class="fv-pbtns"><button class="btn gray" id="fvp-exp">导出到电脑</button><button class="btn red" id="fvp-del">删除</button></div>';
+  $50('fvp-exp').onclick=()=>sel.forEach(exportDeskFile);
+  $50('fvp-del').onclick=()=>fvDeleteFiles(sel);
+  return;
+ }
+ if(!sel.length){
+  pv.innerHTML='<div class="fv-none" style="padding-top:34px">选中一个文件，这里显示预览和信息。</div>';
+  return;
+ }
+ const f=sel[0];
+ const thumb=(f.kind==='image'&&['jpg','jpeg','png','gif'].indexOf(f.ext)>=0)
+  ? '<img class="fv-thumb" src="/api/files/thumb?name='+encodeURIComponent(f.name)+'" alt="">'
+  : fileIconHTML(f);
+ pv.innerHTML=thumb+'<div class="fv-pname">'+esc(f.name)+'</div>'
+  +'<div class="fv-pmeta">大小：'+(f.dir?'—':fvFmtSize(f.size))+'<br>类型：'+fvKindName(f.kind)+(f.ext?('（.'+esc(f.ext)+'）'):'')+'<br>导入时间：'+fvFmtTime(f.mtime)+'</div>'
+  +'<div class="fv-pbtns"><button class="btn" id="fvp-open">打开</button><button class="btn gray" id="fvp-exp">导出到电脑</button><button class="btn gray" id="fvp-ren">重命名…</button><button class="btn red" id="fvp-del">删除</button></div>';
+ $50('fvp-open').onclick=()=>openDeskFile(f.path,f.kind);
+ $50('fvp-exp').onclick=()=>exportDeskFile(f);
+ $50('fvp-ren').onclick=()=>fvRenameFile(f);
+ $50('fvp-del').onclick=()=>fvDeleteFiles([f]);
+}
+window.__filesRefresh=()=>{ if($50('fv-body')) paintFiles(); };
+window.__bindFiles=function(){
+ const w=$50('win-files');
+ if(w){ w.style.width='min(1060px,96vw)'; w.style.height='min(640px,calc(100vh - 120px))'; }
+ const seg=$50('fv-viewseg');
+ if(seg) seg.querySelectorAll('button').forEach(b=>{
+  b.classList.toggle('on',b.dataset.v===FV.view);
+  b.onclick=()=>{ FV.view=b.dataset.v; seg.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); paintFvBody(); };
+ });
+ const sortSel=$50('fv-sort');
+ if(sortSel){ sortSel.value=FV.sort; sortSel.onchange=()=>{ FV.sort=sortSel.value; FV.dir=(FV.sort==='mtime')?-1:1; paintFvBody(); }; }
+ const q=$50('fv-q');
+ if(q) q.addEventListener('input',()=>{ FV.q=q.value; paintFvBody(); });
+ const imp=$50('fv-import');
+ if(imp) imp.onclick=()=>{ const f=$50('deskimp'); if(f) f.click(); };
+ paintFiles();
+};
+</script>
+<script>
 /* v0.48: the 铭杰 menu (top-left, macOS Apple-menu position) and the
    vault lock screen. Self-contained: it talks only to the vault and
    shutdown endpoints and shares `api`/`SETTINGS` with the desktop
@@ -3464,11 +4358,15 @@ openApp('home');
    var st=await vapi('/api/vault/status'); if(st) window.__vault=st;
    var vaultOn=!!(window.__vault&&window.__vault.enabled);
    var html='<div class="mbm-it" id="mbm-about">关于铭杰终端机</div><div class="mbm-sep"></div>';
+   /* v0.50: 设置… sits where macOS puts it (right under 关于）,
+      with its ⌘, shortcut shown and really bound (see below). */
+   html+='<div class="mbm-it" id="mbm-settings">设置…<span style="float:right;opacity:.6;margin-left:30px;font-size:12.5px">⌘,</span></div><div class="mbm-sep"></div>';
    if(vaultOn) html+='<div class="mbm-it" id="mbm-lock">锁定屏幕</div><div class="mbm-sep"></div>';
    html+='<div class="mbm-it" id="mbm-off">关机…</div>';
    menu.innerHTML=html;
    menu.classList.remove('hidden');
    $('mbm-about').onclick=function(){ closeMenu(); openApp('home'); };
+   $('mbm-settings').onclick=function(){ closeMenu(); openApp('sys'); };
    $('mbm-off').onclick=async function(){
      closeMenu();
      var closeApps=!(window.SETTINGS&&SETTINGS.exitClosesApps===false);
@@ -3490,6 +4388,17 @@ openApp('home');
  logo.onclick=function(ev){ ev.stopPropagation(); if(menu.classList.contains('hidden')) openMenu(); else closeMenu(); };
  document.addEventListener('mousedown',function(ev){ if(!menu.classList.contains('hidden')&&!menu.contains(ev.target)&&ev.target!==logo) closeMenu(); });
  document.addEventListener('keydown',function(ev){ if(ev.key==='Escape') closeMenu(); });
+ /* v0.50: ⌘, opens Settings, like macOS (Ctrl+, accepted too --
+    Windows keyboards have no ⌘ key; the menu shows ⌘, because
+    that is the macOS grammar this shell replicates). While the
+    vault is locked the key does nothing: the lock screen owns
+    the keyboard. */
+ document.addEventListener('keydown',function(ev){
+   if((ev.metaKey||ev.ctrlKey)&&ev.key===','&&!ev.altKey){
+     if(window.__vault&&window.__vault.locked) return;
+     ev.preventDefault(); closeMenu(); openApp('sys');
+   }
+ });
  vaultSync();
  setInterval(vaultSync,3000);
 })();
