@@ -488,8 +488,9 @@ func TestEmbeddedComponentPin(t *testing.T) {
 
 func TestSealRuleLinesForExe(t *testing.T) {
 	lines := sealRuleLinesForExe("Weixin.exe")
-	if len(lines) != len(sealWeChatRoots) {
-		t.Fatalf("Weixin.exe must produce %d rules, got %v", len(sealWeChatRoots), lines)
+	wantCount := len(sealWeChatRoots) + len(sealWeChatKeys)
+	if len(lines) != wantCount {
+		t.Fatalf("Weixin.exe must produce %d rules, got %v", wantCount, lines)
 	}
 	joined := strings.Join(lines, "\n")
 	for _, want := range []string{
@@ -498,6 +499,8 @@ func TestSealRuleLinesForExe(t *testing.T) {
 		`WriteFilePath=Weixin.exe,%AppData%\Tencent\xwechat\`,
 		`WriteFilePath=Weixin.exe,%AppData%\Tencent\Weixin\`,
 		`WriteFilePath=Weixin.exe,%AppData%\Tencent\WeChat\`,
+		`WriteKeyPath=Weixin.exe,HKEY_CURRENT_USER\Software\Tencent\WeChat`,
+		`WriteKeyPath=Weixin.exe,HKEY_CURRENT_USER\Software\Tencent\Weixin`,
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("rule %q missing from:\n%s", want, joined)
@@ -517,13 +520,59 @@ func TestSealRuleLinesForExe(t *testing.T) {
 	}
 }
 
+func TestSealKeyPathsForExe(t *testing.T) {
+	keys := sealKeyPathsForExe("Weixin.exe")
+	if len(keys) != len(sealWeChatKeys) {
+		t.Fatalf("Weixin.exe must have %d key roots, got %v", len(sealWeChatKeys), keys)
+	}
+	joined := strings.Join(keys, "\n")
+	for _, want := range []string{
+		`HKEY_CURRENT_USER\Software\Tencent\WeChat`,
+		`HKEY_CURRENT_USER\Software\Tencent\Weixin`,
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("key root %q missing from:\n%s", want, joined)
+		}
+	}
+	// Spelling guards, per the verified driver semantics: the
+	// HKEY_ user-mode prefix is what conf_expand.c translates
+	// (no SID, no % variable in the rule), and a whole-tree key
+	// pattern is written bare — a trailing backslash or star
+	// would change what the pattern names.
+	for _, k := range keys {
+		if !strings.HasPrefix(k, `HKEY_CURRENT_USER\`) {
+			t.Fatalf("key root must use the HKEY_CURRENT_USER spelling: %q", k)
+		}
+		if strings.HasSuffix(k, `\`) || strings.Contains(k, "*") || strings.Contains(k, "%") {
+			t.Fatalf("key root must be a bare whole-tree pattern: %q", k)
+		}
+	}
+	// Case-insensitive hit, and both family exes share the set.
+	if got := sealKeyPathsForExe("WECHAT.EXE"); len(got) != len(keys) {
+		t.Fatalf("WeChat.exe must share the key set, got %v", got)
+	}
+	if got := sealKeyPathsForExe("notepad++.exe"); got != nil {
+		t.Fatalf("uncovered exe must have no key roots, got %v", got)
+	}
+}
+
 func TestSealRuleLinesRegistry(t *testing.T) {
 	wx := boxApp{ID: "weixin", Name: "微信", Exe: `C:\Program Files\Tencent\Weixin\Weixin.exe`}
 	other := boxApp{ID: "foo", Name: "Foo", Exe: `C:\Program Files\Foo\foo.exe`}
 	reg := map[string]boxApp{"weixin": wx, "foo": other}
 	lines := sealRuleLines(reg)
-	if len(lines) != len(sealWeChatRoots) {
+	if want := len(sealWeChatRoots) + len(sealWeChatKeys); len(lines) != want {
 		t.Fatalf("only the covered app contributes: %v", lines)
+	}
+	// File and key rules coexist in one sorted, deduped set:
+	// every WriteFilePath line sorts ahead of every WriteKeyPath
+	// line, and the set equals the per-exe rendering as a set.
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, `WriteKeyPath=Weixin.exe,HKEY_CURRENT_USER\Software\Tencent\Weixin`) {
+		t.Fatalf("key rules missing from registry rendering: %v", lines)
+	}
+	if strings.LastIndex(joined, "WriteFilePath=") > strings.Index(joined, "WriteKeyPath=") {
+		t.Fatalf("sorted rendering must keep file lines ahead of key lines: %v", lines)
 	}
 	// Deterministic: merging the same registry again produces
 	// byte-identical lines.
@@ -553,7 +602,7 @@ func TestMergeBoxSectionSealAndBorder(t *testing.T) {
 	if !changed {
 		t.Fatal("first merge must report changed")
 	}
-	for _, want := range []string{"[GlobalSettings]", "[OtherBox]", "BorderColor=#000000,off,6,192,no", `WriteFilePath=Weixin.exe,%Personal%\xwechat_files\`} {
+	for _, want := range []string{"[GlobalSettings]", "[OtherBox]", "BorderColor=#000000,off,6,192,no", `WriteFilePath=Weixin.exe,%Personal%\xwechat_files\`, `WriteKeyPath=Weixin.exe,HKEY_CURRENT_USER\Software\Tencent\WeChat`} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("merged section missing %q:\n%s", want, out)
 		}
@@ -571,7 +620,7 @@ func TestMergeBoxSectionSealAndBorder(t *testing.T) {
 	if !changed3 {
 		t.Fatal("dropping seal lines must report changed")
 	}
-	if strings.Contains(out3, "WriteFilePath=") {
+	if strings.Contains(out3, "WriteFilePath=") || strings.Contains(out3, "WriteKeyPath=") {
 		t.Fatalf("seal rules survived their app:\n%s", out3)
 	}
 	if !strings.Contains(out3, "[OtherBox]") || !strings.Contains(out3, "BorderColor=#000000,off,6,192,no") {

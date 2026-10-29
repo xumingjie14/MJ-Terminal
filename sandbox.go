@@ -287,6 +287,32 @@ func iniHasCurrentBox(text, boxRoot string, sealLines []string) bool {
 // name is "Local AppData" (with the space). A pattern carrying
 // no wildcard gets one appended by Sandboxie, so a trailing
 // backslash covers the folder and everything below it.
+//
+// The registry half of the seal is the same read-through in
+// another dress: WeChat decides where its data lives partly
+// from values under HKCU\Software\Tencent\WeChat and
+// ...\Weixin (FileSavePath and friends), and while the box
+// has no shadow of those keys the reads go straight to the
+// host's — a custom storage folder set in the host WeChat
+// would steer the boxed one outside every sealed file root
+// above. Covered apps therefore also get per-program
+// WriteKeyPath rules for those key trees: Sandboxie's
+// registry twin of WriteFilePath (official UI wording: the
+// keys "will appear empty to programs running in this
+// sandbox, but the programs may write new data within these
+// registry keys in the sandbox"), so the box-side key tree
+// reads and writes exactly as before while the host's values
+// are hidden. The spelling follows the official Templates.ini
+// idiom (OpenKeyPath=iexplore.exe,HKEY_CURRENT_USER\
+// Software\...): HKEY_CURRENT_USER is the user-mode prefix
+// the driver's config expansion translates to
+// \REGISTRY\USER\%SID% (conf_expand.c), so no SID and no %
+// variable belongs in the rule itself; and a key pattern is
+// written bare — no trailing backslash, no star — because a
+// star-less pattern names the whole tree: the key itself,
+// its values and everything below it, the same way the
+// official templates name HKEY_CURRENT_USER\Software\
+// Microsoft\Office to cover a whole key tree in one line.
 
 type sealRootKind int
 
@@ -331,6 +357,31 @@ var sealTemplates = map[string][]sealPath{
 	"wechat.exe": sealWeChatRoots,
 }
 
+// sealWeChatKeys is the WeChat family's registry half of the
+// seal: the two vendor keys under which both generations keep
+// their client settings — including the values that decide
+// where the data store lives (see the section comment). Both
+// keys, whole-tree, for both exes: the generations read each
+// other's leftovers while migrating, and the steering values
+// are exactly what must not cross.
+var sealWeChatKeys = []string{
+	`HKEY_CURRENT_USER\Software\Tencent\WeChat`,
+	`HKEY_CURRENT_USER\Software\Tencent\Weixin`,
+}
+
+// sealKeyTemplates maps a main exe's base name to its sealed
+// registry key roots, paralleling sealTemplates.
+var sealKeyTemplates = map[string][]string{
+	"weixin.exe": sealWeChatKeys,
+	"wechat.exe": sealWeChatKeys,
+}
+
+// sealKeyPathsForExe returns the template key roots for an exe
+// base name (case-insensitive), or nil when the app has none.
+func sealKeyPathsForExe(exeBase string) []string {
+	return sealKeyTemplates[strings.ToLower(exeBase)]
+}
+
 // sealPathsForExe returns the template roots for an exe base
 // name (case-insensitive), or nil when the app is not covered.
 func sealPathsForExe(exeBase string) []sealPath {
@@ -338,24 +389,31 @@ func sealPathsForExe(exeBase string) []sealPath {
 }
 
 // appSealedByExe reports whether an exe base name is covered
-// by a data-seal template.
-func appSealedByExe(exeBase string) bool { return len(sealPathsForExe(exeBase)) > 0 }
+// by a data-seal template (file roots, key roots, or both).
+func appSealedByExe(exeBase string) bool {
+	return len(sealPathsForExe(exeBase)) > 0 || len(sealKeyPathsForExe(exeBase)) > 0
+}
 
 // sealRuleLinesForExe renders the [MJBox] rule lines for ONE
-// exe base name (pure): per-program WriteFilePath rules in
-// template order. The program prefix keeps the exe's own
-// spelling; Sandboxie matches image names case-insensitively,
-// and the rule applies only when the sandboxed process image
-// has exactly that base name (the documented Program Name
-// Prefix semantics).
+// exe base name (pure): per-program WriteFilePath rules for
+// the data roots, then per-program WriteKeyPath rules for the
+// registry key roots, each in template order. The program
+// prefix keeps the exe's own spelling; Sandboxie matches image
+// names case-insensitively, and the rule applies only when the
+// sandboxed process image has exactly that base name (the
+// documented Program Name Prefix semantics).
 func sealRuleLinesForExe(exeBase string) []string {
 	paths := sealPathsForExe(exeBase)
-	if len(paths) == 0 {
+	keys := sealKeyPathsForExe(exeBase)
+	if len(paths) == 0 && len(keys) == 0 {
 		return nil
 	}
-	out := make([]string, 0, len(paths))
+	out := make([]string, 0, len(paths)+len(keys))
 	for _, p := range paths {
 		out = append(out, "WriteFilePath="+exeBase+","+p.pattern)
+	}
+	for _, k := range keys {
+		out = append(out, "WriteKeyPath="+exeBase+","+k)
 	}
 	return out
 }
@@ -2301,6 +2359,26 @@ func boxUserNames(boxRoot string) []string {
 // strictly inside the box root are ever removed (each one is
 // prefix-checked and logged); host data is never touched —
 // this function cannot even name a path outside the box.
+//
+// The purge is files-only, deliberately — the registry half
+// of the seal needs no purge, and could not get a safe one.
+// Host-key READ-through never materializes into the box's
+// registry shadow: the RegHive file at the box root records
+// only what boxed programs themselves wrote (copy-on-write),
+// so there is no leaked host copy sitting in it to remove,
+// and the WriteKeyPath rules close the read prospectively
+// the moment the ini regenerates — no DataSealed re-run is
+// owed for them. Per-key surgery on that hive is off the
+// table anyway: it is ONE binary file shared by every boxed
+// app, and no offline editor can rewrite a live box's hive
+// without risking the whole box's registry. The one residue
+// that can exist is a value the boxed app itself persisted
+// into its shadow key before the seal (say it once stored
+// the host storage path it had read through): that is the
+// app's own box-side writing, not host data, the host value
+// behind it is no longer reachable, and erasing it would
+// mean resetting the entire box registry — the user's call
+// via clear-box in settings, never a silent purge step.
 func applyDataSeal(app boxApp) {
 	if !sealNeeded(app) {
 		return
