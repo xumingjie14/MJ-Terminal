@@ -289,11 +289,75 @@ func TestDecideClaim(t *testing.T) {
 		{"box window claims regardless of the browser auto-claim switch", windowFact{HWND: 6012, PID: 240, Class: "Qt6QWindow", Title: "微信", Visible: true, W: 900, H: 700},
 			claimOpts{AutoClaimBrowser: false, BrowserPIDs: map[uint32]bool{}, ShellPIDs: map[uint32]bool{}},
 			claimVerdict{Claim: true, Reason: ownBox}},
+		{"v0.41 hidden box app window claims register-only", windowFact{HWND: 6013, PID: 240, Class: "Sandbox:MJBox:Qt51514QWindowIcon", Title: "WeChat", Visible: false, W: 900, H: 700}, base,
+			claimVerdict{Claim: true, Reason: ownBox, HiddenClaim: true}},
+		{"v0.41 hidden box plumbing class never claims", windowFact{HWND: 6014, PID: 240, Class: "Sandbox:MJBox:Chrome_SystemMessageWindow", Title: "", Visible: false, W: 900, H: 700}, base,
+			claimVerdict{}},
+		{"v0.41 hidden box IME window never claims (titled but system class)", windowFact{HWND: 6015, PID: 240, Class: "IME", Title: "Default IME", Visible: false, W: 900, H: 700}, base,
+			claimVerdict{}},
+		{"v0.41 hidden box untitled app-class window never claims (no NoTitle grace for hidden)", windowFact{HWND: 6016, PID: 240, Class: "Qt6QWindow", Title: "", Visible: false, W: 900, H: 700}, base,
+			claimVerdict{}},
+		{"v0.41 hidden exe window still never claims (relaxation is box-only)", windowFact{HWND: 6017, PID: 210, Class: "TMainForm", Title: "Telegram", Visible: false, W: 900, H: 700}, base,
+			claimVerdict{}},
+		{"v0.41 hidden box app window too small never claims", windowFact{HWND: 6018, PID: 240, Class: "Sandbox:MJBox:Qt51514QWindowIcon", Title: "WeChat", Visible: false, W: 120, H: 60}, base,
+			claimVerdict{}},
 	}
 	for _, c := range cases {
 		got := decideClaim(c.w, owned, reg, c.opts)
 		if got != c.want {
 			t.Errorf("%s: got %+v, want %+v", c.name, got, c.want)
 		}
+	}
+}
+
+func TestSystemWindowClass(t *testing.T) {
+	system := []string{
+		"IME", "MSCTFIME UI", "RunDLL",
+		"Chrome_SystemMessageWindow", "DisplayICC_SystemMessageWindow",
+		"DisplayICC_Foo", "crashpad_SessionEndWatcher", "Sandboxie_DDE_ProxyClass1",
+		// The boxed spellings from the v0.40 field log: the
+		// Sandbox:<box>: prefix must not shield the junk classes.
+		"Sandbox:MJBox:Chrome_SystemMessageWindow",
+		"Sandbox:MJBox:DisplayICC_SystemMessageWindow",
+		"Sandbox:MJBox:crashpad_SessionEndWatcher",
+		"Sandbox:MJBox:Sandboxie_DDE_ProxyClass1",
+		"Sandbox:MJBox:RunDLL",
+		"Sandbox:MJBox:IME",
+	}
+	for _, c := range system {
+		if !isSystemWindowClass(c) {
+			t.Errorf("class %q must be system", c)
+		}
+	}
+	app := []string{
+		"Qt51514QWindowIcon", "Sandbox:MJBox:Qt51514QWindowIcon",
+		"Qt6QWindow", "TMainForm", "Chrome_WidgetWin_1", "SUMATRA_PDF_FRAME",
+		"#32770", "",
+	}
+	for _, c := range app {
+		if isSystemWindowClass(c) {
+			t.Errorf("class %q must NOT be system", c)
+		}
+	}
+	if got := stripSandboxClassPrefix("Sandbox:MJBox:Qt51514QWindowIcon"); got != "Qt51514QWindowIcon" {
+		t.Errorf("strip = %q", got)
+	}
+	if got := stripSandboxClassPrefix("Qt6QWindow"); got != "Qt6QWindow" {
+		t.Errorf("strip (no prefix) = %q", got)
+	}
+}
+
+func TestAppWindowShape(t *testing.T) {
+	if !isAppWindowShape(windowFact{Title: "WeChat", Class: "Sandbox:MJBox:Qt51514QWindowIcon", Visible: false}) {
+		t.Error("hidden titled Qt window must be app-shaped (visibility is not part of the test)")
+	}
+	if isAppWindowShape(windowFact{Title: "", Class: "Qt6QWindow"}) {
+		t.Error("untitled window must not be app-shaped")
+	}
+	if isAppWindowShape(windowFact{Title: "dlg", Class: "Qt6QWindow", Owned: true}) {
+		t.Error("owned (dialog) window must not be app-shaped")
+	}
+	if isAppWindowShape(windowFact{Title: "Default IME", Class: "IME"}) {
+		t.Error("titled system-class window must not be app-shaped")
 	}
 }

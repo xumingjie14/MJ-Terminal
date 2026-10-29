@@ -1134,6 +1134,21 @@ func waitBoxEmpty(d time.Duration) bool {
 	return len(sbieBoxPids()) == 0
 }
 
+// waitBoxPidsGone polls until none of the given PIDs remains on
+// the box list (v0.41: after the residual sweep kills wedged
+// same-name processes, the fresh Start.exe hand-off should not
+// race their teardown). Best-effort: a failed list read just
+// costs one poll interval, and the deadline caps the wait.
+func waitBoxPidsGone(set map[uint32]bool, d time.Duration) {
+	deadline := time.Now().Add(d)
+	for time.Now().Before(deadline) {
+		if pids, err := sbieBoxPidsE(); err == nil && !pidSetsOverlap(pidSetFromInts(pids), set) {
+			return
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+}
+
 // ---------- component package acquisition ----------
 
 // acquireComponentPackage returns (path, source, error): the
@@ -1639,6 +1654,77 @@ func registerBoxApp(name, virtualExe string) (boxApp, error) {
 
 // ---------- boxed app launch / remove / box clear ----------
 
+// ---------- v0.41: same-name residual sweep ----------
+//
+// The v0.39/v0.40 field failure's second half: the first launch
+// died before ever showing a window, leaving a hidden instance
+// behind in the box. A single-instance app then delegates every
+// later launch to that wedged instance -- which stays hidden --
+// so no amount of claiming fixes the second, third, fourth
+// click. The launch path therefore rules on same-name processes
+// BEFORE handing off: leftovers showing no app window are
+// killed (PID by PID, same name only -- never the whole box),
+// an instance that IS showing its window is a live app and is
+// presented through the second-launch route instead.
+
+// procNameFact is one boxed process as the launch path sees it:
+// its PID and its image's base name. The base name is the one
+// part of a boxed process's image path that reads the same in
+// the virtual and the physical world (…\Weixin\Weixin.exe
+// either way), which is what makes it a safe same-name key.
+type procNameFact struct {
+	PID       uint32
+	ImageBase string
+}
+
+// sameNameBoxPIDs selects, in ascending order, the PIDs whose
+// image base name equals exeBase, case-insensitively (pure). A
+// process whose image could not be read (empty base) never
+// matches: an unreadable process is not evidence and is never
+// killed on a guess.
+func sameNameBoxPIDs(procs []procNameFact, exeBase string) []uint32 {
+	if exeBase == "" {
+		return nil
+	}
+	var out []uint32
+	for _, p := range procs {
+		if p.ImageBase != "" && strings.EqualFold(p.ImageBase, exeBase) {
+			out = append(out, p.PID)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
+}
+
+type boxResidualDecision int
+
+const (
+	boxResidualNone    boxResidualDecision = iota // no same-name process in the box
+	boxResidualKill                               // same-name processes, none showing a visible app window: wedged leftovers
+	boxResidualPresent                            // a same-name process already shows a visible app window: a live app
+)
+
+// decideBoxResidual rules on the same-name processes a launch
+// found already inside the box (pure). Only windows owned by the
+// residual PIDs themselves count, and only a VISIBLE app-shaped
+// one makes the instance "live": the wedged shape is precisely
+// processes whose every window is hidden or plumbing.
+func decideBoxResidual(residuals []uint32, wins []windowFact) boxResidualDecision {
+	if len(residuals) == 0 {
+		return boxResidualNone
+	}
+	set := make(map[uint32]bool, len(residuals))
+	for _, p := range residuals {
+		set[p] = true
+	}
+	for _, w := range windowsOwnedByPIDs(wins, set) {
+		if w.Visible && isAppWindowShape(w) {
+			return boxResidualPresent
+		}
+	}
+	return boxResidualKill
+}
+
 func launchBoxApp(app boxApp) error {
 	if runtime.GOOS != "windows" {
 		return fmt.Errorf("当前不是 Windows 环境（这是测试环境），到 Windows 上会正常打开")
@@ -1665,13 +1751,54 @@ func launchBoxApp(app boxApp) error {
 	// log verbatim -- it is the baseline every later diagnosis
 	// diff is read against.
 	beforePIDs := sbieBoxPids()
-	beforeWins := currentTopWindowHWNDs()
-	cmd := exec.Command(se, "/box:"+sbieBoxName, app.Exe)
-	hideConsole(cmd)
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("启动失败：%w", err)
+
+	// v0.41: rule on same-name processes already in the box
+	// BEFORE handing off (see the residual-sweep section above).
+	// A wedged leftover is killed by PID -- same name only, the
+	// rest of the box is never touched -- and the baseline
+	// snapshot is retaken afterwards, so the poll's difference
+	// describes only what the fresh hand-off brings in. A live
+	// instance (visible app window) skips the hand-off entirely:
+	// Start.exe would only delegate to it anyway, and the poll's
+	// second-launch route presents its window.
+	skipStart := false
+	exeBase := virtualBase(app.Exe)
+	facts := make([]procNameFact, 0, len(beforePIDs))
+	for _, pid := range beforePIDs {
+		facts = append(facts, procNameFact{PID: uint32(pid), ImageBase: filepath.Base(sbieProcImagePath(uint32(pid)))})
 	}
-	noteSpawnedProcess(uint32(cmd.Process.Pid), app.Name)
+	residuals := sameNameBoxPIDs(facts, exeBase)
+	switch decideBoxResidual(residuals, platformAllTopWindows()) {
+	case boxResidualKill:
+		killed := make([]int, 0, len(residuals))
+		for _, pid := range residuals {
+			if err := sbieKillPid(int(pid)); err == nil {
+				killed = append(killed, int(pid))
+			} else {
+				logf("sandbox", "warn", "盒内启动 %s：终止同名残留进程 %d 失败：%v（照常继续启动）", app.Name, pid, err)
+			}
+		}
+		if len(killed) > 0 {
+			logf("sandbox", "info", "盒内启动 %s：启动前清掉同名残留进程 %d 个（PID %v；它们名下没有可见的应用窗口），再全新拉起",
+				app.Name, len(killed), killed)
+			waitBoxPidsGone(pidSetFromInts(killed), 3*time.Second)
+			beforePIDs = sbieBoxPids()
+		}
+	case boxResidualPresent:
+		skipStart = true
+		logf("sandbox", "info", "盒内启动 %s：同名进程已在盒内运行且有可见窗口（PID %v），不重复拉起，走二次启动呈现",
+			app.Name, residuals)
+	}
+
+	beforeWins := currentTopWindowHWNDs()
+	if !skipStart {
+		cmd := exec.Command(se, "/box:"+sbieBoxName, app.Exe)
+		hideConsole(cmd)
+		if err := cmd.Start(); err != nil {
+			return fmt.Errorf("启动失败：%w", err)
+		}
+		noteSpawnedProcess(uint32(cmd.Process.Pid), app.Name)
+	}
 	logf("sandbox", "info", "盒内启动：%s（启动前盒内 PID 集：%v）", app.Name, beforePIDs)
 	go pollBoxLaunch(app, pidSetFromInts(beforePIDs), beforeWins)
 	return nil
@@ -1702,27 +1829,39 @@ func launchBoxApp(app boxApp) error {
 // module), and a timeout produces ONE typed failure line (winmgr
 // module) whose wording separates the field cases: the process
 // never appeared / appeared but exited / is alive with zero
-// windows / a window exists but belongs to another boxed PID.
-// The next real-machine log is expected to settle which of the
-// four shapes happened from that line alone.
+// windows / a window exists but belongs to another boxed PID /
+// (v0.41) an app window exists but is hidden and could not be
+// revealed. The next real-machine log is expected to settle
+// which of the shapes happened from that line alone.
 
-// boxLaunchFailKind names the four timeout shapes.
+// boxLaunchFailKind names the timeout shapes (five since
+// v0.41: the born-hidden shape is its own kind, no longer folded
+// into "windows under other boxed PIDs").
 type boxLaunchFailKind string
 
 const (
-	boxFailNoProcess boxLaunchFailKind = "进程未出现"
-	boxFailExited    boxLaunchFailKind = "进程已退出"
-	boxFailNoWindow  boxLaunchFailKind = "进程在但无窗口"
-	boxFailWindowPID boxLaunchFailKind = "窗口在其他盒内进程名下"
+	boxFailNoProcess    boxLaunchFailKind = "进程未出现"
+	boxFailExited       boxLaunchFailKind = "进程已退出"
+	boxFailNoWindow     boxLaunchFailKind = "进程在但无窗口"
+	boxFailWindowPID    boxLaunchFailKind = "窗口在其他盒内进程名下"
+	boxFailHiddenWindow boxLaunchFailKind = "有隐藏应用窗口但呈现失败"
 )
 
-// classifyBoxLaunchTimeout picks the failure kind (pure):
-// crossCount > 0 means the deadline cross-check DID find windows
-// owned by boxed PIDs (they just could not be registered);
-// stillPresent means a PID this launch added is still in the box
-// at the deadline; sawNew means such a PID was seen at all.
-func classifyBoxLaunchTimeout(sawNew, stillPresent bool, crossCount int) boxLaunchFailKind {
+// classifyBoxLaunchTimeout picks the failure kind (pure).
+// crossHiddenApp means the deadline cross-check found an
+// app-shaped window that is HIDDEN under a boxed PID -- the
+// v0.40 field shape, and since v0.41 the claim path tries to
+// reveal exactly that window, so reaching classification with
+// one means the reveal itself failed; it outranks every other
+// reading. crossCount > 0 means the cross-check found windows
+// owned by boxed PIDs at all (none of them a hidden app
+// window); stillPresent means a PID this launch added is still
+// in the box at the deadline; sawNew means such a PID was seen
+// at all.
+func classifyBoxLaunchTimeout(sawNew, stillPresent bool, crossCount int, crossHiddenApp bool) boxLaunchFailKind {
 	switch {
+	case crossHiddenApp:
+		return boxFailHiddenWindow
 	case crossCount > 0:
 		return boxFailWindowPID
 	case sawNew && !stillPresent:
@@ -1732,6 +1871,18 @@ func classifyBoxLaunchTimeout(sawNew, stillPresent bool, crossCount int) boxLaun
 	default:
 		return boxFailNoProcess
 	}
+}
+
+// hasHiddenAppWindow reports whether a cross-check list holds a
+// born-hidden app window (pure): app-shaped but not visible --
+// the exact window the v0.41 claim path exists to reveal.
+func hasHiddenAppWindow(cross []windowFact) bool {
+	for _, w := range cross {
+		if !w.Visible && isAppWindowShape(w) {
+			return true
+		}
+	}
+	return false
 }
 
 // formatBoxCrossCheck renders the deadline cross-check result
@@ -1759,6 +1910,9 @@ func boxLaunchFailMessage(app string, kind boxLaunchFailKind, before, last []int
 			head, before, last, crossTxt)
 	case boxFailNoWindow:
 		return fmt.Sprintf("%s——盒内进程还活着（最后 PID 集 %v），但一直没有窗口（可能卡在初始化）；超时交叉核对：%s",
+			head, last, crossTxt)
+	case boxFailHiddenWindow:
+		return fmt.Sprintf("%s——盒内应用的主窗口已经生成，但一直是隐藏状态，本次没能把它显示出来（最后 PID 集 %v）；超时交叉核对：%s",
 			head, last, crossTxt)
 	case boxFailWindowPID:
 		return fmt.Sprintf("%s——超时交叉核对在盒内 PID 名下找到了窗口，但没能登记（最后 PID 集 %v）；交叉核对：%s",
@@ -1818,7 +1972,7 @@ func pollBoxLaunch(app boxApp, before map[uint32]bool, beforeWins map[uint64]boo
 			for p := range diff {
 				newSeen[p] = true
 			}
-			if hwnd, ok := claimWindowByPIDs(app.Name, diff, beforeWins, imageBase, ownBox); ok {
+			if hwnd, ok := claimWindowByPIDs(app.Name, diff, diff, beforeWins, imageBase, ownBox); ok {
 				logf("sandbox", "info", "盒内启动：%s 已认领窗口（路径：新 PID 直供登记，hwnd=%d，新增 PID 集 %v）",
 					app.Name, hwnd, sortedPIDList(diff))
 				return
@@ -1835,7 +1989,7 @@ func pollBoxLaunch(app boxApp, before map[uint32]bool, beforeWins map[uint64]boo
 				logf("sandbox", "info", "盒内启动：%s 走二次启动路径（应用已在盒内运行，本次无新 PID），已呈现其已有窗口（hwnd=%d）", app.Name, hwnd)
 				return
 			}
-			if hwnd, ok := claimWindowByPIDs(app.Name, before, nil, imageBase, ownBox); ok {
+			if hwnd, ok := claimWindowByPIDs(app.Name, before, nil, nil, imageBase, ownBox); ok {
 				logf("sandbox", "info", "盒内启动：%s 走二次启动路径（应用已在盒内运行，本次无新 PID），已用已有 PID 集认领其窗口（hwnd=%d）", app.Name, hwnd)
 				return
 			}
@@ -1853,9 +2007,19 @@ func pollBoxLaunch(app boxApp, before map[uint32]bool, beforeWins map[uint64]boo
 	last := pidSetFromInts(lastList)
 	cross := windowsOwnedByPIDs(platformAllTopWindows(), last)
 	if len(cross) > 0 {
-		if hwnd, ok := claimWindowByPIDs(app.Name, last, beforeWins, "", ownBox); ok {
+		// v0.41: the cross-check claim ranks this launch's own
+		// new PIDs first (prefer), and the picker now admits the
+		// born-hidden app window and reveals it on claim.
+		if hwnd, ok := claimWindowByPIDs(app.Name, last, newSeen, beforeWins, "", ownBox); ok {
 			logf("sandbox", "info", "盒内启动：%s 已认领窗口（路径：超时交叉核对——窗口在盒内其他进程名下，hwnd=%d，盒内 PID 集 %v）",
 				app.Name, hwnd, lastList)
+			return
+		}
+		// The patrol may have register-only-claimed the window
+		// (v0.41 HiddenClaim) while we polled: presenting it is
+		// still a successful launch.
+		if hwnd, ok := presentWindowForPIDs(app.Name, last); ok {
+			logf("sandbox", "info", "盒内启动：%s 的窗口已在台前调度中（路径：超时交叉核对——巡逻已登记，hwnd=%d）", app.Name, hwnd)
 			return
 		}
 	}
@@ -1866,7 +2030,7 @@ func pollBoxLaunch(app boxApp, before map[uint32]bool, beforeWins map[uint64]boo
 	// PID that was seen but is gone now is the exited shape, and
 	// other apps' pre-existing PIDs must not mask it.
 	stillPresent := pidSetsOverlap(newSeen, last) || (!sawNew && pidSetsOverlap(before, last))
-	kind := classifyBoxLaunchTimeout(sawNew, stillPresent, len(cross))
+	kind := classifyBoxLaunchTimeout(sawNew, stillPresent, len(cross), hasHiddenAppWindow(cross))
 	logf("winmgr", "warn", "%s", boxLaunchFailMessage(app.Name, kind, beforeList, lastList, cross))
 }
 

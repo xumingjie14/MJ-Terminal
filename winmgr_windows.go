@@ -502,6 +502,25 @@ func platformFocusWindow(hwnd uint64) bool {
 
 // ---------- v0.37: window etiquette platform ops (winset.go) ----------
 
+// platformShowAppWindow shows a window that exists but is not
+// visible (SW_SHOW), or restores it when it is minimized
+// (SW_RESTORE). v0.41: the reveal for a boxed app's born-hidden
+// main window. platformFocusWindow also ends up showing, but the
+// claim path logs and verifies the reveal as its own step,
+// before any focus work happens.
+func platformShowAppWindow(hwnd uint64) bool {
+	h := uintptr(hwnd)
+	if r, _, _ := procIsWindow.Call(h); r == 0 {
+		return false
+	}
+	if r, _, _ := procIsIconic.Call(h); r != 0 {
+		procShowWindow.Call(h, 9) // SW_RESTORE
+	} else {
+		procShowWindow.Call(h, 5) // SW_SHOW
+	}
+	return true
+}
+
 // platformWindowExists reports whether the handle is still a window.
 func platformWindowExists(hwnd uint64) bool {
 	r, _, _ := procIsWindow.Call(uintptr(hwnd))

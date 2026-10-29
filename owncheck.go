@@ -225,6 +225,64 @@ type claimVerdict struct {
 	Browser bool // register as a browser window (title gets the browser-suffix trim)
 	Gated   bool // withheld only because the auto-claim switch is off: not a failure, never alarms
 	Reason  string
+	// HiddenClaim marks a register-only claim of a window that
+	// is not currently visible (v0.41, ownBox only): the caller
+	// must register it WITHOUT the presenting birth settlement
+	// -- the patrol never reveals or raises a hidden window on
+	// its own; revealing is the user's launch click's job.
+	HiddenClaim bool
+}
+
+// stripSandboxClassPrefix removes Sandboxie's per-box window
+// class prefix ("Sandbox:<box name>:<real class>") so class
+// tests see the class the application actually registered. A
+// class without the prefix is returned unchanged.
+func stripSandboxClassPrefix(class string) string {
+	if strings.HasPrefix(class, "Sandbox:") {
+		rest := class[len("Sandbox:"):]
+		if i := strings.Index(rest, ":"); i >= 0 {
+			return rest[i+1:]
+		}
+	}
+	return class
+}
+
+// isSystemWindowClass reports whether a window class belongs to
+// the always-invisible plumbing every process carries -- IME
+// hosts, text-services UI, Chromium/DLL message windows,
+// crash-report watchers, Sandboxie's own DDE proxy -- and never
+// to an application's main window. The test runs against the
+// Sandboxie-stripped class, so a boxed "…:crashpad_…" is caught
+// exactly like a host one; the Sandbox: prefix itself is normal
+// for boxed windows and is NOT a reason to exclude anything.
+func isSystemWindowClass(class string) bool {
+	c := stripSandboxClassPrefix(class)
+	switch c {
+	case "IME", "MSCTFIME UI", "RunDLL":
+		return true
+	}
+	if strings.HasSuffix(c, "SystemMessageWindow") { // Chrome_SystemMessageWindow, DisplayICC_SystemMessageWindow, ...
+		return true
+	}
+	if strings.HasPrefix(c, "DisplayICC") {
+		return true
+	}
+	if strings.HasPrefix(c, "crashpad") { // crashpad_SessionEndWatcher
+		return true
+	}
+	if strings.HasPrefix(c, "Sandboxie_DDE") { // Sandboxie_DDE_ProxyClass1
+		return true
+	}
+	return false
+}
+
+// isAppWindowShape is the "this is an application's main window"
+// test (pure): titled, unowned (not a dialog/palette), and not a
+// system plumbing class. Visibility is deliberately NOT part of
+// the test -- v0.41 exists because a boxed app's main window can
+// satisfy every clause here while WS_VISIBLE is off.
+func isAppWindowShape(w windowFact) bool {
+	return w.Title != "" && !w.Owned && !isSystemWindowClass(w.Class)
 }
 
 // Window shape filters, carried over from the v0.31 patrol: specks
@@ -240,7 +298,7 @@ const (
 // the only path that can ever claim a window runs through the
 // ownership map -- an unowned process's window is never claimed.
 func decideClaim(w windowFact, owned map[uint32]string, registered map[uint64]bool, opts claimOpts) claimVerdict {
-	if registered[w.HWND] || !w.Visible || w.Owned {
+	if registered[w.HWND] || w.Owned {
 		return claimVerdict{}
 	}
 	if w.W < claimMinW || w.H < claimMinH {
@@ -252,6 +310,21 @@ func decideClaim(w windowFact, owned map[uint32]string, registered map[uint64]bo
 	reason, ok := owned[w.PID]
 	if !ok {
 		return claimVerdict{}
+	}
+	if !w.Visible {
+		// v0.41: the ONE invisible-window claim. Field evidence
+		// (v0.40): WeChat's Qt main window existed under a boxed
+		// PID with WS_VISIBLE off, so the visible-only rule
+		// missed it and nothing ever showed it. The relaxation
+		// is scoped as narrowly as that evidence allows -- box
+		// ownership ONLY, and the window must pass the
+		// app-window shape test -- and it is register-only: the
+		// verdict is marked HiddenClaim and the patrol caller
+		// must not run the presenting birth settlement for it.
+		if reason != ownBox || !isAppWindowShape(w) {
+			return claimVerdict{}
+		}
+		return claimVerdict{Claim: true, Reason: reason, HiddenClaim: true}
 	}
 	v := claimVerdict{Reason: reason}
 	// ownBox (v0.40) deliberately has no case below: a boxed app is

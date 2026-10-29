@@ -287,43 +287,74 @@ func pidSetsOverlap(a, b map[uint32]bool) bool {
 }
 
 // pickWindowForPIDs chooses the window an explicit PID set owns
-// (pure). Candidates must be visible, unowned (not a dialog), and
-// outside the exclude set (windows that existed before the launch
-// plus everything already registered). When image evidence is
-// available, a candidate whose process image base matches
-// imageBase wins over one that does not (a boxed app can spawn
-// helpers whose windows are not the main window); when NO
-// candidate matches the image, the largest candidate is taken
-// anyway -- the PID set itself is the identity evidence, the
-// image is only a ranking hint. Ties break on the lowest HWND so
-// the choice is deterministic.
-func pickWindowForPIDs(wins []windowFact, pids map[uint32]bool, exclude map[uint64]bool, imageByPID map[uint32]string, imageBase string) (windowFact, bool) {
+// (pure). v0.41 widens the candidate pool past v0.40's
+// visible-only rule, on the strength of the field evidence: a
+// boxed app's main window can exist while hidden (WS_VISIBLE
+// off), and a visible-only picker structurally cannot claim it.
+// Candidates are ranked in two tiers:
+//
+//	app windows -- titled, unowned, non-system class (see
+//	               isAppWindowShape), VISIBLE OR HIDDEN;
+//	fallback    -- any other visible, unowned, non-system-class
+//	               window (v0.40's pool, minus the junk classes).
+//
+// Excluded HWNDs (windows that existed before the launch plus
+// everything already registered) are always skipped, and no
+// window outside the PID set is ever picked -- the set is the
+// identity evidence, everything else is ranking. Within a tier
+// the ranking is: PIDs in prefer (the launch difference -- the
+// processes THIS launch brought in) first, then image-base
+// matches (a boxed app spawns helpers whose windows are not the
+// main window), then visible before hidden, then larger area,
+// then lowest HWND, so the choice is deterministic.
+func pickWindowForPIDs(wins []windowFact, pids, prefer map[uint32]bool, exclude map[uint64]bool, imageByPID map[uint32]string, imageBase string) (windowFact, bool) {
 	if len(pids) == 0 {
 		return windowFact{}, false
 	}
-	var cands []windowFact
+	var app, fallback []windowFact
 	for _, w := range wins {
-		if !pids[w.PID] || exclude[w.HWND] || !w.Visible || w.Owned {
+		if !pids[w.PID] || exclude[w.HWND] || w.Owned || isSystemWindowClass(w.Class) {
 			continue
 		}
-		cands = append(cands, w)
+		if isAppWindowShape(w) {
+			app = append(app, w)
+		} else if w.Visible {
+			fallback = append(fallback, w)
+		}
+	}
+	cands := app
+	if len(cands) == 0 {
+		cands = fallback
 	}
 	if len(cands) == 0 {
 		return windowFact{}, false
 	}
-	if imageBase != "" {
-		var matched []windowFact
-		for _, w := range cands {
-			img := imageByPID[w.PID]
-			if img != "" && strings.EqualFold(filepath.Base(img), imageBase) {
-				matched = append(matched, w)
+	rank := func(w windowFact) (pref, img, vis int) {
+		if prefer[w.PID] {
+			pref = 1
+		}
+		if imageBase != "" {
+			if im := imageByPID[w.PID]; im != "" && strings.EqualFold(filepath.Base(im), imageBase) {
+				img = 1
 			}
 		}
-		if len(matched) > 0 {
-			cands = matched
+		if w.Visible {
+			vis = 1
 		}
+		return
 	}
 	sort.Slice(cands, func(i, j int) bool {
+		pi, ii, vi := rank(cands[i])
+		pj, ij, vj := rank(cands[j])
+		if pi != pj {
+			return pi > pj
+		}
+		if ii != ij {
+			return ii > ij
+		}
+		if vi != vj {
+			return vi > vj
+		}
 		ai, aj := int64(cands[i].W)*int64(cands[i].H), int64(cands[j].W)*int64(cands[j].H)
 		if ai != aj {
 			return ai > aj
@@ -372,7 +403,15 @@ func registerPIDClaimedWindow(app string, wf windowFact, origin string) bool {
 // birth settlement (landing + presentation) as a launch claim.
 // Serialized with trackLaunch through extClaimMu so two launches
 // can never race for the same fresh window.
-func claimWindowByPIDs(app string, pids map[uint32]bool, exclude map[uint64]bool, imageBase, origin string) (uint64, bool) {
+//
+// v0.41: when the picked window is not visible -- a boxed app's
+// born-hidden main window -- registration alone would leave it
+// exactly as invisible as before, so the claim actively reveals
+// it (ShowWindow) and re-reads the live visibility, logging both
+// values as the field proof. This reveal belongs ONLY to this
+// user-clicked launch path: the patrol's hidden claims register
+// without ever showing (decideClaim's HiddenClaim verdict).
+func claimWindowByPIDs(app string, pids, prefer map[uint32]bool, exclude map[uint64]bool, imageBase, origin string) (uint64, bool) {
 	if len(pids) == 0 {
 		return 0, false
 	}
@@ -393,7 +432,7 @@ func claimWindowByPIDs(app string, pids map[uint32]bool, exclude map[uint64]bool
 			imageByPID[p.PID] = p.ImagePath
 		}
 	}
-	wf, ok := pickWindowForPIDs(platformAllTopWindows(), pids, ex, imageByPID, imageBase)
+	wf, ok := pickWindowForPIDs(platformAllTopWindows(), pids, prefer, ex, imageByPID, imageBase)
 	if !ok {
 		return 0, false
 	}
@@ -402,6 +441,18 @@ func claimWindowByPIDs(app string, pids map[uint32]bool, exclude map[uint64]bool
 	}
 	logf("winmgr", "info", "已登记外部窗口：%s（显式 PID 集认领，PID %d）", app, wf.PID)
 	platformSetAppID(wf.HWND)
+	if !wf.Visible {
+		beforeVis := platformWindowVisible(wf.HWND)
+		platformShowAppWindow(wf.HWND)
+		afterVis := platformWindowVisible(wf.HWND)
+		if afterVis {
+			logf("winmgr", "info", "已把盒内应用的隐藏窗口显示出来：%s（hwnd=%d，PID %d，标题=%q，类=%s，显示前可见=%v，显示后可见=%v）",
+				app, wf.HWND, wf.PID, wf.Title, wf.Class, beforeVis, afterVis)
+		} else {
+			logf("winmgr", "warn", "盒内应用的隐藏窗口没能显示出来：%s（hwnd=%d，PID %d，标题=%q，类=%s，显示前可见=%v，显示后可见=%v）",
+				app, wf.HWND, wf.PID, wf.Title, wf.Class, beforeVis, afterVis)
+		}
+	}
 	settleNewWindow(wf.HWND, true)
 	return wf.HWND, true
 }
@@ -1082,6 +1133,17 @@ func patrolTick() {
 			delete(pendingOwned, wf.HWND)
 			auditMu.Unlock()
 			platformSetAppID(wf.HWND)
+			if v.HiddenClaim {
+				// v0.41: register-only. The patrol never reveals
+				// or raises a hidden boxed window on its own --
+				// no settle runs, so the entry is never marked
+				// present-pending and decidePresentRetry owes it
+				// nothing; presenting it is the user's launch
+				// click's job (claimWindowByPIDs' reveal).
+				logf("winmgr", "info", "台前调度认领窗口：%s（归属：%s；盒内应用窗口处于隐藏状态，仅登记，用户从桌面打开时呈现）",
+					label, ownReasonText(v.Reason))
+				continue
+			}
 			// v0.37 birth settlement: the one landing (patrol
 			// claims are equal citizens since this version), the
 			// backdrop lift in terminal context, or following

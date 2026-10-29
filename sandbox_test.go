@@ -286,17 +286,21 @@ func TestClassifyBoxLaunchTimeout(t *testing.T) {
 		name               string
 		sawNew, stillAlive bool
 		cross              int
+		hiddenApp          bool
 		want               boxLaunchFailKind
 	}{
-		{"never appeared in the box list", false, false, 0, boxFailNoProcess},
-		{"appeared then exited", true, false, 0, boxFailExited},
-		{"alive but zero windows", true, true, 0, boxFailNoWindow},
-		{"already-running process alive, no window found", false, true, 0, boxFailNoWindow},
-		{"cross-check found windows under boxed PIDs", true, true, 2, boxFailWindowPID},
-		{"cross-check wins over exited", true, false, 1, boxFailWindowPID},
+		{"never appeared in the box list", false, false, 0, false, boxFailNoProcess},
+		{"appeared then exited", true, false, 0, false, boxFailExited},
+		{"alive but zero windows", true, true, 0, false, boxFailNoWindow},
+		{"already-running process alive, no window found", false, true, 0, false, boxFailNoWindow},
+		{"cross-check found windows under boxed PIDs", true, true, 2, false, boxFailWindowPID},
+		{"cross-check wins over exited", true, false, 1, false, boxFailWindowPID},
+		{"v0.41 the field shape: hidden app window, reveal failed", true, true, 46, true, boxFailHiddenWindow},
+		{"v0.41 hidden app window outranks the exited reading", true, false, 3, true, boxFailHiddenWindow},
+		{"v0.41 hidden app window outranks the other-PID reading", false, true, 5, true, boxFailHiddenWindow},
 	}
 	for _, c := range cases {
-		if got := classifyBoxLaunchTimeout(c.sawNew, c.stillAlive, c.cross); got != c.want {
+		if got := classifyBoxLaunchTimeout(c.sawNew, c.stillAlive, c.cross, c.hiddenApp); got != c.want {
 			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
 		}
 	}
@@ -306,13 +310,13 @@ func TestBoxLaunchFailMessage(t *testing.T) {
 	before := []int{10, 20}
 	last := []int{10, 20, 300}
 	msgs := map[boxLaunchFailKind]string{}
-	for _, kind := range []boxLaunchFailKind{boxFailNoProcess, boxFailExited, boxFailNoWindow, boxFailWindowPID} {
+	for _, kind := range []boxLaunchFailKind{boxFailNoProcess, boxFailExited, boxFailNoWindow, boxFailWindowPID, boxFailHiddenWindow} {
 		msgs[kind] = boxLaunchFailMessage("Weixin", kind, before, last, nil)
 		if !strings.Contains(msgs[kind], string(kind)) || !strings.Contains(msgs[kind], "Weixin") {
 			t.Errorf("%s: message must carry kind and app: %q", kind, msgs[kind])
 		}
 	}
-	// The four shapes must be distinguishable by wording alone,
+	// The shapes must be distinguishable by wording alone,
 	// and must carry the raw PID sets for field diagnosis.
 	if !strings.Contains(msgs[boxFailNoProcess], "名单里一直没出现") || !strings.Contains(msgs[boxFailNoProcess], "[10 20]") {
 		t.Errorf("no-process wording: %q", msgs[boxFailNoProcess])
@@ -325,6 +329,14 @@ func TestBoxLaunchFailMessage(t *testing.T) {
 	}
 	if !strings.Contains(msgs[boxFailWindowPID], "没能登记") {
 		t.Errorf("window-pid wording: %q", msgs[boxFailWindowPID])
+	}
+	// v0.41: the hidden shape must NOT read like "no window" --
+	// the window existed, it was the reveal that failed.
+	if !strings.Contains(msgs[boxFailHiddenWindow], "隐藏状态") || !strings.Contains(msgs[boxFailHiddenWindow], "没能把它显示出来") {
+		t.Errorf("hidden-window wording: %q", msgs[boxFailHiddenWindow])
+	}
+	if strings.Contains(msgs[boxFailHiddenWindow], "没有窗口") {
+		t.Errorf("hidden-window wording must not claim there was no window: %q", msgs[boxFailHiddenWindow])
 	}
 	seen := map[string]bool{}
 	for k, m := range msgs {
@@ -347,6 +359,92 @@ func TestFormatBoxCrossCheck(t *testing.T) {
 	}
 	if !equalIntSlices([]int{1, 2}, []int{1, 2}) || equalIntSlices([]int{1}, []int{1, 2}) || equalIntSlices([]int{1, 3}, []int{1, 2}) {
 		t.Fatal("equalIntSlices wrong")
+	}
+}
+
+func TestSameNameBoxPIDs(t *testing.T) {
+	procs := []procNameFact{
+		{PID: 300, ImageBase: "Weixin.exe"},
+		{PID: 301, ImageBase: "WeChatAppEx.exe"}, // same suite, different exe: not the registered main
+		{PID: 302, ImageBase: "weixin.EXE"},      // case-insensitive match
+		{PID: 303, ImageBase: ""},                // image unreadable: never matched, never killed
+		{PID: 304, ImageBase: "Weixin.exe"},
+	}
+	got := sameNameBoxPIDs(procs, "Weixin.exe")
+	if len(got) != 3 || got[0] != 300 || got[1] != 302 || got[2] != 304 {
+		t.Fatalf("sameName = %v, want [300 302 304] ascending", got)
+	}
+	if got := sameNameBoxPIDs(procs, ""); got != nil {
+		t.Fatalf("empty exe base must match nothing, got %v", got)
+	}
+	if got := sameNameBoxPIDs(nil, "Weixin.exe"); got != nil {
+		t.Fatalf("no processes must match nothing, got %v", got)
+	}
+}
+
+func TestDecideBoxResidual(t *testing.T) {
+	qt := "Sandbox:MJBox:Qt51514QWindowIcon"
+	// No same-name processes at all: nothing to rule on.
+	if d := decideBoxResidual(nil, nil); d != boxResidualNone {
+		t.Fatalf("empty residuals = %v, want none", d)
+	}
+	// The wedged shape (v0.40 field case): same-name processes
+	// whose windows are ALL hidden or plumbing -> kill.
+	wedged := []windowFact{
+		{HWND: 1, PID: 300, Title: "WeChat", Class: qt, Visible: false},
+		{HWND: 2, PID: 300, Title: "", Class: "Sandbox:MJBox:Chrome_SystemMessageWindow", Visible: false},
+		{HWND: 3, PID: 300, Title: "Default IME", Class: "IME", Visible: false},
+	}
+	if d := decideBoxResidual([]uint32{300}, wedged); d != boxResidualKill {
+		t.Fatalf("wedged residuals = %v, want kill", d)
+	}
+	// Same-name processes with no windows at all -> kill.
+	if d := decideBoxResidual([]uint32{300}, nil); d != boxResidualKill {
+		t.Fatalf("windowless residuals = %v, want kill", d)
+	}
+	// A visible app window on the residual PID: a live app,
+	// present it, never kill it.
+	live := append(append([]windowFact{}, wedged...),
+		windowFact{HWND: 4, PID: 300, Title: "WeChat", Class: qt, Visible: true})
+	if d := decideBoxResidual([]uint32{300}, live); d != boxResidualPresent {
+		t.Fatalf("live residuals = %v, want present", d)
+	}
+	// A visible app window owned by a DIFFERENT process does not
+	// make THIS residual live: different-name processes are not
+	// touched by the ruling either way.
+	other := []windowFact{
+		{HWND: 5, PID: 999, Title: "别的盒内应用", Class: "Qt6QWindow", Visible: true},
+		{HWND: 6, PID: 300, Title: "WeChat", Class: qt, Visible: false},
+	}
+	if d := decideBoxResidual([]uint32{300}, other); d != boxResidualKill {
+		t.Fatalf("residual with only another app visible = %v, want kill (its own windows are all hidden)", d)
+	}
+	// A visible PLUMBING window (titled IME) on the residual PID
+	// is not an app window: still wedged.
+	plumb := []windowFact{
+		{HWND: 7, PID: 300, Title: "Default IME", Class: "IME", Visible: true},
+	}
+	if d := decideBoxResidual([]uint32{300}, plumb); d != boxResidualKill {
+		t.Fatalf("residual with only visible plumbing = %v, want kill", d)
+	}
+}
+
+func TestHasHiddenAppWindow(t *testing.T) {
+	qt := "Sandbox:MJBox:Qt51514QWindowIcon"
+	if hasHiddenAppWindow(nil) {
+		t.Fatal("empty cross-check has no hidden app window")
+	}
+	if hasHiddenAppWindow([]windowFact{{HWND: 1, PID: 300, Title: "WeChat", Class: qt, Visible: true}}) {
+		t.Fatal("a visible app window is not the hidden shape")
+	}
+	if hasHiddenAppWindow([]windowFact{{HWND: 2, PID: 300, Title: "", Class: "Sandbox:MJBox:Chrome_SystemMessageWindow", Visible: false}}) {
+		t.Fatal("hidden plumbing is not a hidden APP window")
+	}
+	if !hasHiddenAppWindow([]windowFact{
+		{HWND: 3, PID: 300, Title: "", Class: "IME", Visible: false},
+		{HWND: 4, PID: 301, Title: "WeChat", Class: qt, Visible: false},
+	}) {
+		t.Fatal("hidden titled Qt window must read as the hidden shape")
 	}
 }
 

@@ -52,6 +52,7 @@ func platformSetAppID(hwnd uint64) {}
 func platformWindowExists(hwnd uint64) bool  { return false }
 func platformWindowIconic(hwnd uint64) bool  { return false }
 func platformWindowVisible(hwnd uint64) bool { return false }
+func platformShowAppWindow(hwnd uint64) bool { return false }
 func platformWindowOwned(hwnd uint64) bool   { return false }
 func platformForegroundHWND() uint64         { return 0 }
 func platformHideWindow(hwnd uint64) bool    { return false }
