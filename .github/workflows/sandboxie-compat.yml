@@ -20,6 +20,7 @@ name: sandboxie-compat
 # v3 (run #2 hang fix): EVERY native call and wait carries a hard
 # timeout (Invoke-Capped). A wedged Start.exe can no longer freeze a
 # leg silently -- timeouts are named in the leg log and evidence.
+# v4 (run #3 phantom-path fix): To-VirtualPath maps the literal on-disk 'current' user folder to the real $env:USERNAME.
 on:
   workflow_dispatch:
 
@@ -305,7 +306,9 @@ jobs:
             if ($Physical.StartsWith($BoxRoot, [StringComparison]::OrdinalIgnoreCase)) {
               $rel = $Physical.Substring($BoxRoot.Length).TrimStart('\')
               if ($rel -match '^user\\([^\\]+)\\(.+)$') {
-                return 'C:\Users\' + $Matches[1] + '\' + $Matches[2]
+                $userSeg = $Matches[1]
+                if ($userSeg -eq 'current') { $userSeg = $env:USERNAME }
+                return 'C:\Users\' + $userSeg + '\' + $Matches[2]
               }
             }
             return $null
