@@ -1806,6 +1806,19 @@ func runServer(portFlag int, isDaemon bool) {
 	mux.HandleFunc("/api/remote/state", remoteStateHandler)
 	mux.HandleFunc("/api/remote/pairing", remotePairingHandler)
 	mux.HandleFunc("/api/remote/openlogin", remoteOpenLoginHandler)
+	mux.HandleFunc("/api/sandbox/status", sandboxStatusHandler)
+	mux.HandleFunc("/api/sandbox/apps", sandboxAppsHandler)
+	mux.HandleFunc("/api/sandbox/component/install", sandboxInstallComponentHandler)
+	mux.HandleFunc("/api/sandbox/component/uninstall", sandboxUninstallComponentHandler)
+	mux.HandleFunc("/api/sandbox/component/repair", sandboxRepairHandler)
+	mux.HandleFunc("/api/sandbox/import", sandboxImportHandler)
+	mux.HandleFunc("/api/sandbox/box/install", sandboxBoxInstallHandler)
+	mux.HandleFunc("/api/sandbox/box/register", sandboxBoxRegisterHandler)
+	mux.HandleFunc("/api/sandbox/box/discard", sandboxBoxDiscardHandler)
+	mux.HandleFunc("/api/sandbox/box/stop", sandboxBoxStopHandler)
+	mux.HandleFunc("/api/sandbox/launch", sandboxLaunchHandler)
+	mux.HandleFunc("/api/sandbox/remove", sandboxRemoveHandler)
+	mux.HandleFunc("/api/sandbox/clear", sandboxClearHandler)
 	srv := &http.Server{Handler: activityMiddleware(diagMiddleware(mux))}
 	mux.HandleFunc("/api/shutdown", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"ok": true, "message": "后台和节点一起退出"})
@@ -1830,6 +1843,7 @@ func runServer(portFlag int, isDaemon bool) {
 	startExtPatrol()
 	startShellWatcher()
 	remoteInit()
+	sandboxInit()
 
 	fmt.Println("MJ Light System daemon:", url)
 	daemonPort = actualPort
@@ -1910,6 +1924,16 @@ func runServer(portFlag int, isDaemon bool) {
 }
 
 func main() {
+	// App isolation (v0.39): the daemon re-launches itself elevated
+	// in narrow helper modes (-sbie-ini / -sbie-setup /
+	// -sbie-uninstall / -sbie-startsvc) for the one-UAC operations
+	// Sandboxie needs. Checked before flag parsing on purpose:
+	// those invocations carry their own arguments and must never
+	// boot a daemon or open a view.
+	if code, handled := sbieHelperExitCode(os.Args[1:]); handled {
+		os.Exit(code)
+	}
+
 	port := flag.Int("port", 0, "port to listen on (0 = daemon port range)")
 	noOpen := flag.Bool("no-open", false, "run the server in this process (dev/test)")
 	daemon := flag.Bool("daemon", false, "run as the hidden background daemon")

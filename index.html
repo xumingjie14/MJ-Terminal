@@ -715,6 +715,7 @@ function collectDeskEntries(){
  WEBAPPS.filter(a=>!inFolder.has(a.url)).forEach(a=>{ entries.push({key:'web:'+a.url,el:mkDeskIcon('web:'+a.url,'web',webIconHTML(a),a.name,()=>openWebApp(a.url))}); });
  LAYOUT.folders.forEach(f=>{ const el=mkDeskIcon('folder:'+f.id,'folder',folderIconHTML(f),f.name,()=>openFolderPop(f.id,el),f.id); entries.push({key:'folder:'+f.id,el}); });
  STOREAPPS.forEach(a=>{ entries.push({key:'store:'+a.id,el:mkDeskIcon('store:'+a.id,'native',storeIconHTML(a),a.name,()=>launchStoreApp(a.id))}); });
+ BOXAPPS.forEach(a=>{ entries.push({key:'box:'+a.id,el:mkDeskIcon('box:'+a.id,'native',storeIconHTML(a),a.name,()=>launchBoxApp(a.id))}); });
  if(!SETTINGS||SETTINGS.filesOnDesktop!==false){
   DESKFILES.forEach(f=>{
    const el=mkDeskIcon('file:'+f.name,'file',fileIconHTML(f),f.name,()=>openDeskFile(f.path,f.kind));
@@ -1349,6 +1350,18 @@ async function launchStoreApp(id){
  const r=await api('/api/apps/launch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})}).catch(()=>null);
  if(r&&r.error) alert(r.error);
 }
+/* ----- boxed apps (v0.39): real installers contained by the
+   Sandboxie component, registered in Data/sandbox/apps.json. On
+   the desktop they are first-class icons (key box:<id>, kind
+   'native' like store apps: reorder yes, folders no). ----- */
+let BOXAPPS=[];
+async function loadBoxApps(){
+ try{const r=await api('/api/sandbox/apps');BOXAPPS=r.apps||[]}catch(e){BOXAPPS=[]}
+}
+async function launchBoxApp(id){
+ const r=await api('/api/sandbox/launch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})}).catch(()=>null);
+ if(r&&r.error) alert(r.error);
+}
 /* ----- imported files on the desktop (v0.32) -----
    Host files enter ONLY by the user's hand: drag them onto the
    desktop, the desktop menu's 「从电脑导入文件…」 (the OS picker),
@@ -1584,9 +1597,9 @@ function render(id){
  if(id==='ssh') b.innerHTML=`<h3>SSH 远程终端</h3><p class="mut" style="margin-top:6px">连接、私钥、服务器指纹都存在 EXE 旁的 <b style="color:#fff">Data/ssh</b> 里，跟着文件夹走。密码和私钥口令只在连接时输入、<b style="color:#fff">不保存</b>。第一次连某台服务器会记下它的指纹，之后每次校验，对不上会拦住。</p><div class="row" style="margin-top:10px"><select id="sshconn" class="txt" style="max-width:250px"></select><button class="btn gray" id="sshnew">＋ 新建</button><button class="btn gray" id="sshedit">编辑</button><button class="btn gray" id="sshdel">删除</button></div><div id="sshform" style="display:none;margin-top:10px"><div class="row"><input class="txt" id="sf_name" placeholder="名字，如 新加坡服务器" style="max-width:170px"><input class="txt" id="sf_host" placeholder="主机 / IP"><input class="txt" id="sf_port" placeholder="端口" value="22" style="max-width:80px"><input class="txt" id="sf_user" placeholder="用户名" style="max-width:120px"></div><div class="row" style="margin-top:8px"><label class="mut">登录方式 <select id="sf_auth" class="txt"><option value="key">密钥</option><option value="password">密码</option></select></label><select id="sf_key" class="txt" style="max-width:170px"></select><label class="mut"><input type="checkbox" id="sf_proxy"> 走节点连接</label></div><div class="row" style="margin-top:8px"><input class="txt" id="sf_keyname" placeholder="新密钥名（导入时填，如 id_sg）" style="max-width:210px"></div><textarea id="sf_keydata" rows="3" style="width:100%;margin-top:6px" placeholder="粘贴私钥内容导入（可选，存进 Data/ssh/keys；已存的密钥在上面选）"></textarea><div class="row" style="margin-top:8px"><button class="btn" id="sfsave">保存连接</button><span class="tag" id="sfst"></span></div></div><div class="row" style="margin-top:12px"><input class="txt" id="sshpass" type="password" placeholder="密码 / 私钥口令（连接时输，不保存）" style="max-width:250px" autocomplete="off"><button class="btn" id="sshgo">连接</button><button class="btn gray" id="sshstop">断开</button><span class="tag" id="sshst">未连接</span></div><div id="sshterm" style="margin-top:10px;height:300px;background:#0b0e14;border-radius:10px;padding:6px;overflow:hidden"></div><hr style="border-color:rgba(255,255,255,.14);margin:16px 0"><h3>文件（SFTP）</h3><p class="mut" style="margin-top:4px">共用上面的终端连接传文件，不用再输一次密码。</p><div class="row" style="margin-top:8px"><span class="tag" id="sfpath">未连接</span><button class="btn gray" id="sfup">↑ 上级</button><button class="btn gray" id="sfrefresh">刷新</button><button class="btn gray" id="sfmkdir">新建文件夹</button><button class="btn gray" id="sfupload">上传文件</button><input type="file" id="sffile" style="display:none"></div><div id="sflist" class="mut" style="margin-top:8px">连上服务器后，这里能浏览、上传、下载、删除远程文件。</div>`;
  if(id==='servermon') b.innerHTML=`<div class="sm-wrap"><div class="sm-side"><div class="sm-hd">服务器</div><div id="sm-list"></div><p class="mut" style="font-size:11.5px;padding:10px 8px 0;line-height:1.6">监控走 SSH 通道读服务器数据，不用在服务器上装任何东西。密钥连接可自动采样；密码连接先在 SSH 里连上，或在详情里输一次密码手动采样。</p></div><div class="sm-main" id="sm-main"><p class="mut">加载中…</p></div></div>`;
  if(id==='console'){ b.style.padding='0'; b.style.background='#0b0e14'; b.style.display='flex'; b.style.flexDirection='column';
- b.innerHTML=`<div style="padding:12px 14px 10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-bottom:1px solid rgba(255,255,255,.08)"><span class="cschip">版本 <b id="cs-ver">…</b></span><span class="cschip"><span class="csdot" id="cs-core-dot"></span>核心 <span id="cs-core">…</span></span><span class="cschip"><span class="csdot" id="cs-node-dot"></span>节点 <span id="cs-node">…</span></span><span class="cschip">运行时长 <span id="cs-up">…</span></span><span class="cschip">日志 <span id="cs-cnt">…</span></span></div><div style="padding:8px 14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-bottom:1px solid rgba(255,255,255,.08)"><select id="cs-level" class="csin"><option value="">全部级别</option><option value="info">信息及以上</option><option value="warn">警告及以上</option><option value="error">只看错误</option></select><select id="cs-module" class="csin"><option value="">全部模块</option><option value="system">系统</option><option value="core">核心</option><option value="node">节点</option><option value="browser">浏览器</option><option value="winmgr">窗口管理</option><option value="ssh">SSH</option><option value="servermon">服务器监控</option><option value="update">更新</option><option value="firefox">Firefox</option><option value="apps">应用商店</option><option value="openclaw">小龙虾</option><option value="settings">设置</option><option value="storage">存储</option><option value="files">文件导入</option><option value="remote">远程协助</option><option value="diag">诊断</option><option value="api">接口</option></select><input id="cs-q" class="csin" placeholder="搜索日志…" style="flex:1;min-width:100px"><label style="font-size:12.5px;opacity:.9"><input type="checkbox" id="cs-auto" checked> 自动滚动</label><button class="btn gray" id="cs-copy">复制诊断摘要</button><button class="btn gray" id="cs-export">导出日志</button></div><div id="cs-log" style="flex:1;overflow:auto;padding:10px 14px;font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.7;color:#d6e2f0"></div><div style="padding:7px 14px;font-size:12px;opacity:.6;border-top:1px solid rgba(255,255,255,.08)">日志同时存在 EXE 旁 Data/logs/mj.log。出问题时先看这里的红色报错，或点「导出日志」把诊断包发出来定位。</div>`;
+ b.innerHTML=`<div style="padding:12px 14px 10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-bottom:1px solid rgba(255,255,255,.08)"><span class="cschip">版本 <b id="cs-ver">…</b></span><span class="cschip"><span class="csdot" id="cs-core-dot"></span>核心 <span id="cs-core">…</span></span><span class="cschip"><span class="csdot" id="cs-node-dot"></span>节点 <span id="cs-node">…</span></span><span class="cschip">运行时长 <span id="cs-up">…</span></span><span class="cschip">日志 <span id="cs-cnt">…</span></span></div><div style="padding:8px 14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-bottom:1px solid rgba(255,255,255,.08)"><select id="cs-level" class="csin"><option value="">全部级别</option><option value="info">信息及以上</option><option value="warn">警告及以上</option><option value="error">只看错误</option></select><select id="cs-module" class="csin"><option value="">全部模块</option><option value="system">系统</option><option value="core">核心</option><option value="node">节点</option><option value="browser">浏览器</option><option value="winmgr">窗口管理</option><option value="ssh">SSH</option><option value="servermon">服务器监控</option><option value="update">更新</option><option value="firefox">Firefox</option><option value="apps">应用商店</option><option value="openclaw">小龙虾</option><option value="sandbox">应用隔离</option><option value="settings">设置</option><option value="storage">存储</option><option value="files">文件导入</option><option value="remote">远程协助</option><option value="diag">诊断</option><option value="api">接口</option></select><input id="cs-q" class="csin" placeholder="搜索日志…" style="flex:1;min-width:100px"><label style="font-size:12.5px;opacity:.9"><input type="checkbox" id="cs-auto" checked> 自动滚动</label><button class="btn gray" id="cs-copy">复制诊断摘要</button><button class="btn gray" id="cs-export">导出日志</button></div><div id="cs-log" style="flex:1;overflow:auto;padding:10px 14px;font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.7;color:#d6e2f0"></div><div style="padding:7px 14px;font-size:12px;opacity:.6;border-top:1px solid rgba(255,255,255,.08)">日志同时存在 EXE 旁 Data/logs/mj.log。出问题时先看这里的红色报错，或点「导出日志」把诊断包发出来定位。</div>`;
  }
- if(id==='appstore') b.innerHTML=`<h3>应用商店 · 便携应用</h3><p class="mut" style="margin-top:6px">这里的都是<b style="color:#fff">免安装的便携版</b>：从官方源直下、装进 EXE 旁的 <b style="color:#fff">Data/apps</b>，程序和数据都跟着文件夹走，宿主电脑不留东西。每个应用上架前都验过包，并钉死了校验和，下载对不上会自动拒绝。</p><div class="row" style="margin-top:10px"><input class="txt" id="st-q" placeholder="搜索应用…"><span class="tag" id="st-count"></span></div><div style="display:flex;gap:12px;margin-top:12px;align-items:flex-start"><div id="st-cats" style="width:102px;flex:none;display:flex;flex-direction:column;gap:4px"></div><div id="st-grid" style="flex:1;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;align-content:start"></div></div><p class="mut" id="st-foot" style="margin-top:12px"></p>`;
+ if(id==='appstore') b.innerHTML=`<h3>应用商店 · 便携应用</h3><p class="mut" style="margin-top:6px">这里的都是<b style="color:#fff">免安装的便携版</b>：从官方源直下、装进 EXE 旁的 <b style="color:#fff">Data/apps</b>，程序和数据都跟着文件夹走，宿主电脑不留东西。每个应用上架前都验过包，并钉死了校验和，下载对不上会自动拒绝。</p><div class="row" style="margin-top:10px"><input class="txt" id="st-q" placeholder="搜索应用…"><span class="tag" id="st-count"></span></div><div style="display:flex;gap:12px;margin-top:12px;align-items:flex-start"><div id="st-cats" style="width:102px;flex:none;display:flex;flex-direction:column;gap:4px"></div><div id="st-grid" style="flex:1;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;align-content:start"></div></div><p class="mut" id="st-foot" style="margin-top:12px"></p><hr style="border-color:rgba(255,255,255,.14);margin:18px 0"><h3>隔离安装 · 只有安装版的软件</h3><p class="mut" style="margin-top:6px">微信这种<b style="color:#fff">只有安装版</b>的软件，可以装进<b style="color:#fff">隔离盒子</b>：整个安装过程被隔离组件接住，程序和数据都落在 Data/sandbox 里，跟着文件夹走，宿主电脑不留东西。要先装好隔离组件（设置 → 应用隔离，过一次管理员确认）。</p><div id="st-box" style="margin-top:10px"></div>`;
  if(id==='openclaw') b.innerHTML=`<h3>小龙虾 OpenClaw</h3><div class="sm-card" style="margin-top:10px"><div class="sm-row"><span>状态</span><span id="oc-st-state">读取中…</span></div><div class="sm-row"><span>版本</span><span id="oc-st-ver">—</span></div><div class="sm-row"><span>运行时长</span><span id="oc-st-up">—</span></div><div class="sm-row"><span>内存占用（整个进程树）</span><span id="oc-st-rss">—</span></div><div class="sm-row"><span>组件占用磁盘</span><span id="oc-st-disk">—</span></div><div class="sm-row"><span>模型出口</span><span id="oc-st-route">—</span></div></div><div class="row" style="margin-top:10px"><button class="btn" id="oc-dl">下载组件</button><button class="btn gray" id="oc-check">检查更新</button><span class="tag" id="oc-prog"></span></div><div id="oc-main" style="display:none"><div class="row" style="margin-top:12px"><button class="btn" id="oc-start">启动</button><button class="btn red" id="oc-stop">停止</button><button class="btn gray" id="oc-console">打开控制台</button></div><p class="mut" style="margin-top:8px">网关令牌 <span class="tag" id="oc-token">…</span> <button class="btn gray" id="oc-tokcopy">复制令牌</button> <span style="font-size:12px">打开控制台要令牌时粘贴它；令牌存在组件自己的配置里，跟着文件夹走，不用记。</span></p><div class="sm-sec">设置</div><div class="sm-card"><div class="sm-row"><span>模型流量走本地节点</span><label class="sm-sw"><input type="checkbox" id="oc-p-vianode"><i></i></label></div><div class="sm-row"><span>打开终端机时自动启动</span><label class="sm-sw"><input type="checkbox" id="oc-p-autostart"><i></i></label></div><div class="sm-row"><span>崩溃后自动重启（10 分钟内最多 3 次）</span><label class="sm-sw"><input type="checkbox" id="oc-p-crash"><i></i></label></div></div><p class="mut" style="font-size:12px;margin-top:6px">走节点：节点在跑时模型请求经节点出去；节点起不来会明示本次直连，绝不假装走了节点。</p><div class="sm-sec">配置向导 · 模型</div><div class="sm-card"><div class="sm-row"><span>当前配置</span><span id="oc-wiz-cur">读取中…</span></div><div class="row" style="margin-top:8px" id="oc-wiz-provs"><button class="btn" data-p="openai">OpenAI</button><button class="btn gray" data-p="anthropic">Anthropic</button><button class="btn gray" data-p="deepseek">DeepSeek</button><button class="btn gray" data-p="custom">自定义接口</button></div><div class="row" style="margin-top:8px;display:none" id="oc-wiz-idrow"><input class="txt" id="oc-wiz-id" placeholder="厂商标识（小写字母开头，如 myapi）" style="max-width:240px"></div><div class="row" style="margin-top:8px"><input class="txt" id="oc-wiz-base" placeholder="接口地址（留空用官方地址）"></div><div class="row" style="margin-top:8px"><input class="txt" id="oc-wiz-key" type="password" placeholder="API Key（留空 = 不修改已保存的）" autocomplete="off"></div><div class="row" style="margin-top:8px"><input class="txt" id="oc-wiz-model" list="oc-wiz-models" placeholder="模型名，如 gpt-5.1"><datalist id="oc-wiz-models"></datalist></div><div class="row" style="margin-top:8px"><button class="btn" id="oc-wiz-save">保存配置</button><button class="btn gray" id="oc-wiz-test">测试连接</button><span class="tag" id="oc-wiz-msg"></span></div><p class="mut" style="font-size:12px;margin-top:6px">保存走小龙虾自己的配置命令：立即生效、不用重启网关，改前它会自动备份旧配置。Key 只写进组件配置，不进日志。自定义接口按 OpenAI 兼容协议。Telegram 等消息渠道去小龙虾控制台里配。</p></div><div class="sm-sec">运行日志</div><div class="sm-card"><pre id="oc-log" style="max-height:220px;overflow:auto;font-size:11.5px;line-height:1.55;white-space:pre-wrap;word-break:break-all;margin:0">（暂无日志）</pre><div class="row" style="margin-top:6px"><button class="btn gray" id="oc-log-refresh">刷新日志</button><span class="mut" style="font-size:12px">网关自己的输出；终端机的系统事件在「控制台」应用里看（模块：小龙虾）</span></div></div><div class="sm-sec">数据与组件</div><div class="sm-card"><div class="sm-row"><span>数据导出（配置 + 它记住的东西，换电脑用）</span><button class="btn gray" id="oc-export">导出</button></div><div class="sm-row"><span>数据导入（导入前自动备份现有数据）</span><span><input type="file" id="oc-import-file" accept=".zip" style="display:none"><button class="btn gray" id="oc-import">导入…</button></span></div><div class="sm-row"><span>卸载组件（程序、配置、数据全删）</span><button class="btn red" id="oc-uninst">卸载</button></div><p class="mut" style="font-size:12px;margin-top:6px" id="oc-dir"></p></div></div><details style="margin-top:14px"><summary class="mut" style="cursor:pointer;font-size:12.5px">安装须知（重型组件，先看一眼）</summary><p class="mut" style="margin-top:6px;line-height:1.7">小龙虾是一个能<b style="color:#fff">操作电脑、收发消息</b>的 AI 助手。它是<b style="color:#fff">按需下载的重型组件</b>：<br>· <b style="color:#fff">体积约 630 MB</b>，装在 EXE 旁的 Data/openclaw，跟着文件夹走；<br>· 运行时<b style="color:#fff">内存约 1 GB</b> 量级，老电脑会吃力（上面的状态卡能实时看）；<br>· 它权限很大（能跑命令、动文件、替你发消息），<b style="color:#fff">只建议装在自己的电脑上，不要装到公用电脑</b>；<br>· 模型 API Key 自备：在上面的配置向导里填，或去小龙虾自己的控制台里配。</p></details>`;
  if(id==='imgview') b.innerHTML=`<div style="display:flex;flex-direction:column;height:100%"><div class="row" style="padding-bottom:10px"><button class="btn gray" id="iv-prev">‹ 上一张</button><button class="btn gray" id="iv-next">下一张 ›</button><button class="btn gray" id="iv-fit">适应窗口 / 100%</button><span class="tag" id="iv-name">图片</span></div><div class="imgstage"><img id="iv-img" alt=""></div><p class="mut" style="margin-top:8px;font-size:12px">同目录的其他图片可以用按钮或键盘 ← → 切换。</p></div>`;
  if(id==='textview') b.innerHTML=`<div class="row" style="padding-bottom:10px"><span class="tag" id="tv-name">文本</span><label style="font-size:12.5px"><input type="checkbox" id="tv-wrap" checked> 自动换行</label><span class="tag" id="tv-note"></span></div><pre class="textview" id="tv-pre">读取中…</pre>`;
@@ -1655,13 +1668,14 @@ function bind(id){
    {id:'network',n:'节点与网络',g:'linear-gradient(180deg,#bf5af2,#7d2ae8)',glyph:'🚀',kw:'节点 加速 代理 下载 网络'},
    {id:'browser',n:'浏览器',g:'linear-gradient(180deg,#5ec2ff,#0a62d6)',glyph:'◎',kw:'chrome firefox 缓存 同步 谷歌 浏览器'},
    {id:'components',n:'组件',g:'linear-gradient(180deg,#ffb340,#ff7139)',glyph:'🧩',kw:'firefox 小龙虾 openclaw 组件'},
+   {id:'isolation',n:'应用隔离',g:'linear-gradient(180deg,#64d2ff,#5856d6)',glyph:'📦',kw:'隔离 沙盒 sandboxie 驱动 管理员 微信 安装 盒子'},
    {id:'storage',n:'存储空间',g:'linear-gradient(180deg,#a7b0be,#5b6470)',glyph:'▤',kw:'存储 空间 清理 缓存 瘦身 占用 磁盘'},
    {id:'security',n:'安全与隐私',g:'linear-gradient(180deg,#ffd60a,#ff9f0a)',glyph:'🔒',kw:'远程 协助 安全 隐私 配对 接管 tailscale 操作者'},
    {id:'general',n:'通用',g:'linear-gradient(180deg,#d1d1d6,#636366)',glyph:'⚙',kw:'退出 自动 时长 通用'},
    {id:'about',n:'关于',g:'linear-gradient(180deg,#64d2ff,#0a84ff)',glyph:'i',kw:'关于 版本 控制台 诊断 数据目录'},
    {id:'update',n:'软件更新',g:'linear-gradient(180deg,#8e8e93,#48484a)',glyph:'⬆',kw:'更新 升级 版本 令牌'}
   ];
-  let curPage='appearance', usageCache=null, updIv=null, secIv=null;
+  let curPage='appearance', usageCache=null, updIv=null, secIv=null, sbxIv=null;
   const storageUsageOnce=async()=>{ if(!usageCache) usageCache=await api('/api/storage/usage'); return usageCache };
   const navPaint=()=>{ const q=(G('set-q').value||'').trim().toLowerCase();
    G('set-nav').innerHTML=PAGES.filter(p=>!q||(p.n+' '+p.kw).toLowerCase().includes(q)).map(p=>`<div class="set-it${p.id===curPage?' on':''}" data-page="${p.id}"><span class="set-ico" style="background:${p.g}">${p.glyph}</span><span>${p.n}</span></div>`).join('')||'<p class="mut" style="padding:8px">没有匹配的设置项</p>';
@@ -1705,10 +1719,57 @@ function bind(id){
    try{ const u=await storageUsageOnce(); const el=G('br-chrome-size'); if(el){ const g=(u.groups||[]).find(x=>x.key==='chrome'); el.textContent=g?fmtB(g.bytes):'—'; } }catch(e){}
   };
   const paintComponents=async()=>{
-   G('set-main').innerHTML=`<div class="set-page"><div class="set-sec">组件</div><div class="set-desc">按需下载的重型组件，装在 EXE 旁，跟着文件夹走。点「管理」去各自的应用页下载、启停或卸载。</div><div class="sm-card"><div class="sm-row"><span>🦊 Firefox</span><span class="row"><span class="set-val" id="cp-ff">读取中…</span><button class="btn gray" data-openapp="firefox">管理</button></span></div><div class="sm-row"><span>🦞 小龙虾 OpenClaw</span><span class="row"><span class="set-val" id="cp-oc">读取中…</span><button class="btn gray" data-openapp="openclaw">管理</button></span></div></div></div>`;
+   G('set-main').innerHTML=`<div class="set-page"><div class="set-sec">组件</div><div class="set-desc">按需下载的重型组件，装在 EXE 旁，跟着文件夹走。点「管理」去各自的应用页下载、启停或卸载。</div><div class="sm-card"><div class="sm-row"><span>🦊 Firefox</span><span class="row"><span class="set-val" id="cp-ff">读取中…</span><button class="btn gray" data-openapp="firefox">管理</button></span></div><div class="sm-row"><span>🦞 小龙虾 OpenClaw</span><span class="row"><span class="set-val" id="cp-oc">读取中…</span><button class="btn gray" data-openapp="openclaw">管理</button></span></div><div class="sm-row"><span>📦 应用隔离 Sandboxie</span><span class="row"><span class="set-val" id="cp-sbie">读取中…</span><button class="btn gray" id="cp-sbie-go">管理</button></span></div></div><p class="set-note">应用隔离的组件包已内置在程序里（装的时候不用联网），驱动装在当前这台电脑上；细节和诚实说明在「应用隔离」页。</p></div>`;
    G('set-main').querySelectorAll('[data-openapp]').forEach(b=>b.onclick=()=>openApp(b.dataset.openapp));
+   G('cp-sbie-go').onclick=()=>goto('isolation');
+   try{ const sb=await api('/api/sandbox/status'); const el=G('cp-sbie'); if(el) el.textContent=!sb.supported?'当前平台不支持':(sb.installed?('已安装 · v'+(sb.version||'?')+(sb.serviceState==='RUNNING'?' · 运行中':' · 服务异常')):'未安装'); }catch(e){}
    try{ const ff=await api('/api/firefox'); const el=G('cp-ff'); if(el) el.textContent=ff.installed?('已安装 · v'+(ff.version||'?')):'未安装'; }catch(e){}
    try{ const oc=await api('/api/openclaw/status'); const el=G('cp-oc'); if(el) el.textContent=oc.installed?('已安装 · v'+(oc.version||'?')+(oc.running?' · 运行中':'')+(oc.diskBytes?' · '+fmtB(oc.diskBytes):'')):'未安装'; }catch(e){}
+  };
+  const paintIsolation=()=>{
+   if(sbxIv){ clearInterval(sbxIv); sbxIv=null; }
+   G('set-main').innerHTML=`<div class="set-page"><div class="set-sec">应用隔离</div><div class="set-desc">没有便携版的软件（比如微信），可以装进一个<b style="color:#fff">隔离盒子</b>：安装时它往 Program Files、注册表、AppData 写的东西，全被隔离组件（Sandboxie Plus）截进 EXE 旁的 <b style="color:#fff">Data/sandbox</b>。程序和数据跟着文件夹走，删掉盒子就是真卸载，宿主电脑不留东西。</div><div class="sm-card" id="sbx-card"><div class="sm-row"><span>读取中…</span></div></div><div class="set-sec">先说清楚</div><div class="set-desc">① 安装组件要过<b style="color:#fff">一次管理员确认</b>（驱动必须进系统），驱动和服务会常驻在这台电脑上，直到你在这里卸载组件为止——所以这个功能适合<b style="color:#fff">你自己的电脑</b>，不要在公用、共享电脑上装。<br>② 盒内应用<b style="color:#fff">默认直连网络</b>。应用自己支持填代理的（如 Telegram），在应用里把代理指向 127.0.0.1:2080 就能走终端的节点；把不认代理的应用的全部流量强制掰进节点，是 Sandboxie 的付费功能，本产品不提供。<br>③ 要往系统里装服务/驱动的软件、带强 DRM 或反作弊的软件，可能在盒子里装不上或跑不起来，这是这类软件的性质，装的时候会如实报错。<br>④ 换电脑时盒子跟着文件夹走，新电脑上把组件装一次就能接着用；个别软件有机器绑定授权或账号风控，可能要重新激活或扫码登录，那是软件自己的规矩。<br>⑤ 组件安装包（约 24 MB）已经<b style="color:#fff">内置在程序里</b>，没网也能装；只有内置包释放失败时才联网下载，下载后照样验 SHA-256。</div><div class="set-sec">盒子</div><div class="sm-card" id="sbx-boxcard"><div class="sm-row"><span>读取中…</span></div></div><div class="set-sec">盒内应用</div><div class="set-desc">在「应用商店」里用隔离安装添加；登记后图标直接上桌面，双击打开。在这里也能启动和移除。</div><div class="sm-card" id="sbx-apps"><div class="sm-row"><span>读取中…</span></div></div></div>`;
+   const paint=async()=>{
+    let st; try{ st=await api('/api/sandbox/status'); }catch(e){ return; }
+    const card=G('sbx-card'); if(!card) return;
+    const comp=st.component||{};
+    let h='';
+    if(!st.supported){
+     h=`<div class="sm-row"><span>当前平台</span><span class="set-val">不支持（应用隔离需要 Windows）</span></div>`;
+    } else if(comp.busy){
+     const pc=comp.size?Math.min(99,Math.floor((comp.progress||0)/comp.size*100)):0;
+     h=`<div class="sm-row"><span>组件状态</span><span class="set-val">${esc(comp.message||'处理中…')}</span></div>`+(comp.size?`<div class="sm-row"><span>进度</span><span class="set-val">${pc}%</span></div>`:'')+`<p class="set-note">如果屏幕上弹出了系统的管理员确认窗口，点「是」才会继续。</p>`;
+    } else if(!st.installed){
+     h=`<div class="sm-row"><span>组件状态</span><span class="set-val">未安装</span></div><div class="sm-row"><span>组件</span><span class="set-val">Sandboxie Plus v${esc(st.pinnedVersion||'')}</span></div><div class="sm-row"><span>安装</span><span class="row"><button class="btn" id="sbx-install">安装组件</button></span></div><p class="set-note">点安装后会弹出一次系统管理员确认（UAC），同意后全程自动，不用再点别的。</p>`;
+     if(comp.phase==='error') h+=`<p class="set-note" style="color:#ff9d97">${esc(comp.message||'上次安装没成功')}</p>`;
+    } else {
+     const ready=st.serviceState==='RUNNING'&&st.iniPlaced;
+     h=`<div class="sm-row"><span>组件状态</span><span class="set-val">${ready?'已就绪':(st.serviceState!=='RUNNING'?'服务异常':'盒子待落位')}</span></div>`
+      +`<div class="sm-row"><span>版本</span><span class="set-val">Sandboxie Plus v${esc(st.version||'?')}</span></div>`
+      +`<div class="sm-row"><span>服务 / 驱动</span><span class="set-val">${esc(st.serviceState||'—')} / ${esc(st.driverState||'—')}</span></div>`
+      +(st.metaSource?`<div class="sm-row"><span>组件来源</span><span class="set-val">${st.metaSource==='embedded'?'内置组件包':'在线下载'}${st.metaAt?(' · '+esc(st.metaAt)):''}</span></div>`:'')
+      +`<div class="sm-row"><span>管理</span><span class="row"><button class="btn gray" id="sbx-repair">修复</button><button class="btn red" id="sbx-uninstall">卸载组件</button></span></div>`
+      +(ready?'':`<p class="set-note">修复会重新启动服务、把盒子按当前 Data 位置落位（可能要再过一次管理员确认）。</p>`);
+     if(comp.phase==='error') h+=`<p class="set-note" style="color:#ff9d97">${esc(comp.message||'')}</p>`;
+     if(comp.phase==='done'&&comp.message) h+=`<p class="set-note">${esc(comp.message)}</p>`;
+    }
+    card.innerHTML=h;
+    const bi=G('sbx-install'); if(bi) bi.onclick=async()=>{ bi.disabled=true; const r=await api('/api/sandbox/component/install',{method:'POST'}); if(r&&r.error) alert(r.error); paint(); };
+    const br=G('sbx-repair'); if(br) br.onclick=async()=>{ br.disabled=true; br.textContent='修复中…'; const r=await api('/api/sandbox/component/repair',{method:'POST'}); if(r&&r.error) alert('修复没成功：'+r.error); else alert('修复完成：'+(r.message||'')); paint(); };
+    const bu=G('sbx-uninstall'); if(bu) bu.onclick=async()=>{ if(!confirm('卸载隔离组件？\n驱动和服务会从这台电脑移除（要过一次管理员确认）。盒子里已装的应用和数据保留在 Data/sandbox，以后重装组件还能接着用。')) return; const r=await api('/api/sandbox/component/uninstall',{method:'POST'}); if(r&&r.error) alert(r.error); paint(); };
+    const bc=G('sbx-boxcard'); if(bc){
+     bc.innerHTML=`<div class="sm-row"><span>盒子占用</span><span class="set-val">${fmtB(st.boxBytes||0)}</span></div><div class="sm-row"><span>盒子位置</span><span class="set-val" style="font-size:11.5px">${esc(st.boxRoot||'')}</span></div><div class="sm-row"><span>清空盒子</span><span class="row"><button class="btn red" id="sbx-clear">清空盒子</button></span></div><p class="set-note">清空 = 盒内全部应用和数据一起删掉，等于把它们全部卸载。组件本身不卸载。</p>`;
+     const cl=G('sbx-clear'); if(cl) cl.onclick=async()=>{ if(!confirm('真的要清空盒子？盒内全部应用和数据都会删掉，不可恢复。')) return; if(!confirm('再确认一次：盒子里装的软件（比如微信和它的聊天数据）全没了。继续？')) return; const r=await api('/api/sandbox/clear',{method:'POST'}); if(r&&r.error) alert(r.error); await loadBoxApps(); renderDesk(); paint(); };
+    }
+    const ac=G('sbx-apps'); if(ac){
+     const apps=st.apps||[];
+     ac.innerHTML=apps.length?apps.map(a=>`<div class="sm-row"><span>${esc(a.name)}<br><span style="font-size:12px;opacity:.65">${esc(a.exe)}</span></span><span class="row"><button class="btn gray" data-sbx-open="${esc(a.id)}">打开</button><button class="btn gray" data-sbx-del="${esc(a.id)}">移除</button></span></div>`).join(''):'<div class="sm-row"><span>还没有隔离应用</span></div>';
+     ac.querySelectorAll('[data-sbx-open]').forEach(b=>b.onclick=()=>launchBoxApp(b.dataset.sbxOpen));
+     ac.querySelectorAll('[data-sbx-del]').forEach(b=>b.onclick=async()=>{ const a=apps.find(x=>x.id===b.dataset.sbxDel); if(!a) return; if(!confirm('移除 '+a.name+'？\n它的程序和数据（在盒子里的那一份）会一起删掉，不可恢复。')) return; const r=await api('/api/sandbox/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:a.id})}); if(r&&r.error) alert(r.error); await loadBoxApps(); renderDesk(); paint(); });
+    }
+   };
+   paint();
+   sbxIv=setInterval(()=>{ if(curPage!=='isolation'||!document.getElementById('sbx-card')){ clearInterval(sbxIv); sbxIv=null; return; } paint(); },2500);
   };
   const STCOLORS={program:'#8e8e93',chrome:'#0a84ff',firefoxProfile:'#ff7139',openclaw:'#ff453a',apps:'#30d158',files:'#ff9f0a',logs:'#ffd60a',wallpaper:'#bf5af2',other:'#48484a'};
   const paintStorage=async()=>{
@@ -1779,13 +1840,14 @@ function bind(id){
    updDl.onclick=async()=>{ updPaint(await api('/api/update/download',{method:'POST'})); updRefresh(); };
    updApply.onclick=async()=>{ if(!confirm('现在重启并更新到新版本？节点会断开几秒，之后自动重连。')) return; const r=await api('/api/update/apply',{method:'POST'}); if(r.error){ updStatus.textContent='更新失败：'+r.error; return; } document.body.innerHTML='<div style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;font-size:20px;color:#fff;text-shadow:0 2px 10px #000">正在更新到新版本，桌面马上自动重开…</div>'; };
   };
-  const paintPage=pid=>{ ({appearance:paintAppearance,desktop:paintDesktop,network:paintNetwork,browser:paintBrowser,components:paintComponents,storage:paintStorage,security:paintSecurity,general:paintGeneral,about:paintAbout,update:paintUpdate})[pid]?.(); };
+  const paintPage=pid=>{ ({appearance:paintAppearance,desktop:paintDesktop,network:paintNetwork,browser:paintBrowser,components:paintComponents,isolation:paintIsolation,storage:paintStorage,security:paintSecurity,general:paintGeneral,about:paintAbout,update:paintUpdate})[pid]?.(); };
   G('set-q').oninput=navPaint;
   G('set-mecard').onclick=()=>goto('update');
   window.sysRefresh=()=>{ navPaint(); paintPage(curPage); };
+  window.sysGoto=pid=>{ goto(pid); };
   (async()=>{ try{ const si=await api('/api/system'); const el=G('set-me-ver'); if(el) el.textContent='v'+si.version+' · 点这里看软件更新'; }catch(e){} })();
   if(!SETTINGS){ loadSettings().then(()=>paintPage(curPage)); }
-  goto('appearance');
+  goto(window.__mjSetPage||'appearance'); window.__mjSetPage=null;
  }
  if(id==='term'){
    const tin=document.getElementById('tin');
@@ -2135,7 +2197,7 @@ function bind(id){
  if(id==='appstore'){
    const G=x=>document.getElementById(x);
    const CATS=['全部','网络通讯','办公文档','开发运维','影音图像','系统工具'];
-   let cat='全部', apps=[], wasInstalled={};
+   let cat='全部', apps=[], wasInstalled={}, boxUi='';
    const vis=()=>{const w=G('win-appstore');return !!w&&!w.classList.contains('hidden')};
    const fmtMB=n=>n>1048576?(n/1048576).toFixed(1)+' MB':Math.max(1,Math.round(n/1024))+' KB';
    const paintCats=()=>{ G('st-cats').innerHTML=CATS.map(c=>`<button class="stcat${c===cat?' on':''}" data-cat="${c}">${c}</button>`).join('');
@@ -2168,8 +2230,46 @@ function bind(id){
        wasInstalled=nowIn;
        if(changed){ await loadStoreApps(); renderDesk(); }
        G('st-foot').textContent='目录来源：'+(r.source==='remote'?'在线目录（仓库实时更新，加应用不用升级）':'内置目录（在线目录暂时拉不到时的兜底）')+' · 安装位置：Data/apps · 下载走节点加速（全局加速开着时）';
-       paintGrid();
+       paintGrid(); paintBox();
      }catch(e){}
+   };
+   /* ----- 隔离安装 (v0.39): drive the Sandboxie box-install state
+      machine. The section re-renders only when the UI STATE changes
+      (boxUi key), so a half-typed URL is never clobbered by the
+      1.2 s tick; progress text updates in place. ----- */
+   const boxRender=(key,html)=>{ if(boxUi===key) return false; boxUi=key; const el=G('st-box'); if(el) el.innerHTML=html; return true; };
+   const paintBox=async()=>{
+     const boxEl=G('st-box'); if(!boxEl) return;
+     let st; try{ st=await api('/api/sandbox/status'); }catch(e){ return; }
+     const bi=st.boxInstall||{};
+     if(!st.installed){
+       if(boxRender('guide',`<div class="row"><span class="tag">隔离组件还没装，隔离安装用不了</span><button class="btn gray" id="stbox-go">去装组件</button></div>`)){
+         G('stbox-go').onclick=()=>{ window.__mjSetPage='isolation'; openApp('sys'); setTimeout(()=>{ if(window.sysGoto) window.sysGoto('isolation'); },80); };
+       }
+       return;
+     }
+     if(bi.phase==='choosing'){
+       if(boxRender('choosing',`<p style="font-size:13.5px">✅ ${esc(bi.message||'装完了')}</p><div style="margin-top:6px">${(bi.candidates||[]).map((c,i)=>`<label style="display:block;margin-top:5px;font-size:13px"><input type="radio" name="stbox-exe" value="${esc(c.virtual)}" ${i===0?'checked':''}> ${esc(c.virtual)} <span class="mut">${(c.size/1048576).toFixed(1)} MB</span></label>`).join('')}</div><div class="row" style="margin-top:10px"><input class="txt" id="stbox-name" placeholder="应用名字（可改）" style="max-width:200px;flex:none"><button class="btn" id="stbox-reg">登记到桌面</button><button class="btn gray" id="stbox-skip">先不登记</button></div>`)){
+         const nm=G('stbox-name');
+         if(nm&&(bi.candidates||[])[0]){ const b=(bi.candidates[0].virtual||'').split('\\').pop()||''; nm.value=b.replace(/\.exe$/i,''); }
+         G('stbox-reg').onclick=async()=>{ const sel=boxEl.querySelector('input[name="stbox-exe"]:checked'); if(!sel){ alert('先选一个主程序'); return; } const r=await api('/api/sandbox/box/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:G('stbox-name').value,exe:sel.value})}); if(r&&r.error){ alert(r.error); return; } boxUi=''; await loadBoxApps(); renderDesk(); paintBox(); };
+         G('stbox-skip').onclick=async()=>{ await api('/api/sandbox/box/discard',{method:'POST'}); boxUi=''; paintBox(); };
+       }
+       return;
+     }
+     if(bi.busy){
+       if(boxRender('busy',`<div class="row"><span class="tag" id="stbox-prog">处理中…</span><button class="btn gray" id="stbox-stop">终止</button></div><p class="mut" style="margin-top:6px;font-size:12.5px">交互式安装的话，安装窗口已经在盒子里打开了，在那个窗口里点完就行。</p>`)){
+         G('stbox-stop').onclick=async()=>{ await api('/api/sandbox/box/stop',{method:'POST'}); boxUi=''; };
+       }
+       const p=G('stbox-prog'); if(p) p.textContent=(bi.message||'处理中…')+(bi.phase==='downloading'&&bi.size?(' · '+Math.min(99,Math.floor((bi.progress||0)/bi.size*100))+'%'):'');
+       return;
+     }
+     const key='form:'+bi.phase+':'+(bi.message||'');
+     if(boxRender(key,`${bi.phase==='done'?`<p style="font-size:13px">✅ ${esc(bi.message||'')}</p>`:''}${bi.phase==='error'?`<p style="font-size:13px;color:#ff9d97">⚠️ ${esc(bi.message||'没装成')}</p>`:''}<div class="row"><input class="txt" id="stbox-url" placeholder="安装包下载地址（https://… 以 .exe 结尾）"><input class="txt" id="stbox-sha" placeholder="SHA-256（可选）" style="max-width:200px;flex:none"></div><div class="row" style="margin-top:8px"><button class="btn" id="stbox-dl">下载并隔离安装</button><button class="btn gray" id="stbox-local">导入本地安装包…</button><input type="file" id="stbox-file" accept=".exe,.msi" style="display:none"><span class="tag" id="stbox-fmsg"></span></div><p class="mut" style="margin-top:8px;font-size:12.5px;line-height:1.6">认得出类型的安装器（NSIS / Inno）会自动静默安装；认不出的会在盒子里打开安装界面，你照常点完就行。MSI 安装包的安装服务在盒子外，隔离不住，不接。</p>`)){
+       G('stbox-dl').onclick=async()=>{ const u=G('stbox-url').value.trim(); if(!u){ alert('先填安装包地址'); return; } const r=await api('/api/sandbox/box/install',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:u,sha256:G('stbox-sha').value.trim()})}); if(r&&r.error){ alert(r.error); return; } boxUi=''; paintBox(); };
+       G('stbox-local').onclick=()=>G('stbox-file').click();
+       G('stbox-file').onchange=async e=>{ const f=e.target.files[0]; if(!f) return; const msg=G('stbox-fmsg'); if(msg) msg.textContent='导入中…'; const fd=new FormData(); fd.append('file',f); let r=null; try{ r=await (await fetch('/api/sandbox/import',{method:'POST',body:fd})).json(); }catch(err){} if(!r||r.error){ if(msg) msg.textContent='导入失败：'+((r&&r.error)||'网络错误'); return; } const rr=await api('/api/sandbox/box/install',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file:r.name})}); if(rr&&rr.error){ alert(rr.error); return; } boxUi=''; paintBox(); };
+     }
    };
    G('st-q').oninput=paintGrid;
    paintCats(); tick(true);
@@ -2331,7 +2431,7 @@ function bind(id){
  }
 }
 openApp('home');
-(async()=>{ await Promise.all([loadLayout(),loadWebApps(),loadStoreApps(),loadDeskFiles(),settingsReady]); renderDesk(); restoreSession(); })();
+(async()=>{ await Promise.all([loadLayout(),loadWebApps(),loadStoreApps(),loadBoxApps(),loadDeskFiles(),settingsReady]); renderDesk(); restoreSession(); })();
 </script>
 </body>
 </html>

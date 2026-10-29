@@ -1,0 +1,10 @@
+# Sandboxie component staging file for go:embed (v0.39): the pinned
+# 24,930,680-byte installer is NOT committed. The build workflow
+# downloads it from the official Sandboxie release and verifies
+# size + SHA-256 before compiling; a local build needs the same
+# fetch (see sandbox.go header and README「应用隔离」).
+assets/sandboxie-plus-x64-v1.18.8.exe
+
+# Local build artifacts
+/mjlight
+/MJ-System.exe
