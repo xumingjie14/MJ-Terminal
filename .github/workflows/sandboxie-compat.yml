@@ -17,6 +17,9 @@ name: sandboxie-compat
 # would buy. Exploratory results never count toward the verdict.
 # A final report job collects every leg's result.json and pushes a
 # scoreboard file to the compat-results branch.
+# v3 (run #2 hang fix): EVERY native call and wait carries a hard
+# timeout (Invoke-Capped). A wedged Start.exe can no longer freeze a
+# leg silently -- timeouts are named in the leg log and evidence.
 on:
   workflow_dispatch:
 
@@ -27,7 +30,7 @@ jobs:
   compat:
     name: compat (${{ matrix.app }})
     runs-on: windows-latest
-    timeout-minutes: 150
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -181,7 +184,7 @@ jobs:
           function Get-FileMeasured([string]$Url, [string]$Dest) {
             if (-not (Test-Path $Dest)) {
               Log "downloading $Url"
-              Invoke-WebRequest -Uri $Url -OutFile $Dest -UseBasicParsing
+              Invoke-WebRequest -Uri $Url -OutFile $Dest -UseBasicParsing -TimeoutSec 600
             }
             $f = Get-Item $Dest
             $h = (Get-FileHash $Dest -Algorithm SHA256).Hash.ToLower()
@@ -205,12 +208,48 @@ jobs:
             }
             return $state
           }
+          function Invoke-Capped([string]$Exe, [string[]]$CmdArgs, [int]$TimeoutSec, [string]$Tag) {
+            # HARD timeout for native calls (run #2 hang fix). The bare
+            # `& Start.exe ...` form can NEVER be timed out from inside
+            # the script: pwsh regains control only when the process
+            # exits AND its captured output pipe drains, so a single
+            # wedged Start.exe call froze three legs silently for 2h+.
+            # Here the child writes stdout/stderr to temp files, we poll
+            # WaitForExit, and on timeout we kill ONLY the starter
+            # process -- boxed apps are spawned by SbieSvc, not by
+            # Start.exe, so killing a stuck starter never kills the app.
+            $tmpBase = [IO.Path]::Combine([IO.Path]::GetTempPath(), ('mjcap-' + [guid]::NewGuid().ToString('N')))
+            $outF = $tmpBase + '.out'; $errF = $tmpBase + '.err'
+            try {
+              $p = Start-Process -FilePath $Exe -ArgumentList $CmdArgs -PassThru -NoNewWindow -RedirectStandardOutput $outF -RedirectStandardError $errF
+              if (-not $p.WaitForExit($TimeoutSec * 1000)) {
+                Log "TIMEOUT native call [$Tag]: $Exe $($CmdArgs -join ' ') did not return within ${TimeoutSec}s; killing starter pid=$($p.Id)"
+                try { $p.Kill($true) } catch { try { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } catch {} }
+                return @{ timedOut = $true; exitCode = $null; out = @() }
+              }
+              $out = @()
+              if (Test-Path $outF) { $out = @(Get-Content $outF -ErrorAction SilentlyContinue) }
+              return @{ timedOut = $false; exitCode = $p.ExitCode; out = $out }
+            } catch {
+              Log "native call [$Tag] error: $($_.Exception.Message)"
+              return @{ timedOut = $false; exitCode = $null; out = @() }
+            } finally {
+              Remove-Item $outF, $errF -Force -ErrorAction SilentlyContinue
+            }
+          }
           function Get-BoxPids([string]$StartExe) {
             # Sandboxie /listpids output: FIRST line is the process COUNT,
             # each following line is one pid (strict parse, same fix as
             # product v0.43).
             try {
-              $lines = & $StartExe "/box:$BoxName" /listpids 2>$null
+              $cap = Invoke-Capped $StartExe @("/box:$BoxName", '/listpids') 15 'listpids'
+              if ($cap.timedOut) {
+                $script:LastBoxPidsRaw = '<listpids TIMEOUT after 15s>'
+                $script:BoxPidsCallTimedOut = $true
+                return @()
+              }
+              $script:BoxPidsCallTimedOut = $false
+              $lines = $cap.out
               # Evidence side channel (harness only): raw, unparsed text
               # of the most recent call, for the launch check to record.
               # The parsed return value below is unchanged.
@@ -226,7 +265,7 @@ jobs:
             } catch { $script:LastBoxPidsRaw = '<listpids call failed>'; return @() }
           }
           function Stop-Box([string]$StartExe) {
-            try { & $StartExe "/box:$BoxName" /terminate 2>$null | Out-Null } catch {}
+            [void](Invoke-Capped $StartExe @("/box:$BoxName", '/terminate') 30 'terminate')
             Start-Sleep -Seconds 3
             foreach ($p in (Get-BoxPids $StartExe)) {
               try { Stop-Process -Id $p -Force -ErrorAction SilentlyContinue } catch {}
@@ -243,7 +282,7 @@ jobs:
           }
           function Reload-Sbie([string]$StartExe) {
             for ($i = 0; $i -lt 3; $i++) {
-              try { & $StartExe /reload 2>$null | Out-Null } catch {}
+              [void](Invoke-Capped $StartExe @('/reload') 30 'reload')
               Start-Sleep -Seconds 3
               $svc = Get-Service SbieSvc -ErrorAction SilentlyContinue
               if ($svc -and $svc.Status -eq 'Running') { return $true }
@@ -364,13 +403,26 @@ jobs:
               if ($installerGone -and $quiet -ge 8) { return @{ done = $true; timedOut = $false; pids = $pids } }
               Log "install watch: starterExited=$installerGone boxPids=$($pids.Count) quietSec=$([int]$quiet) sig=$sig"
             }
-            return @{ done = $false; timedOut = $true; pids = (Get-BoxPids $StartExe) }
+            return @{ done = $false; timedOut = $true; pids = (Get-BoxPids $StartExe); sig = (Get-BoxSignature $BoxRoot); listRaw = $script:LastBoxPidsRaw }
           }
           function Test-LaunchAlive([string]$StartExe, [string]$VirtualPath, [string]$ExeName) {
-            & $StartExe "/box:$BoxName" "$VirtualPath" | Out-Null
+            # HARD-CAPPED launch (run #2 hang fix): the bare
+            # `& Start.exe ... | Out-Null` form has NO possible timeout --
+            # pwsh waits for Start.exe to exit and its output pipe to
+            # drain. Per-user legs reached this line with a real virtual
+            # path for the first time in run #2 (the user-tree mapping
+            # fix) and wedged here silently for 2h+. Invoke-Capped kills
+            # only the starter on timeout; the boxed app is spawned by
+            # SbieSvc and is unaffected, so a timed-out starter can still
+            # end in a PASS if the app is found alive in the box.
+            $launchCap = Invoke-Capped $StartExe @("/box:$BoxName", "`"$VirtualPath`"") 20 'launch'
             $stem = [IO.Path]::GetFileNameWithoutExtension($ExeName)
             $pidFound = 0
-            for ($i = 0; $i -lt 18; $i++) {
+            # Appearance budget: 120 s wall clock (the nominal 90 s of
+            # 5 s polling plus slack for individually capped /listpids
+            # calls, which return instantly in the normal case).
+            $appearDeadline = (Get-Date).AddSeconds(120)
+            while (-not $pidFound -and (Get-Date) -lt $appearDeadline) {
               Start-Sleep -Seconds 5
               $bp = Get-BoxPids $StartExe
               foreach ($p in $bp) {
@@ -381,7 +433,12 @@ jobs:
               $any = Get-Process -Name $stem -ErrorAction SilentlyContinue
               if ($any) { $pidFound = $any[0].Id; break }
             }
-            if (-not $pidFound) { return @{ ok = $false; symptom = 'no process appeared within 90s' } }
+            if (-not $pidFound) {
+              $why = 'no process appeared within appearance budget (120s wall clock)'
+              if ($launchCap.timedOut) { $why += '; launch starter TIMEOUT after 20s' }
+              if ($script:BoxPidsCallTimedOut) { $why += '; listpids TIMEOUT (SbieSvc unresponsive)' }
+              return @{ ok = $false; symptom = $why }
+            }
             Start-Sleep -Seconds 20
             $alive = Get-Process -Id $pidFound -ErrorAction SilentlyContinue
             $finalPids = Get-BoxPids $StartExe
@@ -392,7 +449,7 @@ jobs:
             # can be told apart from a list-read problem.
             Log "A3 evidence ($ExeName): listpidsRaw=[$script:LastBoxPidsRaw]"
             Log "A3 evidence ($ExeName): listpidsParsed=[$($finalPids -join ',')]"
-            return @{ ok = ([bool]$alive -and $inBox); symptom = "pid=$pidFound aliveAfter20s=$([bool]$alive) pidInBoxList=$inBox listRaw=[$script:LastBoxPidsRaw] listParsed=[$($finalPids -join ',')]" }
+            return @{ ok = ([bool]$alive -and $inBox); symptom = "pid=$pidFound aliveAfter20s=$([bool]$alive) pidInBoxList=$inBox launchStarterTimeout=$($launchCap.timedOut) listRaw=[$script:LastBoxPidsRaw] listParsed=[$($finalPids -join ',')]" }
           }
           function Finish([int]$Code) {
             ($R | ConvertTo-Json -Depth 5) | Set-Content (Join-Path $ResDir 'result.json') -Encoding UTF8
@@ -429,7 +486,12 @@ jobs:
               $sbiePath = Join-Path $DlDir $SbieFile
               $sm = Get-FileMeasured $SbieUrl $sbiePath
               if ($sm[0] -ne $SbieBytes -or $sm[1] -ne $SbieSha) { throw "Sandboxie pin mismatch" }
-              $ip = Start-Process $sbiePath -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-' -PassThru -Wait
+              $ip = Start-Process $sbiePath -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-' -PassThru
+              if (-not $ip.WaitForExit(10 * 60 * 1000)) {
+                Log "TIMEOUT sandboxie installer did not exit within 10 min; killing it"
+                try { $ip.Kill($true) } catch {}
+                throw "Sandboxie installer TIMEOUT after 10 min"
+              }
               Log "sandboxie installer exit=$($ip.ExitCode)"
               for ($i = 0; $i -lt 36; $i++) {
                 Start-Sleep -Seconds 5
@@ -453,7 +515,8 @@ jobs:
           # box smoke: marker must land in the box, never on host C:
           $smokeHost = 'C:\mj-smoke.txt'
           if (Test-Path $smokeHost) { Remove-Item $smokeHost -Force }
-          & $StartExe "/box:$BoxName" /wait "$env:SystemRoot\System32\cmd.exe" /c "echo MJBOXSMOKE > C:\mj-smoke.txt" | Out-Null
+          $smokeCap = Invoke-Capped $StartExe @("/box:$BoxName", '/wait', "$env:SystemRoot\System32\cmd.exe", '/c', 'echo MJBOXSMOKE > C:\mj-smoke.txt') 60 'smoke'
+          if ($smokeCap.timedOut) { Log "box smoke starter TIMEOUT after 60s (verdict comes from the marker check below)" }
           Start-Sleep -Seconds 2
           $smokeInBox = Get-ChildItem $StageRoot -Recurse -Filter 'mj-smoke.txt' -ErrorAction SilentlyContinue | Select-Object -First 1
           if (-not $smokeInBox -or (Test-Path $smokeHost)) {
@@ -519,7 +582,7 @@ jobs:
             $inst = Invoke-BoxInstall $silentArgs $installer
             $R.installExitCode = $inst.exitCode; $R.installElapsedSec = $inst.elapsed
             if (-not $inst.watch.done) {
-              $R.A1 = 'FAIL'; $R.A1symptom = "install watch timed out after 15 min; leftover box pids: $($inst.watch.pids -join ',')"
+              $R.A1 = 'FAIL'; $R.A1symptom = "install watch TIMEOUT after 15 min (named: install-watch-timeout); leftover box pids: $($inst.watch.pids -join ','); boxSig=$($inst.watch.sig); listpidsRaw=[$($inst.watch.listRaw)]"
             }
             $a = Run-Assertions 'A'
             if ($inst.watch.done) {
@@ -568,6 +631,7 @@ jobs:
                 $w = Wait-BoxInstall $StartExe $BoxRoot $proc 15
                 $sw.Stop()
                 Log "exploratory watch done=$($w.done) elapsed=$([math]::Round($sw.Elapsed.TotalSeconds,1))"
+                if (-not $w.done) { Log "exploratory watch TIMEOUT evidence: pids=$($w.pids -join ',') boxSig=$($w.sig) listpidsRaw=[$($w.listRaw)]" }
               } else {
                 [void](Invoke-BoxInstall $expArgs $expTarget)
               }
