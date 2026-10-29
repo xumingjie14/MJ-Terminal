@@ -47,6 +47,16 @@ var (
 	procSHGetPropertyStoreForWindow = shell32.NewProc("SHGetPropertyStoreForWindow")
 	procCoInitializeEx              = ole32.NewProc("CoInitializeEx")
 	procCoUninitialize              = ole32.NewProc("CoUninitialize")
+	// v0.45 immersion (immerse.go): extended-style surgery, the
+	// MJImmersed window property, and monitor geometry for the
+	// desktop fullscreen.
+	procGetWindowLongPtrW = user32.NewProc("GetWindowLongPtrW")
+	procSetWindowLongPtrW = user32.NewProc("SetWindowLongPtrW")
+	procSetPropW          = user32.NewProc("SetPropW")
+	procGetPropW          = user32.NewProc("GetPropW")
+	procRemovePropW       = user32.NewProc("RemovePropW")
+	procMonitorFromWindow = user32.NewProc("MonitorFromWindow")
+	procGetMonitorInfoW   = user32.NewProc("GetMonitorInfoW")
 )
 
 // EnumWindows takes a C callback; syscall.NewCallback slots are a
@@ -712,4 +722,207 @@ func platformSetAppID(hwnd uint64) {
 		return
 	}
 	syscall.SyscallN(method(7), store) // IPropertyStore::Commit
+}
+
+// ---------- v0.45 immersion platform ops (immerse.go) ----------
+//
+// The style transform is the documented recipe for removing a
+// window from the taskbar and Alt-Tab: WS_EX_TOOLWINDOW set +
+// WS_EX_APPWINDOW clear, followed by a SetWindowPos with
+// SWP_FRAMECHANGED so the shell re-reads the style. The reverse
+// restores the window's ORIGINAL extended style verbatim (the
+// caller passes what platformImmerseWindow returned); orphans
+// whose original style died with a crashed daemon get the
+// standard fallback (tool-window bit clear, app-window bit set).
+
+const (
+	gwlStyleIdx   = -16 // GWL_STYLE
+	gwlExStyleIdx = -20 // GWL_EXSTYLE
+
+	exToolWindow = 0x00000080 // WS_EX_TOOLWINDOW
+	exAppWindow  = 0x00040000 // WS_EX_APPWINDOW
+
+	wsCaption    = 0x00C00000 // WS_CAPTION (border + title bar)
+	wsThickFrame = 0x00040000 // WS_THICKFRAME (sizing border)
+
+	swpFrameChanged = 0x0020 // SWP_FRAMECHANGED
+	swpNoSize       = 0x0001
+	swpNoMove       = 0x0002
+	swpNoZOrder     = 0x0004
+	swpNoActivate   = 0x0010
+
+	swMaximize = 3
+	swRestore  = 9
+
+	monitorDefaultToNearest = 2 // MONITOR_DEFAULTTONEAREST
+)
+
+// mjImmersedPropName is the window property the daemon stamps on
+// every window it immerses, so the next daemon incarnation can
+// recognize crash leftovers (see immerseStartupSweep).
+var mjImmersedPropName, _ = syscall.UTF16PtrFromString("MJImmersed")
+
+func getWindowLongPtr(hwnd uintptr, idx int) int32 {
+	r, _, _ := procGetWindowLongPtrW.Call(hwnd, uintptr(int64(idx)))
+	return int32(r)
+}
+
+// setWindowLongPtr reports real failure: SetWindowLongPtrW
+// returns the previous value, which may legitimately be 0, so
+// the verdict rides on the last-error code.
+func setWindowLongPtr(hwnd uintptr, idx int, val int32) bool {
+	_, _, err := procSetWindowLongPtrW.Call(hwnd, uintptr(int64(idx)), uintptr(int64(val)))
+	return err == syscall.Errno(0)
+}
+
+// frameChangedNotify makes the shell re-read a window's styles
+// after Get/SetWindowLong surgery (without it the taskbar keeps
+// showing the button the style just removed).
+func frameChangedNotify(hwnd uintptr) {
+	procSetWindowPos.Call(hwnd, 0, 0, 0, 0, 0,
+		swpNoMove|swpNoSize|swpNoZOrder|swpNoActivate|swpFrameChanged)
+}
+
+// platformImmerseWindow restyles a registered window as a tool
+// window and stamps the MJImmersed property. It returns the
+// window's original extended style (for an exact restore later)
+// and ok=false -- with the window left exactly as found -- when
+// any step fails: style write, style verification, or the
+// property stamp (whose failure rolls the style back). The
+// daemon hides nothing it cannot account for.
+func platformImmerseWindow(hwnd uint64) (uint32, bool) {
+	h := uintptr(hwnd)
+	if r, _, _ := procIsWindow.Call(h); r == 0 {
+		return 0, false
+	}
+	orig := getWindowLongPtr(h, gwlExStyleIdx)
+	next := (orig | exToolWindow) &^ exAppWindow
+	if !setWindowLongPtr(h, gwlExStyleIdx, next) {
+		return 0, false
+	}
+	if got := getWindowLongPtr(h, gwlExStyleIdx); got != next {
+		setWindowLongPtr(h, gwlExStyleIdx, orig)
+		return 0, false
+	}
+	frameChangedNotify(h)
+	if r, _, _ := procSetPropW.Call(h,
+		uintptr(unsafe.Pointer(mjImmersedPropName)), 1); r == 0 {
+		// Unmarked immersion would be invisible to the crash
+		// sweep -- roll back rather than hide unaccountably.
+		setWindowLongPtr(h, gwlExStyleIdx, orig)
+		frameChangedNotify(h)
+		return 0, false
+	}
+	return uint32(orig), true
+}
+
+// platformUnimmerseWindow restores a window's extended style and
+// removes the MJImmersed property. With hasOrig the original
+// style is restored verbatim; without it (a crash orphan swept
+// at startup) the standard app-window fallback is applied.
+func platformUnimmerseWindow(hwnd uint64, orig uint32, hasOrig bool) bool {
+	h := uintptr(hwnd)
+	if r, _, _ := procIsWindow.Call(h); r == 0 {
+		return false
+	}
+	var next int32
+	if hasOrig {
+		next = int32(orig)
+	} else {
+		cur := getWindowLongPtr(h, gwlExStyleIdx)
+		next = (cur &^ exToolWindow) | exAppWindow
+	}
+	if !setWindowLongPtr(h, gwlExStyleIdx, next) {
+		return false
+	}
+	frameChangedNotify(h)
+	procRemovePropW.Call(h, uintptr(unsafe.Pointer(mjImmersedPropName)))
+	return true
+}
+
+// platformWindowHasImmerseMark reports whether the window still
+// carries the MJImmersed property.
+func platformWindowHasImmerseMark(hwnd uint64) bool {
+	r, _, _ := procGetPropW.Call(uintptr(hwnd),
+		uintptr(unsafe.Pointer(mjImmersedPropName)))
+	return r != 0
+}
+
+type wmMonitorInfo struct {
+	cbSize    uint32
+	rcMonitor wmRect
+	rcWork    wmRect
+	dwFlags   uint32
+}
+
+// platformEnterShellFullscreen borderless-fullscreens a window
+// on its own monitor: the caption and sizing frame come off
+// GWL_STYLE and the window is stretched over the monitor's full
+// rect (taskbar area included -- true fullscreen). It returns
+// the saved style, frame and zoom state for an exact restore;
+// ok=false leaves the window untouched (a maximized window is
+// un-maximized first so its floating frame is what gets saved,
+// and that zoom is part of the saved state).
+func platformEnterShellFullscreen(hwnd uint64) (int32, [4]int32, bool, bool) {
+	h := uintptr(hwnd)
+	if r, _, _ := procIsWindow.Call(h); r == 0 {
+		return 0, [4]int32{}, false, false
+	}
+	zoomed := platformWindowZoomed(hwnd)
+	if zoomed {
+		procShowWindow.Call(h, swRestore)
+	}
+	l, t, rgt, b, ok := platformWindowRect(hwnd)
+	if !ok {
+		return 0, [4]int32{}, false, false
+	}
+	style := getWindowLongPtr(h, gwlStyleIdx)
+
+	hmon, _, _ := procMonitorFromWindow.Call(h, monitorDefaultToNearest)
+	if hmon == 0 {
+		return 0, [4]int32{}, false, false
+	}
+	mi := wmMonitorInfo{cbSize: uint32(unsafe.Sizeof(wmMonitorInfo{}))}
+	if r, _, _ := procGetMonitorInfoW.Call(hmon,
+		uintptr(unsafe.Pointer(&mi))); r == 0 {
+		return 0, [4]int32{}, false, false
+	}
+	m := mi.rcMonitor
+
+	borderless := style &^ (wsCaption | wsThickFrame)
+	if !setWindowLongPtr(h, gwlStyleIdx, borderless) {
+		return 0, [4]int32{}, false, false
+	}
+	if r, _, _ := procSetWindowPos.Call(h, 0,
+		uintptr(m.Left), uintptr(m.Top),
+		uintptr(m.Right-m.Left), uintptr(m.Bottom-m.Top),
+		swpFrameChanged); r == 0 {
+		setWindowLongPtr(h, gwlStyleIdx, style) // roll back the frame strip
+		frameChangedNotify(h)
+		return 0, [4]int32{}, false, false
+	}
+	return style, [4]int32{l, t, rgt, b}, zoomed, true
+}
+
+// platformExitShellFullscreen restores the style and frame saved
+// by platformEnterShellFullscreen, including re-maximizing a
+// window that was maximized when fullscreen began.
+func platformExitShellFullscreen(hwnd uint64, style int32, rect [4]int32, zoomed bool) bool {
+	h := uintptr(hwnd)
+	if r, _, _ := procIsWindow.Call(h); r == 0 {
+		return false
+	}
+	if !setWindowLongPtr(h, gwlStyleIdx, style) {
+		return false
+	}
+	if r, _, _ := procSetWindowPos.Call(h, 0,
+		uintptr(rect[0]), uintptr(rect[1]),
+		uintptr(rect[2]-rect[0]), uintptr(rect[3]-rect[1]),
+		swpFrameChanged); r == 0 {
+		return false
+	}
+	if zoomed {
+		procShowWindow.Call(h, swMaximize)
+	}
+	return true
 }

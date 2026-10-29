@@ -74,6 +74,18 @@ type mjSettings struct {
 	WinPlaceOnClaim   bool `json:"winPlaceOnClaim"`
 	WinHideOnMinimize bool `json:"winHideOnMinimize"`
 	WinCloseToTray    bool `json:"winCloseToTray"`
+	// v0.45 immersion （沉浸模式）, both default OFF -- the user
+	// turns them on himself in 设置 → 桌面与 Dock; immerse.go
+	// reads both live on every patrol tick and on a settings
+	// kick, so flips apply to the whole registered set at once:
+	//   ImmersiveMode    -- registered windows leave the host
+	//                       taskbar and Alt-Tab (tool-window
+	//                       style); Stage Manager + Dock become
+	//                       the only switch entries.
+	//   DesktopFullscreen -- the desktop view goes borderless
+	//                       fullscreen on its own monitor.
+	ImmersiveMode     bool `json:"immersiveMode"`
+	DesktopFullscreen bool `json:"desktopFullscreen"`
 }
 
 func defaultSettings() mjSettings {
@@ -91,6 +103,8 @@ func defaultSettings() mjSettings {
 		WinPlaceOnClaim:       true,
 		WinHideOnMinimize:     true,
 		WinCloseToTray:        true,
+		ImmersiveMode:         false,
+		DesktopFullscreen:     false,
 	}
 }
 
@@ -202,6 +216,8 @@ func settingsMap() map[string]any {
 		"winPlaceOnClaim":       s.WinPlaceOnClaim,
 		"winHideOnMinimize":     s.WinHideOnMinimize,
 		"winCloseToTray":        s.WinCloseToTray,
+		"immersiveMode":         s.ImmersiveMode,
+		"desktopFullscreen":     s.DesktopFullscreen,
 		"fresh":                 settingsFresh(),
 	}
 }
@@ -228,6 +244,10 @@ func settingWinPlaceOnClaim() bool { return settingsGet().WinPlaceOnClaim }
 func settingWinHideOnMinimize() bool { return settingsGet().WinHideOnMinimize }
 
 func settingWinCloseToTray() bool { return settingsGet().WinCloseToTray }
+
+func settingImmersiveMode() bool { return settingsGet().ImmersiveMode }
+
+func settingDesktopFullscreen() bool { return settingsGet().DesktopFullscreen }
 
 // settingsSetRemoteEnabledInternal flips the remote-assistance
 // master switch from inside the daemon (the pairing page's
@@ -358,6 +378,22 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 					next.WinCloseToTray = v
 					changed = append(changed, boolLog("winCloseToTray", v))
 				}
+			case "immersiveMode":
+				var v bool
+				if json.Unmarshal(val, &v) != nil {
+					fail = "immersiveMode 必须是 true/false"
+				} else if v != next.ImmersiveMode {
+					next.ImmersiveMode = v
+					changed = append(changed, boolLog("immersiveMode", v))
+				}
+			case "desktopFullscreen":
+				var v bool
+				if json.Unmarshal(val, &v) != nil {
+					fail = "desktopFullscreen 必须是 true/false"
+				} else if v != next.DesktopFullscreen {
+					next.DesktopFullscreen = v
+					changed = append(changed, boolLog("desktopFullscreen", v))
+				}
 			case "remoteEnabled":
 				var v bool
 				if json.Unmarshal(val, &v) != nil {
@@ -402,6 +438,12 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 				// v0.33: start/stop the tailnet side right away
 				// instead of waiting for the reconcile tick.
 				remoteKick()
+			}
+			if strings.HasPrefix(c, "immersiveMode") || strings.HasPrefix(c, "desktopFullscreen") {
+				// v0.45: immersion flips apply to the whole set
+				// right away (the patrol would catch up within a
+				// tick anyway; the kick removes the wait).
+				immerseKick()
 			}
 		}
 		writeJSON(w, settingsMap())

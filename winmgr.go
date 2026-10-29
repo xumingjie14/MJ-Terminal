@@ -1248,4 +1248,9 @@ func patrolTick() {
 	// window claimed a beat before the hide, or re-shown by its
 	// own app, rejoins the hidden set here).
 	grpEnforceHidden()
+
+	// v0.45: immersion reconcile + the standing fail-visible
+	// check -- anything immersed that left the registry during
+	// this tick is restored to the host taskbar at once.
+	immerseSweep()
 }

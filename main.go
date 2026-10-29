@@ -1842,6 +1842,10 @@ func runServer(portFlag int, isDaemon bool) {
 	ocAutoStartInit()
 	startExtPatrol()
 	startShellWatcher()
+	// v0.45: the immersion startup sweep runs before any view
+	// can be (re)claimed by this incarnation: MJImmersed marks
+	// found now can only be a crashed daemon's leftovers.
+	startImmerse()
 	remoteInit()
 	sandboxInit()
 

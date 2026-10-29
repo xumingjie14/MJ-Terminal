@@ -127,6 +127,13 @@ var (
 )
 
 func noteShellGeometry(hwnd uint64) {
+	// v0.45: while the view is in immersion fullscreen its frame
+	// is the monitor itself -- sampling it would poison the
+	// memory with a "remembered" frame that IS the fullscreen,
+	// and exiting fullscreen would have nowhere to return to.
+	if shellFullscreenActive() {
+		return
+	}
 	if hwnd == 0 || !platformWindowExists(hwnd) || !platformWindowVisible(hwnd) || platformWindowIconic(hwnd) {
 		return
 	}

@@ -64,3 +64,18 @@ func platformCloseWindow(hwnd uint64) bool   { return false }
 func platformRaiseBackdrop(hwnd uint64, shell uint64) bool {
 	return false
 }
+
+// v0.45 immersion ops (immerse.go): no host windows off Windows,
+// so nothing is ever immersed, marked or fullscreened.
+
+func platformImmerseWindow(hwnd uint64) (uint32, bool) { return 0, false }
+func platformUnimmerseWindow(hwnd uint64, orig uint32, hasOrig bool) bool {
+	return false
+}
+func platformWindowHasImmerseMark(hwnd uint64) bool { return false }
+func platformEnterShellFullscreen(hwnd uint64) (int32, [4]int32, bool, bool) {
+	return 0, [4]int32{}, false, false
+}
+func platformExitShellFullscreen(hwnd uint64, style int32, rect [4]int32, zoomed bool) bool {
+	return false
+}

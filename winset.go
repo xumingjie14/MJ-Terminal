@@ -371,6 +371,10 @@ func grpShellOpened(hwnd uint64) {
 	// non-maximized frame, this new view lands back in it instead
 	// of the launch default (tray memory's geometry half).
 	applyRememberedShellGeometry(hwnd)
+	// v0.45: a view born while 桌面全屏 is on goes fullscreen
+	// (the saved original frame is its landing geometry, just
+	// restored -- entering fullscreen re-saves it from there).
+	applyShellFullscreenState()
 }
 
 // grpShowShell brings a LIVE desktop view back onto the screen:
@@ -427,6 +431,11 @@ func grpRestoreForFocus() {
 // goes, and the tray icon is removed. Nothing the daemon hid may
 // outlive the daemon.
 func prepareWindowsForDaemonExit() {
+	// v0.45: immersion styles come off FIRST, while every window
+	// is still exactly where the set machine left it; the
+	// group-restore below then shows them all already back on
+	// the host taskbar.
+	immerseRestoreAllForExit()
 	grpMu.Lock()
 	grpExiting = true
 	was := grpVis
