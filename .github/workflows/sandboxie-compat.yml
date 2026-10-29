@@ -211,6 +211,10 @@ jobs:
             # product v0.43).
             try {
               $lines = & $StartExe "/box:$BoxName" /listpids 2>$null
+              # Evidence side channel (harness only): raw, unparsed text
+              # of the most recent call, for the launch check to record.
+              # The parsed return value below is unchanged.
+              $script:LastBoxPidsRaw = (@($lines) | ForEach-Object { "$_".Trim() }) -join ','
               $nums = @()
               foreach ($ln in $lines) {
                 $t = "$ln".Trim()
@@ -219,7 +223,7 @@ jobs:
               if ($nums.Count -gt 1 -and $nums[0] -eq ($nums.Count - 1)) { $nums = $nums[1..($nums.Count - 1)] }
               elseif ($nums.Count -gt 1 -and $nums[0] -le $nums.Count) { $nums = $nums[1..($nums.Count - 1)] }
               return @($nums | Where-Object { $_ -ge 8 } | Sort-Object -Unique)
-            } catch { return @() }
+            } catch { $script:LastBoxPidsRaw = '<listpids call failed>'; return @() }
           }
           function Stop-Box([string]$StartExe) {
             try { & $StartExe "/box:$BoxName" /terminate 2>$null | Out-Null } catch {}
@@ -248,10 +252,24 @@ jobs:
           }
           function To-VirtualPath([string]$BoxRoot, [string]$Physical) {
             $idx = $Physical.IndexOf('\drive\', [StringComparison]::OrdinalIgnoreCase)
-            if ($idx -lt 0) { return $null }
-            $rest = $Physical.Substring($idx + 7)
-            if ($rest.Length -lt 3) { return $null }
-            return $rest.Substring(0, 1) + ':' + $rest.Substring(1)
+            if ($idx -ge 0) {
+              $rest = $Physical.Substring($idx + 7)
+              if ($rest.Length -ge 3) { return $rest.Substring(0, 1) + ':' + $rest.Substring(1) }
+            }
+            # Per-user tree: under a FileRootPath box layout, Sandboxie
+            # stores redirected per-user files (AppData and friends) in
+            # <BoxRoot>\user\<username>\..., which mirrors the virtual
+            # C:\Users\<username>\... The \drive\ mapping never matches
+            # those paths; without this second mapping, per-user
+            # installs (Telegram, VS Code) are invisible to the
+            # candidate scan and the launch assertion.
+            if ($Physical.StartsWith($BoxRoot, [StringComparison]::OrdinalIgnoreCase)) {
+              $rel = $Physical.Substring($BoxRoot.Length).TrimStart('\')
+              if ($rel -match '^user\\([^\\]+)\\(.+)$') {
+                return 'C:\Users\' + $Matches[1] + '\' + $Matches[2]
+              }
+            }
+            return $null
           }
           function Get-BoxSignature([string]$BoxRoot) {
             $files = Get-ChildItem $BoxRoot -Recurse -File -ErrorAction SilentlyContinue
@@ -366,8 +384,15 @@ jobs:
             if (-not $pidFound) { return @{ ok = $false; symptom = 'no process appeared within 90s' } }
             Start-Sleep -Seconds 20
             $alive = Get-Process -Id $pidFound -ErrorAction SilentlyContinue
-            $inBox = (Get-BoxPids $StartExe) -contains $pidFound
-            return @{ ok = ([bool]$alive -and $inBox); symptom = "pid=$pidFound aliveAfter20s=$([bool]$alive) pidInBoxList=$inBox" }
+            $finalPids = Get-BoxPids $StartExe
+            $inBox = $finalPids -contains $pidFound
+            # Evidence only -- the judgement above still rests solely on
+            # the parsed list. Record the raw /listpids text and the
+            # parsed list so a "pid alive but not in box list" result
+            # can be told apart from a list-read problem.
+            Log "A3 evidence ($ExeName): listpidsRaw=[$script:LastBoxPidsRaw]"
+            Log "A3 evidence ($ExeName): listpidsParsed=[$($finalPids -join ',')]"
+            return @{ ok = ([bool]$alive -and $inBox); symptom = "pid=$pidFound aliveAfter20s=$([bool]$alive) pidInBoxList=$inBox listRaw=[$script:LastBoxPidsRaw] listParsed=[$($finalPids -join ',')]" }
           }
           function Finish([int]$Code) {
             ($R | ConvertTo-Json -Depth 5) | Set-Content (Join-Path $ResDir 'result.json') -Encoding UTF8
@@ -497,11 +522,12 @@ jobs:
               $R.A1 = 'FAIL'; $R.A1symptom = "install watch timed out after 15 min; leftover box pids: $($inst.watch.pids -join ',')"
             }
             $a = Run-Assertions 'A'
-            if (-not $R.A1) {
+            if ($inst.watch.done) {
+              # watch completed normally: A1 is the assertion result
+              $R.A1 = $(if ($a.A1) { 'PASS' } else { 'FAIL' }); $R.A1symptom = $a.A1symptom + "; installerExit=$($inst.exitCode) elapsedSec=$($inst.elapsed)"
+            } else {
               # keep watch verdict; still record what assertions saw
               if ($a.A1) { $R.A1symptom += '; files did land in box despite timeout' }
-            } else {
-              $R.A1 = $(if ($a.A1) { 'PASS' } else { 'FAIL' }); $R.A1symptom = $a.A1symptom + "; installerExit=$($inst.exitCode) elapsedSec=$($inst.elapsed)"
             }
             $R.A2 = $(if ($a.A2) { 'PASS' } else { 'FAIL' }); $R.A2symptom = $a.A2symptom
             $R.A3 = $(if ($a.A3) { 'PASS' } else { 'FAIL' }); $R.A3symptom = $a.A3symptom
