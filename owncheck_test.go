@@ -361,3 +361,45 @@ func TestAppWindowShape(t *testing.T) {
 		t.Error("titled system-class window must not be app-shaped")
 	}
 }
+
+// ---------- v0.43: install-session exemption + system binaries ----------
+
+func TestDecideClaimBoxExempt(t *testing.T) {
+	owned := map[uint32]string{240: ownBox, 210: ownExe}
+	reg := map[uint64]bool{}
+	exempt := claimOpts{AutoClaimBrowser: true, BrowserPIDs: map[uint32]bool{}, ShellPIDs: map[uint32]bool{}, BoxExempt: true}
+	normal := claimOpts{AutoClaimBrowser: true, BrowserPIDs: map[uint32]bool{}, ShellPIDs: map[uint32]bool{}}
+	// The field shapes: the silent installer's Setup window,
+	// visible and hidden forms.
+	visBox := windowFact{HWND: 7001, PID: 240, Class: "TForm", Title: "Setup - Telegram Desktop 7.3.3 64bit", Visible: true, W: 1067, H: 878}
+	hidBox := windowFact{HWND: 7002, PID: 240, Class: "Sandbox:MJBox:Qt51514QWindowIcon", Title: "Setup", Visible: false, W: 900, H: 700}
+	exeWin := windowFact{HWND: 7003, PID: 210, Class: "TMainForm", Title: "Other", Visible: true, W: 900, H: 700}
+	if v := decideClaim(visBox, owned, reg, exempt); v.Claim || v.Defer {
+		t.Errorf("exempt visible box window must not claim or defer, got %+v", v)
+	}
+	if v := decideClaim(hidBox, owned, reg, exempt); v.Claim || v.Defer {
+		t.Errorf("exempt hidden box window must not claim or defer, got %+v", v)
+	}
+	if v := decideClaim(exeWin, owned, reg, exempt); !v.Claim {
+		t.Errorf("the exemption is box-only: an exe-owned window must still claim, got %+v", v)
+	}
+	if v := decideClaim(visBox, owned, reg, normal); !v.Claim {
+		t.Errorf("sanity: without the exemption the box window claims, got %+v", v)
+	}
+	if v := decideClaim(hidBox, owned, reg, normal); !v.Claim || !v.HiddenClaim {
+		t.Errorf("sanity: without the exemption the hidden box window register-claims, got %+v", v)
+	}
+}
+
+func TestIsSystemBinaryImage(t *testing.T) {
+	for _, b := range []string{"powershell.exe", "PowerShell.EXE", "cmd.exe", "conhost.exe", "pwsh.exe", "rundll32.exe"} {
+		if !isSystemBinaryImage(b) {
+			t.Errorf("%s must be a system binary", b)
+		}
+	}
+	for _, b := range []string{"Weixin.exe", "Telegram.exe", "explorer.exe", "7z.exe", ""} {
+		if isSystemBinaryImage(b) {
+			t.Errorf("%s must not be a system binary", b)
+		}
+	}
+}

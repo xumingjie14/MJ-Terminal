@@ -9,10 +9,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestMergeBoxSectionEmpty(t *testing.T) {
@@ -712,5 +714,298 @@ func TestSealNeededAndMarkerRoundTrip(t *testing.T) {
 	}
 	if !back.DataSealed {
 		t.Fatal("dataSealed lost in the JSON round trip")
+	}
+}
+
+// ---------- v0.43: strict /listpids parsing ----------
+
+func TestParseBoxPidsStrict(t *testing.T) {
+	// The documented format: a count line, then one PID per line.
+	got := parseBoxPids("3\n3036\n2136\n384\n")
+	if len(got) != 3 || got[0] != 384 || got[1] != 2136 || got[2] != 3036 {
+		t.Fatalf("documented format: %v", got)
+	}
+	// The v0.40 field shape: 17 programs in the box — the count
+	// itself must NOT come back as a PID (it did before v0.43,
+	// and a matching host PID then gets falsely claimed).
+	var sb strings.Builder
+	sb.WriteString("17\r\n")
+	for i := 0; i < 17; i++ {
+		fmt.Fprintf(&sb, "%d\r\n", 1000+i*4)
+	}
+	got = parseBoxPids(sb.String())
+	if len(got) != 17 {
+		t.Fatalf("17-program list: got %d pids %v", len(got), got)
+	}
+	for _, p := range got {
+		if p == 17 {
+			t.Fatalf("count leaked into pid list: %v", got)
+		}
+	}
+	// A truncated list (count promises more than was delivered):
+	// the count is still not a PID.
+	got = parseBoxPids("3\n3036\n2136")
+	if len(got) != 2 || got[0] != 2136 || got[1] != 3036 {
+		t.Fatalf("truncated list: %v", got)
+	}
+	// Noise lines never yield numbers (the old splitter pulled
+	// "1" and "18" out of a version string like this).
+	if got := parseBoxPids("Sandboxie Start v1.18\nerror 42 happened\n"); len(got) != 0 {
+		t.Fatalf("noise must yield no pids: %v", got)
+	}
+	// Empty box: a lone 0 count.
+	if got := parseBoxPids("0\n"); len(got) != 0 {
+		t.Fatalf("empty box: %v", got)
+	}
+}
+
+// ---------- v0.43: install completion watch ----------
+
+func TestDecideInstallWatch(t *testing.T) {
+	cfg := defaultInstallWatchCfg(false)
+	cases := []struct {
+		name string
+		obs  installWatchObs
+		want installVerdict
+	}{
+		{"installer gone + tree stable -> complete; resident auto-launched app does not block",
+			installWatchObs{Elapsed: 40 * time.Second, InstallerSeen: true, InstallerGone: true, AnySessionSeen: true, SessionAlive: 3, StableFor: 9 * time.Second},
+			watchComplete},
+		{"installer gone but tree still moving -> wait",
+			installWatchObs{Elapsed: 40 * time.Second, InstallerSeen: true, InstallerGone: true, AnySessionSeen: true, SessionAlive: 0, StableFor: 2 * time.Second},
+			watchWait},
+		{"installer still running -> wait even if tree is quiet",
+			installWatchObs{Elapsed: 3 * time.Minute, InstallerSeen: true, InstallerGone: false, AnySessionSeen: true, SessionAlive: 1, StableFor: 60 * time.Second},
+			watchWait},
+		{"installer never exits -> named timeout",
+			installWatchObs{Elapsed: 15 * time.Minute, InstallerSeen: true, InstallerGone: false, AnySessionSeen: true, SessionAlive: 1},
+			watchTimeout},
+		{"installer never identified, everyone left, stable -> complete",
+			installWatchObs{Elapsed: 30 * time.Second, AnySessionSeen: true, SessionAlive: 0, StableFor: 10 * time.Second},
+			watchComplete},
+		{"installer never identified, residents remain, long quiet -> complete",
+			installWatchObs{Elapsed: 2 * time.Minute, AnySessionSeen: true, SessionAlive: 2, StableFor: 31 * time.Second},
+			watchComplete},
+		{"installer never identified, residents remain, short quiet -> wait",
+			installWatchObs{Elapsed: 2 * time.Minute, AnySessionSeen: true, SessionAlive: 2, StableFor: 10 * time.Second},
+			watchWait},
+		{"nothing ever appeared -> wait (the timeout will name it)",
+			installWatchObs{Elapsed: 3 * time.Minute, StableFor: 3 * time.Minute},
+			watchWait},
+		{"nothing ever appeared, past the deadline -> timeout",
+			installWatchObs{Elapsed: 15 * time.Minute, StableFor: 15 * time.Minute},
+			watchTimeout},
+	}
+	for _, c := range cases {
+		if got := decideInstallWatch(c.obs, cfg); got != c.want {
+			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
+		}
+	}
+	// Interactive installs get the longer deadline.
+	icfg := defaultInstallWatchCfg(true)
+	obs := installWatchObs{Elapsed: 20 * time.Minute, InstallerSeen: true, AnySessionSeen: true, SessionAlive: 1}
+	if got := decideInstallWatch(obs, icfg); got != watchWait {
+		t.Errorf("interactive 20m: got %v, want wait", got)
+	}
+	if got := decideInstallWatch(obs, cfg); got != watchTimeout {
+		t.Errorf("silent 20m: got %v, want timeout", got)
+	}
+}
+
+func TestInstallSummaries(t *testing.T) {
+	s := installTimeoutSummary("td-setup.exe",
+		installWatchObs{Elapsed: 15 * time.Minute, InstallerSeen: true, InstallerGone: true, SessionAlive: 2, FreshFiles: 123},
+		[]int{111, 222})
+	for _, want := range []string{"超时未完成", "td-setup.exe", "安装器已退出", "123"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("timeout summary missing %q: %s", want, s)
+		}
+	}
+	s2 := installTimeoutSummary("x.exe",
+		installWatchObs{Elapsed: 15 * time.Minute, InstallerSeen: true, SessionAlive: 1}, []int{9})
+	if !strings.Contains(s2, "安装器仍未退出") {
+		t.Errorf("timeout summary must say the installer is still running: %s", s2)
+	}
+	e := installEmptyScanSummary("td-setup.exe", 55, 2, 1)
+	for _, want := range []string{"没找到能登记的新程序", "55", "2", "1"} {
+		if !strings.Contains(e, want) {
+			t.Errorf("empty-scan summary missing %q: %s", want, e)
+		}
+	}
+}
+
+// ---------- v0.43: candidate trust ----------
+
+func TestIsJunkCandidateShape(t *testing.T) {
+	junk := []string{
+		// The field ghost: a WeChat patcher's temporary 7z.exe.
+		`C:\Users\u\AppData\Roaming\Tencent\xwechat\xplugin\plugins\CourgettePatch\20\extracted\7z.exe`,
+		`C:\Program Files\App\7za.exe`,
+		`C:\Users\u\AppData\Local\Temp\setuphelper.exe`,
+		`C:\Program Files\App\plugins\realplugin.exe`,
+		`C:\Users\u\AppData\Local\App\tmp\thing.exe`,
+	}
+	for _, p := range junk {
+		if !isJunkCandidateShape(p) {
+			t.Errorf("must be junk: %s", p)
+		}
+	}
+	real := []string{
+		`C:\Users\u\AppData\Roaming\Telegram Desktop\Telegram.exe`,
+		`C:\Program Files\Tencent\Weixin\Weixin.exe`,
+		// Segment equality, not substring: these are safe.
+		`C:\Users\u\AppData\Local\Programs\Templates Tool\TemplateApp.exe`,
+		`C:\Program Files\PluginSoft\PluginSoft.exe`,
+	}
+	for _, p := range real {
+		if isJunkCandidateShape(p) {
+			t.Errorf("must NOT be junk: %s", p)
+		}
+	}
+}
+
+func TestRankBoxCandidatesTelegramFixture(t *testing.T) {
+	// The 2026-10-29 field set: Telegram's per-user install,
+	// its uninstaller, and the temporary 7z.exe a concurrently
+	// boxed WeChat's patcher dropped (and later deleted) while
+	// Telegram was installing.
+	fresh := []boxExeCand{
+		{Virtual: `C:\Users\ming\AppData\Roaming\Telegram Desktop\Telegram.exe`, Size: 60 << 20},
+		{Virtual: `C:\Users\ming\AppData\Roaming\Telegram Desktop\unins000.exe`, Size: 3 << 20},
+		{Virtual: `C:\Users\ming\AppData\Roaming\Tencent\xwechat\xplugin\plugins\CourgettePatch\20\extracted\7z.exe`, Size: 1 << 20},
+	}
+	ranked := rankBoxCandidates(fresh, "td-setup-win-x64-7.3.3 (3).exe")
+	if len(ranked) != 1 {
+		t.Fatalf("only Telegram.exe may survive, got %v", ranked)
+	}
+	if !strings.HasSuffix(ranked[0].Virtual, `\Telegram.exe`) {
+		t.Fatalf("survivor must be Telegram.exe, got %s", ranked[0].Virtual)
+	}
+	// And Telegram outranks an unrelated per-user candidate:
+	// the Roaming root plus its own folder's name carry it.
+	fresh = append(fresh, boxExeCand{Virtual: `C:\Users\ming\AppData\Local\Programs\Other\other.exe`, Size: 5 << 20})
+	ranked = rankBoxCandidates(fresh, "td-setup-win-x64-7.3.3 (3).exe")
+	if len(ranked) != 2 || !strings.HasSuffix(ranked[0].Virtual, `\Telegram.exe`) {
+		t.Fatalf("Telegram must rank first, got %v", ranked)
+	}
+}
+
+func TestMarkForeignCandidates(t *testing.T) {
+	ranked := []boxExeCand{
+		{Virtual: `C:\Users\ming\AppData\Roaming\Telegram Desktop\Telegram.exe`},
+		{Virtual: `C:\Program Files\Tencent\Weixin\WeixinSvc.exe`},
+		{Virtual: `C:\Users\ming\AppData\Roaming\Telegram Desktop\modules\TelegramHelper.exe`},
+	}
+	markForeignCandidates(ranked, "td-setup-win-x64-7.3.3 (3).exe")
+	if ranked[0].Foreign {
+		t.Error("the top candidate is never foreign")
+	}
+	if !ranked[1].Foreign {
+		t.Error("a Tencent-folder candidate in a Telegram install must be flagged foreign")
+	}
+	if ranked[2].Foreign {
+		t.Error("a same-folder candidate must not be flagged foreign")
+	}
+	wx := []boxExeCand{
+		{Virtual: `C:\Program Files\Tencent\Weixin\Weixin.exe`},
+		{Virtual: `C:\Program Files\Tencent\Weixin\WeixinUpdate.exe`},
+	}
+	markForeignCandidates(wx, "WeChatWin_4.2.0.exe")
+	if wx[1].Foreign {
+		t.Error("a same-folder Weixin candidate must not be foreign")
+	}
+}
+
+func TestSbieBoxBusyPhases(t *testing.T) {
+	sbieBoxOp.Lock()
+	savedPhase, savedMsg, savedStarted := sbieBoxOp.Phase, sbieBoxOp.Message, sbieBoxOp.StartedAt
+	sbieBoxOp.Unlock()
+	defer func() {
+		sbieBoxOp.Lock()
+		sbieBoxOp.Phase, sbieBoxOp.Message, sbieBoxOp.StartedAt = savedPhase, savedMsg, savedStarted
+		sbieBoxOp.Unlock()
+	}()
+	for _, p := range []string{"preparing", "downloading", "installing", "scanning"} {
+		sbieBoxSet(p, "x")
+		if !sbieBoxBusy() {
+			t.Errorf("phase %s must be busy", p)
+		}
+	}
+	sbieBoxSet("installing", "x")
+	sbieBoxOp.Lock()
+	started := sbieBoxOp.StartedAt
+	sbieBoxOp.Unlock()
+	if started == 0 {
+		t.Error("a busy phase must stamp StartedAt")
+	}
+	for _, p := range []string{"choosing", "done", "error", "idle"} {
+		sbieBoxSet(p, "x")
+		if sbieBoxBusy() {
+			t.Errorf("phase %s must not be busy", p)
+		}
+	}
+	sbieBoxOp.Lock()
+	started = sbieBoxOp.StartedAt
+	sbieBoxOp.Unlock()
+	if started != 0 {
+		t.Error("idle must clear StartedAt")
+	}
+}
+
+func TestPendingInstallRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	boxRoot := filepath.Join(dir, "MJBox")
+	exePhys := filepath.Join(boxRoot, "user", "ming", "AppData", "Roaming", "Telegram Desktop", "Telegram.exe")
+	if err := os.MkdirAll(filepath.Dir(exePhys), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(exePhys, []byte("MZ-fake"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	oldPhys := filepath.Join(boxRoot, "drive", "C", "Program Files", "Old", "old.exe")
+	if err := os.MkdirAll(filepath.Dir(oldPhys), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(oldPhys, []byte("MZ-old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	pendPath := filepath.Join(dir, "pending-install.json")
+	savePendingInstallFile(pendPath, &sbiePendingInstall{
+		InstallerName: "td-setup.exe",
+		BeforeExes:    map[string]bool{strings.ToLower(oldPhys): true},
+		BeforeAppData: map[string]bool{},
+	})
+
+	sbieBoxOp.Lock()
+	savedPhase, savedPend, savedCands := sbieBoxOp.Phase, sbieBoxOp.Pending, sbieBoxOp.Candidates
+	sbieBoxOp.Unlock()
+	defer func() {
+		sbieBoxOp.Lock()
+		sbieBoxOp.Phase, sbieBoxOp.Pending, sbieBoxOp.Candidates = savedPhase, savedPend, savedCands
+		sbieBoxOp.Unlock()
+	}()
+
+	if !restorePendingFrom(pendPath, boxRoot) {
+		t.Fatal("the pending registration must restore")
+	}
+	sbieBoxOp.Lock()
+	phase, p2, cands := sbieBoxOp.Phase, sbieBoxOp.Pending, sbieBoxOp.Candidates
+	sbieBoxOp.Unlock()
+	if phase != "choosing" || p2 == nil || p2.InstallerName != "td-setup.exe" {
+		t.Fatalf("restored state wrong: phase=%s pend=%+v", phase, p2)
+	}
+	if len(cands) != 1 || !strings.HasSuffix(cands[0].Virtual, `\Telegram.exe`) || !cands[0].Exists {
+		t.Fatalf("restored candidates wrong: %+v", cands)
+	}
+	// If the candidate file has since vanished, the restore
+	// must retire the pending instead of resurrecting a ghost
+	// choice.
+	_ = os.Remove(exePhys)
+	if restorePendingFrom(pendPath, boxRoot) {
+		t.Fatal("a pending with no surviving candidates must retire")
+	}
+	if _, err := os.Stat(pendPath); !os.IsNotExist(err) {
+		t.Fatal("the retired pending file must be removed")
 	}
 }

@@ -64,6 +64,14 @@ type extWindow struct {
 	pid       uint32
 	lastTitle string // title at last AppID stamp; a change triggers a re-stamp
 	placed    bool   // v0.20: one-shot landing placement already done
+	// hiddenClaim marks a register-only claim of a born-hidden
+	// window (v0.41 verdict, enforced since v0.43): while the
+	// window stays invisible, the prune pass must NOT offer it
+	// the one-shot landing — moving a hidden window around is
+	// how the v0.42 Telegram installer's silent Setup window
+	// got landed inside the desktop mid-install. Its landing
+	// belongs to the reveal path (claimWindowByPIDs' settle).
+	hiddenClaim bool
 	// v0.38: birth-presentation verification (winset.go). A window
 	// whose birth context said it should be on stage is marked
 	// pending; the patrol verifies a beat later that it really is
@@ -598,6 +606,12 @@ func pruneExtWindowsLocked() (restamp, place []uint64) {
 			}
 		}
 		if !e.Shell && !e.placed {
+			if e.hiddenClaim && !platformWindowVisible(h) {
+				// Register-only claims stay unplaced while
+				// hidden (see the field comment): the landing
+				// happens when the window is revealed.
+				continue
+			}
 			place = append(place, h)
 		}
 	}
@@ -798,6 +812,27 @@ func placeTargetRectInset(l, t, r, b int32) (int32, int32, int32, int32) {
 // doBirthPlacement (winset.go); the birth-moment settlement with
 // the backdrop lift is settleNewWindow, called by the claim paths.
 func tryPlaceExtWindow(hwnd uint64) {
+	// v0.43 belt-and-braces: a window whose process belongs to
+	// the running install session is never landed by housekeep-
+	// ing, even if it was registered a beat before the session
+	// tracked its PID. The install flow owns it until the
+	// session ends.
+	if installSessionActive() {
+		extMu.Lock()
+		e, ok := extWins[hwnd]
+		var pid uint32
+		if ok {
+			pid = e.pid
+		}
+		extMu.Unlock()
+		if ok && pid != 0 {
+			for _, sp := range installSessionPIDs() {
+				if uint32(sp) == pid {
+					return
+				}
+			}
+		}
+	}
 	doBirthPlacement(hwnd)
 }
 
@@ -1101,7 +1136,14 @@ func patrolTick() {
 		AutoClaimBrowser: settingStageAutoClaimBrowser(),
 		ShellPIDs:        shellPIDs,
 		BrowserPIDs:      browserPIDs,
+		// v0.43: while a box install session runs, the patrol
+		// does not claim box-owned windows at all.
+		BoxExempt: installSessionActive(),
 	}
+	// v0.43: lazy one-per-tick live re-read of the box PID list,
+	// fetched only if a system-binary box claim needs verifying.
+	var boxRecheck map[uint32]bool
+	boxRecheckTried := false
 
 	liveHwnds := make(map[uint64]bool, len(wins))
 	for _, wf := range wins {
@@ -1117,6 +1159,27 @@ func patrolTick() {
 		v := decideClaim(wf, owned, registered, o)
 		switch {
 		case v.Claim:
+			if v.Reason == ownBox && isSystemBinaryImage(filepath.Base(byPID[wf.PID].ImagePath)) {
+				// v0.43: a box-list claim for a system binary
+				// must survive a LIVE re-read of the list. The
+				// tick's snapshot can be a beat stale, and the
+				// pre-v0.43 parser could invent PIDs outright
+				// (it ate the count header). Failing the re-check
+				// skips the claim and leaves a warn line with
+				// the evidence, so the next field occurrence
+				// says which side was lying.
+				if !boxRecheckTried {
+					boxRecheckTried = true
+					if cur, err := sbieBoxPidsE(); err == nil {
+						boxRecheck = pidSetFromInts(cur)
+					}
+				}
+				if boxRecheck != nil && !boxRecheck[wf.PID] {
+					logf("winmgr", "warn", "台前调度：盒名单认领复核未通过，已跳过：%s（PID %d，镜像 %s，实时盒名单里没有这个进程）",
+						claimLabel(wf, byPID[wf.PID], v.Browser), wf.PID, byPID[wf.PID].ImagePath)
+					continue
+				}
+			}
 			label := claimLabel(wf, byPID[wf.PID], v.Browser)
 			extMu.Lock()
 			if _, dup := extWins[wf.HWND]; dup {
@@ -1126,6 +1189,7 @@ func patrolTick() {
 			extWins[wf.HWND] = &extWindow{
 				HWND: wf.HWND, App: label, Title: wf.Title, pid: wf.PID,
 				browser: v.Browser, placed: false, lastTitle: wf.Title, origin: v.Reason,
+				hiddenClaim: v.HiddenClaim,
 			}
 			extMu.Unlock()
 			registered[wf.HWND] = true

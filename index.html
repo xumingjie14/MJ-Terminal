@@ -1360,7 +1360,19 @@ async function loadBoxApps(){
 }
 async function launchBoxApp(id){
  const r=await api('/api/sandbox/launch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})}).catch(()=>null);
- if(r&&r.error) alert(r.error);
+ if(r&&r.error){
+  /* v0.43: a ghost registration (the file it names is gone, or
+     was never an app) gets MJ's explanation plus a one-click
+     removal, never Sandboxie's raw popup. */
+  if(r.ghost){
+   if(confirm(r.error+'\n\n要现在移除这条登记吗？（只删这条登记，盒子里的其他东西不动）')){
+    const rr=await api('/api/sandbox/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})}).catch(()=>null);
+    if(rr&&rr.error) alert(rr.error); else { await loadBoxApps(); renderDesk(); }
+   }
+   return;
+  }
+  alert(r.error);
+ }
 }
 /* ----- imported files on the desktop (v0.32) -----
    Host files enter ONLY by the user's hand: drag them onto the
@@ -1763,7 +1775,7 @@ function bind(id){
     }
     const ac=G('sbx-apps'); if(ac){
      const apps=st.apps||[];
-     ac.innerHTML=apps.length?apps.map(a=>`<div class="sm-row"><span>${esc(a.name)}${a.sealed?' <span class="tag">全新数据 · 读不到宿主那份</span>':''}<br><span style="font-size:12px;opacity:.65">${esc(a.exe)}</span></span><span class="row"><button class="btn gray" data-sbx-open="${esc(a.id)}">打开</button><button class="btn gray" data-sbx-del="${esc(a.id)}">移除</button></span></div>`).join(''):'<div class="sm-row"><span>还没有隔离应用</span></div>';
+     ac.innerHTML=apps.length?apps.map(a=>`<div class="sm-row"><span>${esc(a.name)}${a.sealed?' <span class="tag">全新数据 · 读不到宿主那份</span>':''}${a.ghost?' <span class="tag">登记已失效（程序文件不在了）</span>':''}<br><span style="font-size:12px;opacity:.65">${esc(a.exe)}</span></span><span class="row"><button class="btn gray" data-sbx-open="${esc(a.id)}">打开</button><button class="btn gray" data-sbx-del="${esc(a.id)}">移除</button></span></div>`).join(''):'<div class="sm-row"><span>还没有隔离应用</span></div>';
      ac.querySelectorAll('[data-sbx-open]').forEach(b=>b.onclick=()=>launchBoxApp(b.dataset.sbxOpen));
      ac.querySelectorAll('[data-sbx-del]').forEach(b=>b.onclick=async()=>{ const a=apps.find(x=>x.id===b.dataset.sbxDel); if(!a) return; if(!confirm('移除 '+a.name+'？\n它的程序和数据（在盒子里的那一份）会一起删掉，不可恢复。')) return; const r=await api('/api/sandbox/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:a.id})}); if(r&&r.error) alert(r.error); await loadBoxApps(); renderDesk(); paint(); });
     }
@@ -2249,9 +2261,22 @@ function bind(id){
        return;
      }
      if(bi.phase==='choosing'){
-       if(boxRender('choosing',`<p style="font-size:13.5px">✅ ${esc(bi.message||'装完了')}</p><div style="margin-top:6px">${(bi.candidates||[]).map((c,i)=>`<label style="display:block;margin-top:5px;font-size:13px"><input type="radio" name="stbox-exe" value="${esc(c.virtual)}" data-sealed="${c.sealed?1:0}" ${i===0?'checked':''}> ${esc(c.virtual)} <span class="mut">${(c.size/1048576).toFixed(1)} MB</span></label>`).join('')}</div><p class="mut" id="stbox-sealnote" style="margin-top:8px;font-size:12.5px;line-height:1.6"></p><div class="row" style="margin-top:10px"><input class="txt" id="stbox-name" placeholder="应用名字（可改）" style="max-width:200px;flex:none"><button class="btn" id="stbox-reg">登记到桌面</button><button class="btn gray" id="stbox-skip">先不登记</button></div>`)){
+       const cands=bi.candidates||[];
+       /* v0.43: the render key carries each candidate's liveness,
+          so a file that vanishes while this dialog is open is
+          struck through on the next tick instead of being
+          registered into a ghost. The top ALIVE candidate is
+          preselected as a suggestion only — registration still
+          takes the explicit button click below. */
+       const ckey='choosing:'+cands.map(c=>c.exists===false?'0':'1').join('');
+       const firstAlive=cands.findIndex(c=>c.exists!==false);
+       const anyForeign=cands.some(c=>c.foreign&&c.exists!==false);
+       if(boxRender(ckey,`<p style="font-size:13.5px">✅ ${esc(bi.message||'装完了')}</p><div style="margin-top:6px">${cands.map((c,i)=> c.exists===false
+         ? `<label style="display:block;margin-top:5px;font-size:13px;opacity:.55"><input type="radio" disabled> <s>${esc(c.virtual)}</s> <span class="tag">文件已消失，登记不了（多半是别的程序的临时文件）</span></label>`
+         : `<label style="display:block;margin-top:5px;font-size:13px"><input type="radio" name="stbox-exe" value="${esc(c.virtual)}" data-sealed="${c.sealed?1:0}" ${i===firstAlive?'checked':''}> ${esc(c.virtual)} <span class="mut">${(c.size/1048576).toFixed(1)} MB</span>${c.foreign?' <span class="tag">与安装包看起来无关</span>':''}</label>`).join('')}</div>${anyForeign?`<p class="mut" style="margin-top:8px;font-size:12.5px;line-height:1.6">⚠️ 标了「与安装包看起来无关」的候选，可能是安装期间盒子里其他程序活动留下的文件，认准你要装的那个再登记。</p>`:''}<p class="mut" id="stbox-sealnote" style="margin-top:8px;font-size:12.5px;line-height:1.6"></p><p class="mut" style="margin-top:4px;font-size:12.5px">这一步已经存盘：关掉页面、重启终端都不会丢，什么时候回来确认都行。</p><div class="row" style="margin-top:10px"><input class="txt" id="stbox-name" placeholder="应用名字（可改）" style="max-width:200px;flex:none"><button class="btn" id="stbox-reg">登记到桌面</button><button class="btn gray" id="stbox-skip">先不登记</button></div>`)){
          const nm=G('stbox-name');
-         if(nm&&(bi.candidates||[])[0]){ const b=(bi.candidates[0].virtual||'').split('\\').pop()||''; nm.value=b.replace(/\.exe$/i,''); }
+         const topC=firstAlive>=0?cands[firstAlive]:null;
+         if(nm&&topC){ const b=(topC.virtual||'').split('\\').pop()||''; nm.value=b.replace(/\.exe$/i,''); }
          const sealNote=()=>{ const sel=boxEl.querySelector('input[name="stbox-exe"]:checked'); const sn=G('stbox-sealnote'); if(sn) sn.textContent=(sel&&sel.dataset.sealed==='1')?'🔒 这个主程序在数据封堵名单里（微信家族）：登记后它在盒内使用一份全新数据，和宿主机上的同名软件互不相通；宿主机那份数据不会被读到、也不会被改动。':''; };
          boxEl.querySelectorAll('input[name="stbox-exe"]').forEach(r=>r.onchange=sealNote); sealNote();
          G('stbox-reg').onclick=async()=>{ const sel=boxEl.querySelector('input[name="stbox-exe"]:checked'); if(!sel){ alert('先选一个主程序'); return; } const r=await api('/api/sandbox/box/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:G('stbox-name').value,exe:sel.value})}); if(r&&r.error){ alert(r.error); return; } boxUi=''; await loadBoxApps(); renderDesk(); paintBox(); };
@@ -2260,14 +2285,19 @@ function bind(id){
        return;
      }
      if(bi.busy){
-       if(boxRender('busy',`<div class="row"><span class="tag" id="stbox-prog">处理中…</span><button class="btn gray" id="stbox-stop">终止</button></div><p class="mut" style="margin-top:6px;font-size:12.5px">交互式安装的话，安装窗口已经在盒子里打开了，在那个窗口里点完就行。</p>`)){
+       if(boxRender('busy',`<div class="row"><span class="tag" id="stbox-prog">处理中…</span><button class="btn gray" id="stbox-stop">终止本次安装</button></div><p class="mut" style="margin-top:6px;font-size:12.5px">终止只会结束这次安装的进程，盒子里其他应用不受影响。交互式安装的话，安装窗口已经在盒子里打开了，在那个窗口里点完就行。</p>`)){
          G('stbox-stop').onclick=async()=>{ await api('/api/sandbox/box/stop',{method:'POST'}); boxUi=''; };
        }
-       const p=G('stbox-prog'); if(p) p.textContent=(bi.message||'处理中…')+(bi.phase==='downloading'&&bi.size?(' · '+Math.min(99,Math.floor((bi.progress||0)/bi.size*100))+'%'):'');
+       const p=G('stbox-prog');
+       if(p){
+         const PL={preparing:'准备中',downloading:'下载 / 导入',installing:'盒内安装中',scanning:'扫描登记中'};
+         let el=''; if(bi.startedAt){ const s=Math.max(0,Math.floor((Date.now()-bi.startedAt)/1000)); el=' · 已用时 '+Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); }
+         p.textContent=(PL[bi.phase]||'处理中')+el+' · '+(bi.message||'处理中…')+(bi.phase==='downloading'&&bi.size?(' · '+Math.min(99,Math.floor((bi.progress||0)/bi.size*100))+'%'):'');
+       }
        return;
      }
      const key='form:'+bi.phase+':'+(bi.message||'');
-     if(boxRender(key,`${bi.phase==='done'?`<p style="font-size:13px">✅ ${esc(bi.message||'')}</p>`:''}${bi.phase==='error'?`<p style="font-size:13px;color:#ff9d97">⚠️ ${esc(bi.message||'没装成')}</p>`:''}<div class="row"><input class="txt" id="stbox-url" placeholder="安装包下载地址（https://… 以 .exe 结尾）"><input class="txt" id="stbox-sha" placeholder="SHA-256（可选）" style="max-width:200px;flex:none"></div><div class="row" style="margin-top:8px"><button class="btn" id="stbox-dl">下载并隔离安装</button><button class="btn gray" id="stbox-local">导入本地安装包…</button><input type="file" id="stbox-file" accept=".exe,.msi" style="display:none"><span class="tag" id="stbox-fmsg"></span></div><p class="mut" style="margin-top:8px;font-size:12.5px;line-height:1.6">认得出类型的安装器（NSIS / Inno）会自动静默安装；认不出的会在盒子里打开安装界面，你照常点完就行。MSI 安装包的安装服务在盒子外，隔离不住，不接。</p>`)){
+     if(boxRender(key,`${bi.phase==='done'?`<p style="font-size:13px">✅ ${esc(bi.message||'')}</p>`:''}${bi.phase==='error'?`<p style="font-size:13px;color:#ff9d97">⚠️ ${esc(bi.message||'没装成')}</p>`:''}${bi.phase==='idle'&&bi.message?`<p style="font-size:13px">ℹ️ ${esc(bi.message)}</p>`:''}<div class="row"><input class="txt" id="stbox-url" placeholder="安装包下载地址（https://… 以 .exe 结尾）"><input class="txt" id="stbox-sha" placeholder="SHA-256（可选）" style="max-width:200px;flex:none"></div><div class="row" style="margin-top:8px"><button class="btn" id="stbox-dl">下载并隔离安装</button><button class="btn gray" id="stbox-local">导入本地安装包…</button><input type="file" id="stbox-file" accept=".exe,.msi" style="display:none"><span class="tag" id="stbox-fmsg"></span></div><p class="mut" style="margin-top:8px;font-size:12.5px;line-height:1.6">认得出类型的安装器（NSIS / Inno）会自动静默安装；认不出的会在盒子里打开安装界面，你照常点完就行。MSI 安装包的安装服务在盒子外，隔离不住，不接。</p>`)){
        G('stbox-dl').onclick=async()=>{ const u=G('stbox-url').value.trim(); if(!u){ alert('先填安装包地址'); return; } const r=await api('/api/sandbox/box/install',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:u,sha256:G('stbox-sha').value.trim()})}); if(r&&r.error){ alert(r.error); return; } boxUi=''; paintBox(); };
        G('stbox-local').onclick=()=>G('stbox-file').click();
        G('stbox-file').onchange=async e=>{ const f=e.target.files[0]; if(!f) return; const msg=G('stbox-fmsg'); if(msg) msg.textContent='导入中…'; const fd=new FormData(); fd.append('file',f); let r=null; try{ r=await (await fetch('/api/sandbox/import',{method:'POST',body:fd})).json(); }catch(err){} if(!r||r.error){ if(msg) msg.textContent='导入失败：'+((r&&r.error)||'网络错误'); return; } const rr=await api('/api/sandbox/box/install',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file:r.name})}); if(rr&&rr.error){ alert(rr.error); return; } boxUi=''; paintBox(); };

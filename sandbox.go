@@ -772,6 +772,19 @@ type boxExeCand struct {
 	// data-seal template (v0.42): the registration dialog uses
 	// it to promise the fresh-data behavior up front.
 	Sealed bool `json:"sealed,omitempty"`
+	// Exists is the liveness verdict (v0.43): recomputed every
+	// time the candidate list is served, because a candidate's
+	// file can vanish while the user is still deciding (it may
+	// have been another program's temporary drop all along).
+	// The stored value is never trusted; sandboxStatusMap
+	// re-stats the physical file on every read.
+	Exists bool `json:"exists"`
+	// Foreign marks a candidate that plausibly does NOT belong
+	// to this install (v0.43): its app folder differs from the
+	// top candidate's and its name does not resemble the
+	// installer's. The dialog flags it instead of hiding it --
+	// the user makes the final call.
+	Foreign bool `json:"foreign,omitempty"`
 }
 
 // snapshotBoxExes walks the box and lists every .exe with its
@@ -886,13 +899,119 @@ func matchNewAppDataDirs(after []string, before map[string]bool, hints []string)
 	return out
 }
 
+// ---------- v0.43: candidate trust (junk shapes, foreign marks) ----------
+//
+// The install diff answers "which exes are NEW in the box", not
+// "which exes belong to the program being installed". The box
+// is shared: while Telegram installed (field 2026-10-29
+// 13:35-13:40), the boxed WeChat was alive too, and its patcher
+// briefly extracted a 7z.exe under
+// …\Tencent\xwechat\xplugin\plugins\CourgettePatch\20\extracted\.
+// The diff swept that file into the Telegram candidates; the
+// user registered it as "Telegram"; the patcher then deleted
+// its temp file, and the desktop icon died with Sandboxie's raw
+// "cannot invoke program … file not found (2)". Three defences,
+// all by SHAPE (never a hardcoded vendor path):
+//
+//	junk shapes -- generic small tools (7z family, unrar,
+//	unzip) are parts of other programs, never an installed
+//	app's main program; and no main program lives under a
+//	plugin/temp path segment (plugins, extracted, temp, …).
+//	Both are excluded from candidacy outright.
+//
+//	foreign marks -- a surviving candidate whose app folder
+//	has nothing to do with the top candidate's and whose name
+//	does not resemble the installer's is flagged, not hidden.
+//
+//	liveness -- every candidate's physical file is re-statted
+//	when the list is generated, on every status read while
+//	the dialog is open, and again at registration time. A
+//	registration pointing at a nonexistent file is the one
+//	accident that must never happen again.
+
+var junkToolStems = map[string]bool{
+	"7z": true, "7za": true, "7zr": true, "7zfm": true,
+	"unrar": true, "unzip": true,
+}
+
+var junkPathSegments = map[string]bool{
+	"extracted": true, "xplugin": true, "plugins": true,
+	"plugin": true, "temp": true, "tmp": true,
+}
+
+// isJunkCandidateShape reports whether a virtual path has the
+// shape of a tool/plugin/temp drop rather than an installed
+// application's main program (pure). Segment comparison is by
+// whole segment, so a legit "Templates" folder is safe.
+func isJunkCandidateShape(virtual string) bool {
+	if junkToolStems[strings.ToLower(virtualStem(virtual))] {
+		return true
+	}
+	for _, seg := range strings.FieldsFunc(virtual, func(r rune) bool { return r == '\\' || r == '/' }) {
+		if junkPathSegments[strings.ToLower(seg)] {
+			return true
+		}
+	}
+	return false
+}
+
+// candidateAppFolder names the folder a candidate belongs to:
+// the segment right below its install root (Program Files,
+// ProgramData, AppData\Roaming, AppData\Local), lowercased
+// (pure).
+func candidateAppFolder(virtual string) string {
+	segs := strings.FieldsFunc(virtual, func(r rune) bool { return r == '\\' || r == '/' })
+	for i, s := range segs {
+		switch strings.ToLower(s) {
+		case "program files", "program files (x86)", "programdata", "roaming", "local":
+			if i+1 < len(segs) {
+				return strings.ToLower(segs[i+1])
+			}
+		}
+	}
+	if len(segs) >= 3 {
+		return strings.ToLower(segs[2])
+	}
+	return ""
+}
+
+// markForeignCandidates flags ranked candidates (all but the
+// top one) whose app folder differs from the top candidate's
+// AND whose name does not resemble the installer's (pure).
+func markForeignCandidates(ranked []boxExeCand, installerBase string) {
+	if len(ranked) < 2 {
+		return
+	}
+	top := candidateAppFolder(ranked[0].Virtual)
+	if top == "" {
+		return
+	}
+	hint := installerHint(installerBase)
+	for i := 1; i < len(ranked); i++ {
+		stem := strings.ToLower(virtualStem(ranked[i].Virtual))
+		resembles := hint != "" && len(stem) >= 3 && (strings.Contains(stem, hint) || strings.Contains(hint, stem))
+		ranked[i].Foreign = candidateAppFolder(ranked[i].Virtual) != top && !resembles
+	}
+}
+
+// candidateExists stats a candidate's physical shadow file.
+func candidateExists(c boxExeCand) bool {
+	if c.Physical == "" {
+		return false
+	}
+	_, err := os.Stat(c.Physical)
+	return err == nil
+}
+
 // rankBoxCandidates orders the exes an install left behind so the
-// most likely MAIN program comes first (pure). Uninstallers are
-// excluded outright; setup/update/helper-looking names sink; a
-// Program Files location and a name resembling the installer's
-// float to the top.
+// most likely MAIN program comes first (pure). Uninstallers and
+// junk shapes (tools, plugin/temp drops) are excluded outright;
+// setup/update/helper-looking names sink; a Program Files or
+// per-user AppData location, a parent folder resembling the exe,
+// and a name resembling the installer's float to the top.
 func rankBoxCandidates(cands []boxExeCand, installerBase string) []boxExeCand {
 	hint := installerHint(installerBase)
+	instStem := strings.ToLower(virtualStem(installerBase))
 	score := func(c boxExeCand) int {
 		vp := strings.ReplaceAll(c.Virtual, "/", `\`)
 		segs := strings.Split(vp, `\`)
@@ -902,13 +1021,33 @@ func rankBoxCandidates(cands []boxExeCand, installerBase string) []boxExeCand {
 		switch {
 		case strings.Contains(low, `\program files\`) || strings.Contains(low, `\program files (x86)\`):
 			s += 120
+		case strings.Contains(low, `\appdata\roaming\`):
+			// Per-user installs (Telegram Desktop's home):
+			// a first-class install root since v0.43.
+			s += 90
 		case strings.Contains(low, `\appdata\local\programs\`):
 			s += 70
+		case strings.Contains(low, `\appdata\local\`):
+			s += 60
 		case strings.Contains(low, `\programdata\`):
 			s += 40
 		}
 		if hint != "" && len(stem) >= 3 && (strings.Contains(stem, hint) || strings.Contains(hint, stem)) {
 			s += 50
+		}
+		if len(segs) >= 2 {
+			// The main program usually sits in a folder named
+			// after itself (Telegram.exe in "Telegram Desktop",
+			// Weixin.exe in "Weixin").
+			parent := strings.ToLower(segs[len(segs)-2])
+			if stem != "" && (strings.Contains(parent, stem) || strings.Contains(stem, parent)) {
+				s += 40
+			}
+		}
+		if instStem != "" && stem == instStem {
+			// The installer's own file copied into the box is
+			// residue, never the product.
+			s -= 200
 		}
 		for _, bad := range []string{"setup", "install", "update", "helper", "crash", "report", "service", "daemon", "repair"} {
 			if strings.Contains(stem, bad) {
@@ -931,6 +1070,9 @@ func rankBoxCandidates(cands []boxExeCand, installerBase string) []boxExeCand {
 	for _, c := range cands {
 		stem := strings.ToLower(virtualBase(c.Virtual))
 		if strings.HasPrefix(stem, "unins") || strings.Contains(stem, "uninstall") {
+			continue
+		}
+		if isJunkCandidateShape(c.Virtual) {
 			continue
 		}
 		out = append(out, c)
@@ -1050,22 +1192,61 @@ func silentArgsFor(kind string) []string {
 	return nil
 }
 
-// parseBoxPids extracts PIDs from Start.exe /listpids output
-// (pure).
+// parseBoxPids parses Start.exe /listpids output (pure).
+//
+// The documented format (Sandboxie "Start Command Line"
+// reference): the FIRST line is the NUMBER of programs, then
+// one PID per line:
+//
+//	3
+//	3036
+//	2136
+//	384
+//
+// v0.42 and earlier split the output on any non-digit and so
+// ingested the count itself as a PID -- the v0.40 field list
+// literally began with "17" (seventeen programs), and a count
+// that happens to equal a host PID makes the patrol claim a
+// host window "by box list" (field 2026-10-29: an elevated
+// host powershell claimed during a Telegram install). The
+// parser is line-strict now: only lines consisting entirely of
+// digits are numbers at all; the first number is the count
+// header and is dropped whenever it does not exceed the number
+// of remaining lines (a truncated list loses entries, it never
+// gains fake ones); implausible values (under 8 -- no boxed
+// user program can own one) are dropped as well.
 func parseBoxPids(out string) []int {
-	var pids []int
-	seen := map[int]bool{}
-	for _, tok := range strings.FieldsFunc(out, func(r rune) bool {
-		return r < '0' || r > '9'
-	}) {
-		if tok == "" {
+	var nums []int
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
 			continue
 		}
-		n, err := strconv.Atoi(tok)
-		if err == nil && n > 0 && !seen[n] {
-			seen[n] = true
-			pids = append(pids, n)
+		digits := true
+		for _, r := range line {
+			if r < '0' || r > '9' {
+				digits = false
+				break
+			}
 		}
+		if !digits {
+			continue
+		}
+		if n, err := strconv.Atoi(line); err == nil && n > 0 {
+			nums = append(nums, n)
+		}
+	}
+	if len(nums) >= 2 && nums[0] <= len(nums)-1 {
+		nums = nums[1:] // the program-count header line
+	}
+	seen := map[int]bool{}
+	var pids []int
+	for _, n := range nums {
+		if n < 8 || seen[n] {
+			continue
+		}
+		seen[n] = true
+		pids = append(pids, n)
 	}
 	sort.Ints(pids)
 	return pids
@@ -1158,12 +1339,13 @@ type sbiePendingInstall struct {
 
 var sbieBoxOp = struct {
 	sync.Mutex
-	Phase      string // idle|preparing|downloading|installing|choosing|done|error
+	Phase      string // idle|preparing|downloading|installing|scanning|choosing|done|error
 	Message    string
 	Kind       string
 	Installer  string
 	Progress   int64
 	Size       int64
+	StartedAt  int64 // unix ms when the current busy run began (v0.43: the store UI shows elapsed time)
 	Candidates []boxExeCand
 	Pending    *sbiePendingInstall
 }{Phase: "idle"}
@@ -1171,13 +1353,21 @@ var sbieBoxOp = struct {
 func sbieBoxSet(phase, msg string) {
 	sbieBoxOp.Lock()
 	sbieBoxOp.Phase, sbieBoxOp.Message = phase, msg
+	switch phase {
+	case "preparing", "downloading", "installing", "scanning":
+		if sbieBoxOp.StartedAt == 0 {
+			sbieBoxOp.StartedAt = time.Now().UnixMilli()
+		}
+	case "idle":
+		sbieBoxOp.StartedAt = 0
+	}
 	sbieBoxOp.Unlock()
 }
 
 func sbieBoxBusy() bool {
 	sbieBoxOp.Lock()
 	defer sbieBoxOp.Unlock()
-	return sbieBoxOp.Phase == "preparing" || sbieBoxOp.Phase == "downloading" || sbieBoxOp.Phase == "installing"
+	return sbieBoxOp.Phase == "preparing" || sbieBoxOp.Phase == "downloading" || sbieBoxOp.Phase == "installing" || sbieBoxOp.Phase == "scanning"
 }
 
 var sbieBoxCancel atomic.Bool
@@ -1762,6 +1952,315 @@ func acquireBoxInstaller(url, sha256hex, file string) (string, error) {
 	return dst, nil
 }
 
+// ---------- v0.43: install session + completion watch ----------
+//
+// Field failure this replaces (Telegram, 2026-10-29 13:35):
+// runBoxInstall blocked in Start.exe /wait, then drained for
+// the FULL five minutes because the installer auto-launched
+// the Telegram app, which (correctly) never exits. For 5m19s
+// the console said nothing at all, the store UI spun without
+// an elapsed clock, and the user concluded "不能安装、没有报错".
+//
+// The v0.43 shape:
+//   - an install SESSION registers every box PID the install
+//     brings in; while a session is active the patrol exempts
+//     box-owned windows wholesale (owncheck's BoxExempt): the
+//     installer's windows belong to the install flow alone and
+//     are never claimed, landed or presented by the Stage
+//     Manager. (In the field run the patrol claimed the silent
+//     installer's hidden Setup window at 13:35:43 and the prune
+//     pass landed it inside the desktop at 13:35:45.)
+//   - completion is a WATCH, not a wait: the installer process
+//     has exited AND the box file tree has been quiet for a
+//     stretch. Remaining session processes (the auto-launched
+//     app) never block completion; they become ordinary boxed
+//     processes for the launch path to claim.
+//   - a heartbeat line every 30 s keeps the wait honest, and a
+//     hard total timeout ends the install as a NAMED failure
+//     carrying the state summary.
+//   - 「终止本次安装」 kills ONLY the session's PID set.
+
+var sbieInstallSess = struct {
+	sync.Mutex
+	active bool
+	name   string
+	pids   map[int]bool
+}{pids: map[int]bool{}}
+
+func installSessionBegin(name string) {
+	sbieInstallSess.Lock()
+	sbieInstallSess.active = true
+	sbieInstallSess.name = name
+	sbieInstallSess.pids = map[int]bool{}
+	sbieInstallSess.Unlock()
+	logf("sandbox", "info", "隔离安装会话开始：%s（会话期间盒内窗口归安装流程独占，台前调度不认领、不落位、不呈现）", name)
+}
+
+// installSessionTrack adds PIDs to the session and returns the
+// ones that are new to it.
+func installSessionTrack(pids []int) []int {
+	sbieInstallSess.Lock()
+	defer sbieInstallSess.Unlock()
+	if !sbieInstallSess.active {
+		return nil
+	}
+	var added []int
+	for _, p := range pids {
+		if !sbieInstallSess.pids[p] {
+			sbieInstallSess.pids[p] = true
+			added = append(added, p)
+		}
+	}
+	return added
+}
+
+func installSessionEnd() {
+	sbieInstallSess.Lock()
+	if !sbieInstallSess.active {
+		sbieInstallSess.Unlock()
+		return
+	}
+	name, n := sbieInstallSess.name, len(sbieInstallSess.pids)
+	sbieInstallSess.active = false
+	sbieInstallSess.pids = map[int]bool{}
+	sbieInstallSess.Unlock()
+	logf("sandbox", "info", "隔离安装会话结束：%s（会话共见盒内进程 %d 个，巡逻豁免解除）", name, n)
+}
+
+func installSessionActive() bool {
+	sbieInstallSess.Lock()
+	defer sbieInstallSess.Unlock()
+	return sbieInstallSess.active
+}
+
+func installSessionPIDs() []int {
+	sbieInstallSess.Lock()
+	defer sbieInstallSess.Unlock()
+	out := make([]int, 0, len(sbieInstallSess.pids))
+	for p := range sbieInstallSess.pids {
+		out = append(out, p)
+	}
+	sort.Ints(out)
+	return out
+}
+
+// boxTreeSig is a cheap activity fingerprint of the whole box:
+// if files are still being written anywhere in it, some part
+// of the signature moves.
+type boxTreeSig struct {
+	Files  int
+	Bytes  int64
+	MaxMod int64
+}
+
+func boxTreeSignature(boxRoot string) boxTreeSig {
+	var sig boxTreeSig
+	_ = filepath.Walk(boxRoot, func(p string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		sig.Files++
+		sig.Bytes += info.Size()
+		if m := info.ModTime().Unix(); m > sig.MaxMod {
+			sig.MaxMod = m
+		}
+		return nil
+	})
+	return sig
+}
+
+type installWatchCfg struct {
+	StableNeed        time.Duration // quiet stretch that proves "done" once the installer is gone
+	UnknownStableNeed time.Duration // longer quiet stretch when the installer process was never identified
+	UnknownMinElapsed time.Duration // ...and the watch must have run at least this long to use it
+	Timeout           time.Duration // hard total deadline -> named failure
+}
+
+func defaultInstallWatchCfg(interactive bool) installWatchCfg {
+	to := 15 * time.Minute
+	if interactive {
+		to = 30 * time.Minute
+	}
+	return installWatchCfg{
+		StableNeed:        8 * time.Second,
+		UnknownStableNeed: 30 * time.Second,
+		UnknownMinElapsed: 60 * time.Second,
+		Timeout:           to,
+	}
+}
+
+type installWatchObs struct {
+	Elapsed        time.Duration
+	InstallerSeen  bool // a session PID's image name matched the installer file's
+	InstallerGone  bool // seen, and none of them is alive any more
+	AnySessionSeen bool // the session produced at least one process
+	SessionAlive   int  // session PIDs still in the box right now
+	StableFor      time.Duration
+	FreshFiles     int // box file count now minus at install start
+}
+
+type installVerdict int
+
+const (
+	watchWait installVerdict = iota
+	watchComplete
+	watchTimeout
+)
+
+// decideInstallWatch is the completion rule (pure). Remaining
+// session processes NEVER block: the auto-launched app is the
+// normal case, not a stall. Three roads to "complete": the
+// installer was seen and is gone + tree quiet; everything the
+// session brought in has left again + tree quiet (the
+// installer was never name-matched but the drain is real); or,
+// when the installer process could not be identified at all, a
+// long quiet stretch after a minimum watch -- installers do
+// not pause half a minute mid-work without writing anything.
+func decideInstallWatch(o installWatchObs, c installWatchCfg) installVerdict {
+	if o.Elapsed >= c.Timeout {
+		return watchTimeout
+	}
+	switch {
+	case o.InstallerGone && o.StableFor >= c.StableNeed:
+		return watchComplete
+	case !o.InstallerSeen && o.AnySessionSeen && o.SessionAlive == 0 &&
+		o.StableFor >= c.StableNeed && o.Elapsed >= 20*time.Second:
+		return watchComplete
+	case !o.InstallerSeen && o.AnySessionSeen && o.Elapsed >= c.UnknownMinElapsed &&
+		o.StableFor >= c.UnknownStableNeed:
+		return watchComplete
+	}
+	return watchWait
+}
+
+// installTimeoutSummary is the named failure's wording (pure):
+// what was waited for, what state things were in when the
+// deadline hit.
+func installTimeoutSummary(name string, o installWatchObs, sessionPIDs []int) string {
+	inst := "一直没能识别出安装器进程"
+	if o.InstallerGone {
+		inst = "安装器已退出"
+	} else if o.InstallerSeen {
+		inst = "安装器仍未退出"
+	}
+	return fmt.Sprintf("隔离安装超时未完成：%s 已等 %s（%s；盒内会话进程还剩 %d 个 %v；安装期间盒内新增文件 %d 个）。盒子里的东西原样保留，可以稍后重试，或在设置里清空盒子。",
+		name, o.Elapsed.Round(time.Second), inst, o.SessionAlive, sessionPIDs, o.FreshFiles)
+}
+
+// installEmptyScanSummary is the named ending when an install
+// completed but left nothing registrable (pure).
+func installEmptyScanSummary(name string, freshFiles, freshExes, dropped int) string {
+	return fmt.Sprintf("安装跑完了，但盒子里没找到能登记的新程序：%s（安装期间盒内新增文件 %d 个、新增可执行文件 %d 个，其中 %d 个在复核时已消失或属于工具/临时形态被剔除）。可能是安装失败、装到了盒子外，或安装器把程序放进了非常规位置。安装包还留在 Data/sandbox/incoming，细节看控制台日志。",
+		name, freshFiles, freshExes, dropped)
+}
+
+// ---------- v0.43: pending registration persistence ----------
+//
+// Reaching "choosing" used to be a state only the store page's
+// memory knew about: the field user finished the Telegram
+// install while looking at the desktop/console and never knew
+// a step was waiting for him. The pending registration is now
+// written to disk the moment it exists and restored at daemon
+// start, so the step survives page closes and restarts until
+// the user registers or discards it.
+
+type sbiePendingDisk struct {
+	Installer     string   `json:"installer"`
+	BeforeExes    []string `json:"beforeExes"`
+	BeforeAppData []string `json:"beforeAppData"`
+	At            string   `json:"at"`
+}
+
+func pendingInstallPath() string { return filepath.Join(sandboxDir(), "pending-install.json") }
+
+func savePendingInstallFile(path string, p *sbiePendingInstall) {
+	if p == nil {
+		return
+	}
+	d := sbiePendingDisk{Installer: p.InstallerName, At: time.Now().Format("2006-01-02 15:04:05")}
+	for k := range p.BeforeExes {
+		d.BeforeExes = append(d.BeforeExes, k)
+	}
+	for k := range p.BeforeAppData {
+		d.BeforeAppData = append(d.BeforeAppData, k)
+	}
+	sort.Strings(d.BeforeExes)
+	sort.Strings(d.BeforeAppData)
+	b, err := json.MarshalIndent(d, "", " ")
+	if err != nil {
+		return
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o644); err == nil {
+		_ = os.Rename(tmp, path)
+	}
+}
+
+func clearPendingInstallFile() { _ = os.Remove(pendingInstallPath()) }
+
+// finalizeCandidates runs the post-scan trust pipeline shared
+// by the install flow and the pending restore: seal flags,
+// foreign marks, and the generation-time liveness re-check.
+// dropped counts candidates removed by the re-check.
+func finalizeCandidates(ranked []boxExeCand, installerName string) (kept []boxExeCand, dropped int) {
+	for _, c := range ranked {
+		if !candidateExists(c) {
+			dropped++
+			logf("sandbox", "warn", "候选复核剔除：%s（文件已不在盒子里——多半是别的程序的临时文件，被它自己清掉了）", c.Virtual)
+			continue
+		}
+		c.Exists = true
+		c.Sealed = appSealedByExe(virtualBase(c.Virtual))
+		kept = append(kept, c)
+	}
+	markForeignCandidates(kept, installerName)
+	return kept, dropped
+}
+
+// restorePendingFrom rebuilds a persisted pending registration
+// against the CURRENT box contents (the candidate list is
+// re-derived: what the install left behind, minus what has
+// since vanished or been registered away). False means there
+// was nothing to restore.
+func restorePendingFrom(path, boxRoot string) bool {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var d sbiePendingDisk
+	if json.Unmarshal(b, &d) != nil || d.Installer == "" {
+		_ = os.Remove(path)
+		return false
+	}
+	before := map[string]bool{}
+	for _, k := range d.BeforeExes {
+		before[k] = true
+	}
+	beforeAD := map[string]bool{}
+	for _, k := range d.BeforeAppData {
+		beforeAD[k] = true
+	}
+	var fresh []boxExeCand
+	for _, c := range snapshotBoxExes(boxRoot) {
+		if !before[strings.ToLower(c.Physical)] {
+			fresh = append(fresh, c)
+		}
+	}
+	ranked, dropped := finalizeCandidates(rankBoxCandidates(fresh, d.Installer), d.Installer)
+	if len(ranked) == 0 {
+		_ = os.Remove(path)
+		logf("sandbox", "info", "待登记的隔离安装（%s）已无可登记的程序（候选复核剔除 %d 个），这条待办自动销掉", d.Installer, dropped)
+		return false
+	}
+	sbieBoxOp.Lock()
+	sbieBoxOp.Candidates = ranked
+	sbieBoxOp.Pending = &sbiePendingInstall{InstallerName: d.Installer, BeforeExes: before, BeforeAppData: beforeAD}
+	sbieBoxOp.Unlock()
+	sbieBoxSet("choosing", fmt.Sprintf("有个隔离安装（%s）还等着你确认主程序——选好登记，图标就上桌面。", d.Installer))
+	logf("sandbox", "info", "待登记的隔离安装已恢复：%s（%s 存盘，%d 个候选）——到 应用商店 → 隔离安装 选主程序完成登记，或在那里放弃它", d.Installer, d.At, len(ranked))
+	return true
+}
+
 func runBoxInstall(url, sha256hex, file string) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -1813,7 +2312,8 @@ func runBoxInstall(url, sha256hex, file string) {
 	for _, d := range snapshotAppDataDirs(boxRoot) {
 		beforeAppData[strings.ToLower(d)] = true
 	}
-	args := []string{"/box:" + sbieBoxName, "/wait", pkgPath}
+	interactive := silentArgsFor(kind) == nil
+	args := []string{"/box:" + sbieBoxName, pkgPath} // no /wait: the watch below owns completion (v0.43)
 	if sa := silentArgsFor(kind); sa != nil {
 		args = append(args, sa...)
 		sbieBoxSet("installing", fmt.Sprintf("正在盒内静默安装 %s（%s）…", installerName, strings.ToUpper(kind)))
@@ -1821,28 +2321,111 @@ func runBoxInstall(url, sha256hex, file string) {
 		sbieBoxSet("installing", fmt.Sprintf("已在盒内打开 %s 的安装界面，在那个窗口里点完安装（全程在盒子里）…", installerName))
 	}
 	logf("sandbox", "info", "盒内安装开始：%s（类型 %s，静默参数 %v）", installerName, orDash(kind), silentArgsFor(kind))
+	if sbieBoxCancel.Load() {
+		sbieBoxSet("idle", "已终止本次隔离安装")
+		logf("sandbox", "warn", "盒内安装在启动前被终止：%s", installerName)
+		return
+	}
+	// Session baseline: the box PIDs and file tree as they were
+	// BEFORE the installer starts. The session then owns every
+	// PID that appears after this point.
+	baseList, _ := sbieBoxPidsE()
+	baseSet := pidSetFromInts(baseList)
+	sigBefore := boxTreeSignature(boxRoot)
+	installSessionBegin(installerName)
+	defer installSessionEnd()
 	start := time.Now()
 	cmd := exec.Command(sbieStartExePath(), args...)
 	hideConsole(cmd)
-	runErr := cmd.Run()
-	// The starter can return while children finish up; wait for the
-	// box to drain before judging the result.
-	drainDeadline := time.Now().Add(5 * time.Minute)
-	for time.Now().Before(drainDeadline) && !sbieBoxCancel.Load() {
-		if len(sbieBoxPids()) == 0 {
-			break
-		}
-		time.Sleep(2 * time.Second)
-	}
-	if sbieBoxCancel.Load() {
-		sbieTerminateBox()
-		sbieBoxSet("idle", "已终止")
-		logf("sandbox", "warn", "盒内安装被终止：%s", installerName)
+	if err := cmd.Start(); err != nil {
+		fail("盒内安装启动失败：%v", err)
 		return
 	}
-	if runErr != nil {
-		logf("sandbox", "warn", "盒内安装启动器返回：%v（继续按盒内结果核对）", runErr)
+	go func() { _ = cmd.Wait() }() // reap Start.exe; it exits once the boxed hand-off is done
+
+	cfg := defaultInstallWatchCfg(interactive)
+	installerBase := strings.ToLower(installerName)
+	installerPIDs := map[int]bool{}
+	imageKnown := map[int]string{}
+	lastSig := sigBefore
+	lastChange := time.Now()
+	lastBeat := time.Time{}
+	var obs installWatchObs
+	outcome := watchWait
+	for outcome == watchWait {
+		time.Sleep(2 * time.Second)
+		if sbieBoxCancel.Load() {
+			pids := installSessionPIDs()
+			for _, pid := range pids {
+				_ = sbieKillPid(pid)
+			}
+			sbieBoxSet("idle", "已终止本次隔离安装（只结束了这次安装的进程，盒子里其他应用没动）")
+			logf("sandbox", "warn", "盒内安装被终止：%s（终止本会话进程 %v，其他盒内应用不受影响）", installerName, pids)
+			return
+		}
+		var curSet map[uint32]bool
+		if cur, perr := sbieBoxPidsE(); perr == nil {
+			curSet = pidSetFromInts(cur)
+			var freshPids []int
+			for _, p := range cur {
+				if !baseSet[uint32(p)] {
+					freshPids = append(freshPids, p)
+				}
+			}
+			for _, pid := range installSessionTrack(freshPids) {
+				base := strings.ToLower(filepath.Base(sbieProcImagePath(uint32(pid))))
+				imageKnown[pid] = base
+				if base == installerBase {
+					installerPIDs[pid] = true
+				}
+			}
+		}
+		sig := boxTreeSignature(boxRoot)
+		if sig != lastSig {
+			lastSig = sig
+			lastChange = time.Now()
+		}
+		installerAlive := false
+		for pid := range installerPIDs {
+			if curSet[uint32(pid)] {
+				installerAlive = true
+			}
+		}
+		alive := 0
+		for _, pid := range installSessionPIDs() {
+			if curSet[uint32(pid)] {
+				alive++
+			}
+		}
+		obs = installWatchObs{
+			Elapsed:        time.Since(start),
+			InstallerSeen:  len(installerPIDs) > 0,
+			InstallerGone:  len(installerPIDs) > 0 && !installerAlive,
+			AnySessionSeen: len(imageKnown) > 0,
+			SessionAlive:   alive,
+			StableFor:      time.Since(lastChange),
+			FreshFiles:     sig.Files - sigBefore.Files,
+		}
+		outcome = decideInstallWatch(obs, cfg)
+		if outcome == watchWait && time.Since(lastBeat) >= 30*time.Second {
+			lastBeat = time.Now()
+			inst := "未识别到安装器进程"
+			if obs.InstallerGone {
+				inst = "安装器已退出"
+			} else if obs.InstallerSeen {
+				inst = "安装器仍在运行"
+			}
+			logf("sandbox", "info", "隔离安装进行中：%s 已用时 %s；%s；盒内会话进程 %d 个；盒内新增文件 %d 个；文件树已稳定 %s",
+				installerName, obs.Elapsed.Round(time.Second), inst, obs.SessionAlive, obs.FreshFiles, obs.StableFor.Round(time.Second))
+			sbieBoxSet("installing", fmt.Sprintf("盒内安装中：%s（已用时 %s，%s，盒内新增文件 %d 个）",
+				installerName, obs.Elapsed.Round(time.Second), inst, obs.FreshFiles))
+		}
 	}
+	if outcome == watchTimeout {
+		fail("%s", installTimeoutSummary(installerName, obs, installSessionPIDs()))
+		return
+	}
+	sbieBoxSet("scanning", "安装完成了，正在盒子里找新装的程序并逐个复核…")
 	after := snapshotBoxExes(boxRoot)
 	var fresh []boxExeCand
 	for _, c := range after {
@@ -1850,25 +2433,26 @@ func runBoxInstall(url, sha256hex, file string) {
 			fresh = append(fresh, c)
 		}
 	}
-	ranked := rankBoxCandidates(fresh, installerName)
-	for i := range ranked {
-		ranked[i].Sealed = appSealedByExe(virtualBase(ranked[i].Virtual))
-	}
-	logf("sandbox", "info", "盒内安装结束：%s 用时 %s，盒内新增 exe %d 个，候选 %d 个",
-		installerName, time.Since(start).Round(time.Second), len(fresh), len(ranked))
+	ranked, dropped := finalizeCandidates(rankBoxCandidates(fresh, installerName), installerName)
+	logf("sandbox", "info", "盒内安装结束：%s 用时 %s，盒内新增 exe %d 个，候选 %d 个（复核剔除 %d 个）",
+		installerName, time.Since(start).Round(time.Second), len(fresh), len(ranked), dropped)
 	if len(ranked) == 0 {
-		fail("安装跑完了，但盒子里没找到新装的程序——可能安装失败、装到了盒子外，或这个安装包不往 Program Files 放程序。安装包还留在 Data/sandbox/incoming，可在控制台看日志。")
+		fail("%s", installEmptyScanSummary(installerName, obs.FreshFiles, len(fresh), dropped))
 		return
 	}
-	sbieBoxOp.Lock()
-	sbieBoxOp.Candidates = ranked
-	sbieBoxOp.Pending = &sbiePendingInstall{
+	pend := &sbiePendingInstall{
 		InstallerName: installerName,
 		BeforeExes:    beforeExes,
 		BeforeAppData: beforeAppData,
 	}
+	sbieBoxOp.Lock()
+	sbieBoxOp.Candidates = ranked
+	sbieBoxOp.Pending = pend
 	sbieBoxOp.Unlock()
+	savePendingInstallFile(pendingInstallPath(), pend)
 	sbieBoxSet("choosing", "装完了。确认一下哪个是主程序、叫什么名字，登记后图标就上桌面。")
+	logf("sandbox", "info", "隔离安装待登记：%s 已装入盒子（%d 个候选）。请到 应用商店 → 隔离安装 选主程序完成登记——这一步已经存盘，关掉页面或重启终端都不会丢。",
+		installerName, len(ranked))
 }
 
 // registerBoxApp finalizes a boxed install into the registry.
@@ -1889,6 +2473,17 @@ func registerBoxApp(name, virtualExe string) (boxApp, error) {
 	}
 	if chosen == nil {
 		return boxApp{}, fmt.Errorf("选的主程序不在这次安装的候选里")
+	}
+	// v0.43: registration-time re-verification, the last gate.
+	// A registration pointing at a file that is not in the box
+	// (any more) is the one accident that must never ship: the
+	// field "Telegram" registration named a temporary 7z.exe
+	// another program had already cleaned up.
+	if isJunkCandidateShape(virtualExe) {
+		return boxApp{}, fmt.Errorf("这个路径是工具/临时形态（通用小工具，或插件、临时目录里的文件），不是应用的主程序，不能登记——请选真正的那个主程序")
+	}
+	if !candidateExists(*chosen) {
+		return boxApp{}, fmt.Errorf("选定的主程序文件刚刚已经不在盒子里了（多半是别的程序的临时文件，被它自己清掉了），请换一个候选，或放弃这次登记")
 	}
 	if name == "" {
 		name = virtualStem(virtualExe)
@@ -1924,6 +2519,7 @@ func registerBoxApp(name, virtualExe string) (boxApp, error) {
 	sbieBoxOp.Pending = nil
 	sbieBoxOp.Candidates = nil
 	sbieBoxOp.Unlock()
+	clearPendingInstallFile()
 	sbieBoxSet("done", "已登记到桌面："+name)
 	logf("sandbox", "info", "盒内应用已登记：%s（%s，数据目录 %d 个）", name, virtualExe, len(appDataV))
 	// v0.42: the seal rules are a function of the registry, so
@@ -2014,6 +2610,19 @@ func decideBoxResidual(residuals []uint32, wins []windowFact) boxResidualDecisio
 	return boxResidualKill
 }
 
+// boxGhostError is a launch failure caused by the REGISTRATION
+// being dead (v0.43): the file it names is gone, or never was
+// an application at all. The UI keys off this type to offer
+// 「移除这条登记」 instead of a dead-end alert.
+type boxGhostError struct {
+	App    boxApp
+	Reason string
+}
+
+func (e *boxGhostError) Error() string {
+	return fmt.Sprintf("%s 打不开了：%s（登记路径：%s）。这条登记已经失效，可以移除它。", e.App.Name, e.Reason, e.App.Exe)
+}
+
 func launchBoxApp(app boxApp) error {
 	if runtime.GOOS != "windows" {
 		return fmt.Errorf("当前不是 Windows 环境（这是测试环境），到 Windows 上会正常打开")
@@ -2034,8 +2643,21 @@ func launchBoxApp(app boxApp) error {
 		}
 	}
 	physExe := virtualToPhysical(sandboxBoxRoot(), app.Exe)
+	// v0.43: the registration itself is re-verified before
+	// Start.exe is ever invoked. A registration can name a file
+	// that was another program's temporary drop (field: the
+	// "Telegram" registration pointed at a WeChat patcher's
+	// extracted 7z.exe) — launching it either fails inside
+	// Sandboxie with a raw system popup, or worse, runs a tool
+	// the user never installed. Ghost registrations are
+	// reported in MJ's words and flagged so the UI can offer
+	// one-click removal; Sandboxie's own error never reaches
+	// the user from this path.
+	if isJunkCandidateShape(app.Exe) {
+		return &boxGhostError{App: app, Reason: "登记指向的路径是工具/临时形态（通用小工具，或插件、临时目录里的文件），不是这个应用的主程序——这条登记多半是当时选错了候选留下的"}
+	}
 	if _, err := os.Stat(physExe); err != nil {
-		return fmt.Errorf("盒子里找不到这个程序了（盒子可能被清空过），请移除后重新隔离安装")
+		return &boxGhostError{App: app, Reason: "登记的程序文件已不在盒子里，可能被它所属的程序在更新时清理掉了"}
 	}
 	// v0.42: a covered app's first launch under the seal runs
 	// its one-time purge of leaked shadow copies first (it
@@ -2564,12 +3186,24 @@ func dirSizeBytes(root string) int64 {
 type boxAppView struct {
 	boxApp
 	Sealed bool `json:"sealed"`
+	// Ghost marks a dead registration (v0.43): the file it
+	// names is gone, or the path is a tool/temp shape that
+	// was never the app. The settings list badges it so the
+	// user can remove it without having to click into the
+	// failure first.
+	Ghost bool `json:"ghost,omitempty"`
 }
 
 func boxAppViews(apps []boxApp) []boxAppView {
 	out := make([]boxAppView, 0, len(apps))
+	boxRoot := sandboxBoxRoot()
 	for _, a := range apps {
-		out = append(out, boxAppView{boxApp: a, Sealed: appSealedByExe(virtualBase(a.Exe))})
+		ghost := isJunkCandidateShape(a.Exe)
+		if !ghost {
+			_, err := os.Stat(virtualToPhysical(boxRoot, a.Exe))
+			ghost = err != nil
+		}
+		out = append(out, boxAppView{boxApp: a, Sealed: appSealedByExe(virtualBase(a.Exe)), Ghost: ghost})
 	}
 	return out
 }
@@ -2582,8 +3216,17 @@ func sandboxStatusMap() map[string]any {
 	sbieBoxOp.Lock()
 	bPhase, bMsg, bKind, bInst := sbieBoxOp.Phase, sbieBoxOp.Message, sbieBoxOp.Kind, sbieBoxOp.Installer
 	bProg, bSize := sbieBoxOp.Progress, sbieBoxOp.Size
-	cands := sbieBoxOp.Candidates
+	bStarted := sbieBoxOp.StartedAt
+	// v0.43: candidate liveness is recomputed on EVERY status
+	// read — a file that vanishes while the registration dialog
+	// is open must be struck through in that dialog, not
+	// discovered at registration (or worse, at launch).
+	cands := make([]boxExeCand, len(sbieBoxOp.Candidates))
+	copy(cands, sbieBoxOp.Candidates)
 	sbieBoxOp.Unlock()
+	for i := range cands {
+		cands[i].Exists = candidateExists(cands[i])
+	}
 	if ver == "" {
 		ver = meta.Version
 	}
@@ -2613,6 +3256,7 @@ func sandboxStatusMap() map[string]any {
 		"boxInstall": map[string]any{
 			"phase": bPhase, "message": bMsg, "kind": bKind, "installer": bInst,
 			"progress": bProg, "size": bSize, "busy": sbieBoxBusy(),
+			"startedAt":  bStarted,
 			"candidates": cands,
 		},
 		"apps": boxAppViews(apps),
@@ -2763,6 +3407,17 @@ func sandboxBoxInstallHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"error": "已经有一单隔离安装在跑了"})
 		return
 	}
+	// v0.43: a pending registration also blocks a new install —
+	// starting one would clobber the choice the user still owes
+	// (the pending state is persisted now, so it would survive
+	// everything except exactly this).
+	sbieBoxOp.Lock()
+	choosing := sbieBoxOp.Phase == "choosing"
+	sbieBoxOp.Unlock()
+	if choosing {
+		writeJSON(w, map[string]any{"error": "上一个隔离安装还等着你确认主程序（在隔离安装区选好登记，或点「先不登记」放弃），处理完再开始新的"})
+		return
+	}
 	if sbieStartExePath() == "" {
 		writeJSON(w, map[string]any{"error": "应用隔离组件还没装，先去 设置 → 应用隔离 装组件"})
 		return
@@ -2798,15 +3453,19 @@ func sandboxBoxDiscardHandler(w http.ResponseWriter, r *http.Request) {
 	sbieBoxOp.Pending = nil
 	sbieBoxOp.Candidates = nil
 	sbieBoxOp.Unlock()
+	clearPendingInstallFile()
 	sbieBoxSet("idle", "")
 	logf("sandbox", "info", "用户放弃登记这次隔离安装的结果（文件留盒内，未上桌面）")
 	writeJSON(w, map[string]any{"ok": true})
 }
 
+// sandboxBoxStopHandler cancels the CURRENT install only
+// (v0.43): it raises the flag and the install goroutine kills
+// just its session's PID set. v0.42 terminated the WHOLE box,
+// taking every other boxed app down with the install.
 func sandboxBoxStopHandler(w http.ResponseWriter, r *http.Request) {
 	sbieBoxCancel.Store(true)
-	sbieTerminateBox()
-	logf("sandbox", "warn", "用户终止了盒内进程")
+	logf("sandbox", "warn", "用户终止本次隔离安装（只终止本会话进程，其他盒内应用不受影响）")
 	writeJSON(w, map[string]any{"ok": true})
 }
 
@@ -2824,6 +3483,11 @@ func sandboxLaunchHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := launchBoxApp(app); err != nil {
 		logf("sandbox", "error", "启动 %s 失败：%v", app.Name, err)
+		var ghost *boxGhostError
+		if errors.As(err, &ghost) {
+			writeJSON(w, map[string]any{"error": err.Error(), "ghost": true, "id": app.ID})
+			return
+		}
 		writeJSON(w, map[string]any{"error": err.Error()})
 		return
 	}
@@ -2878,5 +3542,9 @@ func sandboxInit() {
 		} else {
 			logf("sandbox", "warn", "应用隔离：盒子配置与当前 Data 位置不一致（多半是刚换了电脑或挪了文件夹），去 设置 → 应用隔离 点「修复」")
 		}
+		// v0.43: a pending registration survives the restart —
+		// rebuild it against the current box and put the
+		// "choosing" step back in front of the user.
+		restorePendingFrom(pendingInstallPath(), sandboxBoxRoot())
 	}()
 }

@@ -203,10 +203,34 @@ func classifyOwnership(procs []procFact, seeds map[uint32]bool, ctx ownContext) 
 	return owned
 }
 
+// isSystemBinaryImage names host plumbing binaries (pure): a
+// window owned by one of these is never an application's main
+// window in the Stage Manager sense, and — more pointedly —
+// a box-list claim for one gets an extra live re-verification
+// in the patrol (v0.43): the 2026-10-29 field log claimed an
+// ELEVATED HOST powershell "by box list" during an install,
+// which is either a list-parse false positive or an installer
+// genuinely spawning a boxed shell — the re-check's log line
+// is what will tell the two apart next time.
+func isSystemBinaryImage(base string) bool {
+	switch strings.ToLower(base) {
+	case "powershell.exe", "pwsh.exe", "cmd.exe", "conhost.exe",
+		"wscript.exe", "cscript.exe", "rundll32.exe", "mshta.exe", "regsvr32.exe":
+		return true
+	}
+	return false
+}
+
 // claimOpts carries the per-tick switches decideClaim needs.
 type claimOpts struct {
 	AutoClaimBrowser bool // 设置 -> stageAutoClaimBrowser (browser auto-claim gate)
 	EmptySeenBefore  bool // this HWND was already seen title-less on an earlier tick
+	// BoxExempt is the install-session exemption (v0.43): while
+	// a box install is running, box-owned windows belong to the
+	// install flow alone and are not claimed at all — visible
+	// or hidden. The installer is mid-surgery on the box; the
+	// Stage Manager waits outside.
+	BoxExempt bool
 	// ShellPIDs own the desktop shell window: never claim, whatever
 	// the ownership classifier said (the shell is registered
 	// separately and excluded from the external list by design).
@@ -309,6 +333,12 @@ func decideClaim(w windowFact, owned map[uint32]string, registered map[uint64]bo
 	}
 	reason, ok := owned[w.PID]
 	if !ok {
+		return claimVerdict{}
+	}
+	if opts.BoxExempt && reason == ownBox {
+		// v0.43 install-session exemption: no claim, no defer,
+		// no bookkeeping — the patrol simply does not see
+		// box-owned windows while an install session runs.
 		return claimVerdict{}
 	}
 	if !w.Visible {
