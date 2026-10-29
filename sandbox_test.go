@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,7 +16,7 @@ import (
 )
 
 func TestMergeBoxSectionEmpty(t *testing.T) {
-	out, changed := mergeBoxSection("", `D:\MJ\Data\sandbox\MJBox`)
+	out, changed := mergeBoxSection("", `D:\MJ\Data\sandbox\MJBox`, nil)
 	if !changed {
 		t.Fatal("empty ini must report changed")
 	}
@@ -26,7 +27,7 @@ func TestMergeBoxSectionEmpty(t *testing.T) {
 
 func TestMergeBoxSectionPreservesOthersAndIdempotent(t *testing.T) {
 	orig := "[GlobalSettings]\r\nBoxRootFolder=C:\\Sandbox\r\n\r\n[OtherBox]\r\nEnabled=y\r\nFileRootPath=C:\\Sandbox\\Other\r\n"
-	out, changed := mergeBoxSection(orig, `E:\Data\sandbox\MJBox`)
+	out, changed := mergeBoxSection(orig, `E:\Data\sandbox\MJBox`, nil)
 	if !changed {
 		t.Fatal("adding MJBox must report changed")
 	}
@@ -35,7 +36,7 @@ func TestMergeBoxSectionPreservesOthersAndIdempotent(t *testing.T) {
 			t.Fatalf("lost %q in:\n%s", want, out)
 		}
 	}
-	out2, changed2 := mergeBoxSection(out, `E:\Data\sandbox\MJBox`)
+	out2, changed2 := mergeBoxSection(out, `E:\Data\sandbox\MJBox`, nil)
 	if changed2 {
 		t.Fatalf("second merge must be a no-op, got:\n%s", out2)
 	}
@@ -43,7 +44,7 @@ func TestMergeBoxSectionPreservesOthersAndIdempotent(t *testing.T) {
 
 func TestMergeBoxSectionReplacesOldRoot(t *testing.T) {
 	orig := "[MJBox]\r\nEnabled=y\r\nFileRootPath=C:\\Old\\Data\\sandbox\\MJBox\r\nAutoRecover=n\r\n\r\n[Other]\r\nEnabled=y\r\n"
-	out, changed := mergeBoxSection(orig, `D:\New\sandbox\MJBox`)
+	out, changed := mergeBoxSection(orig, `D:\New\sandbox\MJBox`, nil)
 	if !changed {
 		t.Fatal("root change must report changed")
 	}
@@ -480,5 +481,187 @@ func TestEmbeddedComponentPin(t *testing.T) {
 	sum := sha256.Sum256(sbieEmbedded)
 	if !strings.EqualFold(hex.EncodeToString(sum[:]), sbieSHA256) {
 		t.Fatal("embedded component hash does not match the pin")
+	}
+}
+
+// ---------- v0.42: data seal ----------
+
+func TestSealRuleLinesForExe(t *testing.T) {
+	lines := sealRuleLinesForExe("Weixin.exe")
+	if len(lines) != len(sealWeChatRoots) {
+		t.Fatalf("Weixin.exe must produce %d rules, got %v", len(sealWeChatRoots), lines)
+	}
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{
+		`WriteFilePath=Weixin.exe,%Personal%\xwechat_files\`,
+		`WriteFilePath=Weixin.exe,%Personal%\WeChat Files\`,
+		`WriteFilePath=Weixin.exe,%AppData%\Tencent\xwechat\`,
+		`WriteFilePath=Weixin.exe,%AppData%\Tencent\Weixin\`,
+		`WriteFilePath=Weixin.exe,%AppData%\Tencent\WeChat\`,
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("rule %q missing from:\n%s", want, joined)
+		}
+	}
+	// Case-insensitive template hit; the prefix keeps the
+	// caller's spelling.
+	upper := sealRuleLinesForExe("WEIXIN.EXE")
+	if len(upper) != len(lines) || !strings.HasPrefix(upper[0], "WriteFilePath=WEIXIN.EXE,") {
+		t.Fatalf("uppercase hit wrong: %v", upper)
+	}
+	if got := sealRuleLinesForExe("notepad++.exe"); got != nil {
+		t.Fatalf("uncovered exe must produce no rules, got %v", got)
+	}
+	if got := sealRuleLinesForExe(""); got != nil {
+		t.Fatalf("empty exe must produce no rules, got %v", got)
+	}
+}
+
+func TestSealRuleLinesRegistry(t *testing.T) {
+	wx := boxApp{ID: "weixin", Name: "微信", Exe: `C:\Program Files\Tencent\Weixin\Weixin.exe`}
+	other := boxApp{ID: "foo", Name: "Foo", Exe: `C:\Program Files\Foo\foo.exe`}
+	reg := map[string]boxApp{"weixin": wx, "foo": other}
+	lines := sealRuleLines(reg)
+	if len(lines) != len(sealWeChatRoots) {
+		t.Fatalf("only the covered app contributes: %v", lines)
+	}
+	// Deterministic: merging the same registry again produces
+	// byte-identical lines.
+	if again := sealRuleLines(reg); strings.Join(again, "|") != strings.Join(lines, "|") {
+		t.Fatalf("rule generation must be deterministic:\n%v\n%v", lines, again)
+	}
+	// A second registration of the same exe shares the template:
+	// no duplicate lines.
+	reg["weixin-2"] = boxApp{ID: "weixin-2", Name: "微信2", Exe: `D:\Other\Weixin.exe`}
+	if got := sealRuleLines(reg); len(got) != len(lines) {
+		t.Fatalf("duplicate registration must not duplicate rules: %v", got)
+	}
+	// Removing every registration of the covered exe removes
+	// its lines completely.
+	delete(reg, "weixin")
+	delete(reg, "weixin-2")
+	if got := sealRuleLines(reg); len(got) != 0 {
+		t.Fatalf("removed app's rules must go with it: %v", got)
+	}
+}
+
+func TestMergeBoxSectionSealAndBorder(t *testing.T) {
+	root := `D:\MJ\Data\sandbox\MJBox`
+	lines := sealRuleLinesForExe("Weixin.exe")
+	orig := "[GlobalSettings]\r\nBoxRootFolder=C:\\Sandbox\r\n\r\n[OtherBox]\r\nEnabled=y\r\n"
+	out, changed := mergeBoxSection(orig, root, lines)
+	if !changed {
+		t.Fatal("first merge must report changed")
+	}
+	for _, want := range []string{"[GlobalSettings]", "[OtherBox]", "BorderColor=#000000,off,6,192,no", `WriteFilePath=Weixin.exe,%Personal%\xwechat_files\`} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("merged section missing %q:\n%s", want, out)
+		}
+	}
+	// Idempotent with the same lines.
+	out2, changed2 := mergeBoxSection(out, root, lines)
+	if changed2 {
+		t.Fatalf("second merge with same lines must be a no-op:\n%s", out2)
+	}
+	if !iniHasCurrentBox(out, root, lines) {
+		t.Fatal("merged output must read as current")
+	}
+	// Dropping the app drops its rules (and only its rules).
+	out3, changed3 := mergeBoxSection(out, root, nil)
+	if !changed3 {
+		t.Fatal("dropping seal lines must report changed")
+	}
+	if strings.Contains(out3, "WriteFilePath=") {
+		t.Fatalf("seal rules survived their app:\n%s", out3)
+	}
+	if !strings.Contains(out3, "[OtherBox]") || !strings.Contains(out3, "BorderColor=#000000,off,6,192,no") {
+		t.Fatalf("unrelated content lost:\n%s", out3)
+	}
+}
+
+func TestSealShadowPaths(t *testing.T) {
+	root := `D:\MJ\Data\sandbox\MJBox`
+	got := sealShadowPaths(root, "Weixin.exe", []string{"ming"})
+	var want []string
+	for _, rel := range [][]string{
+		{"user", "ming", "Documents", "xwechat_files"},
+		{"user", "ming", "Documents", "WeChat Files"},
+		{"user", "ming", "AppData", "Roaming", "Tencent", "xwechat"},
+		{"user", "ming", "AppData", "Roaming", "Tencent", "Weixin"},
+		{"user", "ming", "AppData", "Roaming", "Tencent", "WeChat"},
+	} {
+		want = append(want, filepath.Join(append([]string{root}, rel...)...))
+	}
+	if len(got) != len(want) {
+		t.Fatalf("shadow paths = %v, want %v", got, want)
+	}
+	set := map[string]bool{}
+	for _, g := range got {
+		set[g] = true
+	}
+	for _, w := range want {
+		if !set[w] {
+			t.Fatalf("missing shadow path %q in %v", w, got)
+		}
+	}
+	// Every purge target must pass the strict in-box guard.
+	for _, g := range got {
+		if !insideBoxStrict(root, g) {
+			t.Fatalf("purge target %q refused by the in-box guard", g)
+		}
+	}
+	if got := sealShadowPaths(root, "foo.exe", []string{"ming"}); got != nil {
+		t.Fatalf("uncovered exe must map to no shadow paths, got %v", got)
+	}
+	if got := sealShadowPaths(root, "Weixin.exe", nil); got != nil {
+		t.Fatalf("no users must map to no shadow paths, got %v", got)
+	}
+}
+
+func TestInsideBoxStrict(t *testing.T) {
+	root := filepath.Join(`D:\MJ\Data\sandbox`, "MJBox")
+	inside := filepath.Join(root, "user", "ming", "Documents", "xwechat_files")
+	if !insideBoxStrict(root, inside) {
+		t.Fatal("a folder deep inside the box must pass")
+	}
+	if insideBoxStrict(root, root) {
+		t.Fatal("the box root itself must be refused")
+	}
+	if insideBoxStrict(root, filepath.Join(root, "..", "evil")) {
+		t.Fatal("an escaping path must be refused")
+	}
+	if insideBoxStrict(root, filepath.Join(`D:\MJ\Data\sandbox`, "MJBox2", "user")) {
+		t.Fatal("a prefix-sibling (MJBox2) must be refused")
+	}
+	if insideBoxStrict(root, `C:\Users\ming\Documents\xwechat_files`) {
+		t.Fatal("the HOST's real data folder must be refused")
+	}
+}
+
+func TestSealNeededAndMarkerRoundTrip(t *testing.T) {
+	wx := boxApp{ID: "weixin", Exe: `C:\Program Files\Tencent\Weixin\Weixin.exe`}
+	if !sealNeeded(wx) {
+		t.Fatal("covered + unsealed must need the purge")
+	}
+	wx.DataSealed = true
+	if sealNeeded(wx) {
+		t.Fatal("the marker must make the purge one-time only")
+	}
+	foo := boxApp{ID: "foo", Exe: `C:\Program Files\Foo\foo.exe`}
+	if sealNeeded(foo) {
+		t.Fatal("an uncovered app never needs the purge")
+	}
+	// The marker must survive the registry's JSON round trip,
+	// or every restart would purge again.
+	b, err := json.Marshal(wx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back boxApp
+	if err := json.Unmarshal(b, &back); err != nil {
+		t.Fatal(err)
+	}
+	if !back.DataSealed {
+		t.Fatal("dataSealed lost in the JSON round trip")
 	}
 }

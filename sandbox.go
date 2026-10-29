@@ -195,16 +195,31 @@ func encodeSbieIni(text string, utf16enc bool) []byte {
 }
 
 // mergeBoxSection returns the ini text with the [MJBox] section
-// replaced by the canonical one for boxRoot, every other byte of
-// user content preserved. Pure and idempotent: merging the result
-// again with the same boxRoot reports changed=false. Section
-// headers match case-insensitively, as Sandboxie itself treats
-// them.
-func mergeBoxSection(text, boxRoot string) (string, bool) {
+// replaced by the canonical one for boxRoot (plus the current
+// data-seal rule lines), every other byte of user content
+// preserved. Pure and idempotent: merging the result again with
+// the same inputs reports changed=false. Section headers match
+// case-insensitively, as Sandboxie itself treats them.
+func mergeBoxSection(text, boxRoot string, sealLines []string) (string, bool) {
 	section := "[" + sbieBoxName + "]\r\n" +
 		"Enabled=y\r\n" +
 		"FileRootPath=" + boxRoot + "\r\n" +
-		"AutoRecover=n\r\n"
+		"AutoRecover=n\r\n" +
+		// BorderColor is the official per-sandbox key for the
+		// frame Sandboxie draws around a boxed app's foreground
+		// window (v0.42): MJ turns it off for the managed box —
+		// Stage Manager already badges these windows, and the
+		// yellow frame fights the desktop's macOS look. The
+		// value follows the documented Plus format
+		// (#hex,mode,width,alpha,label): mode off = never draw,
+		// label no = no sandbox-name label either. Whether the
+		// field machine's frame (seen in the v0.41 acceptance
+		// photo, where SandMan is not part of MJ's runtime)
+		// answers to this key is a real-PC check, not assumed.
+		"BorderColor=#000000,off,6,192,no\r\n"
+	for _, ln := range sealLines {
+		section += ln + "\r\n"
+	}
 	// Normalize to CRLF for the surgery, whatever the file used.
 	norm := strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n")
 	lines := strings.Split(norm, "\n")
@@ -237,11 +252,201 @@ func mergeBoxSection(text, boxRoot string) (string, bool) {
 }
 
 // iniHasCurrentBox reports whether the ini text already carries
-// our section pointing at the CURRENT box root.
-func iniHasCurrentBox(text, boxRoot string) bool {
-	merged, changed := mergeBoxSection(text, boxRoot)
-	_ = merged
+// our section pointing at the CURRENT box root, with the CURRENT
+// data-seal rule lines.
+func iniHasCurrentBox(text, boxRoot string, sealLines []string) bool {
+	_, changed := mergeBoxSection(text, boxRoot, sealLines)
 	return !changed
+}
+
+// ---------- data seal: per-program read sealing (v0.42) ----------
+//
+// Sandboxie's default file rule is WRITE-isolated but READ-
+// transparent: a boxed program that finds no copy of a file in
+// its box layer reads the host's real file. For most paths that
+// transparency is a feature; for an app's own data root it
+// breaks MJ's core promise — the v0.41 field test showed the
+// boxed WeChat opening on the HOST account's one-click login
+// ("Jason XU · 进入 WeChat") because it read the host WeChat's
+// account store straight through the box wall. A covered app
+// therefore gets per-program WriteFilePath rules (Sandboxie's
+// "Box Only" access) for its data roots: host-side contents are
+// hidden, the folder exists only inside the box, and the app's
+// data can only ever grow in Data. WriteFilePath, not
+// ClosedFilePath: the official docs draw exactly this line —
+// WriteFilePath "closes the host side while permitting the
+// sandbox-copy side", ClosedFilePath closes BOTH, so a
+// ClosedFilePath-sealed WeChat could never even create its data
+// folder and the fresh start the seal exists for would be
+// impossible.
+//
+// The variable spellings are Sandboxie shell-folder variables,
+// verified against the official documentation (Expandable
+// Variables / Shell Folders): %AppData% is the Roaming folder,
+// %Personal% is Documents, and the Local folder's shell-folder
+// name is "Local AppData" (with the space). A pattern carrying
+// no wildcard gets one appended by Sandboxie, so a trailing
+// backslash covers the folder and everything below it.
+
+type sealRootKind int
+
+const (
+	sealRootRoaming sealRootKind = iota // %AppData%
+	sealRootLocal                       // %Local AppData%
+	sealRootDocs                        // %Personal%
+)
+
+// sealPath is one covered data root: the ini pattern as
+// Sandboxie reads it, plus how the same folder is found inside
+// the box's shadow tree when purging leaked copies.
+type sealPath struct {
+	pattern string // ini form, e.g. `%AppData%\Tencent\Weixin\`
+	kind    sealRootKind
+	sub     string // below the known folder, e.g. `Tencent\Weixin`
+}
+
+// sealWeChatRoots is the WeChat family's data-root union, both
+// generations (sources: WeChat 4.x keeps its account/message
+// store under Documents\xwechat_files and its client config
+// under Roaming\Tencent\xwechat and Roaming\Tencent\Weixin;
+// 3.x keeps its store under Documents\WeChat Files and its
+// config under Roaming\Tencent\WeChat):
+var sealWeChatRoots = []sealPath{
+	{pattern: `%Personal%\xwechat_files\`, kind: sealRootDocs, sub: `xwechat_files`},
+	{pattern: `%Personal%\WeChat Files\`, kind: sealRootDocs, sub: `WeChat Files`},
+	{pattern: `%AppData%\Tencent\xwechat\`, kind: sealRootRoaming, sub: `Tencent\xwechat`},
+	{pattern: `%AppData%\Tencent\Weixin\`, kind: sealRootRoaming, sub: `Tencent\Weixin`},
+	{pattern: `%AppData%\Tencent\WeChat\`, kind: sealRootRoaming, sub: `Tencent\WeChat`},
+}
+
+// sealTemplates maps a main exe's base name to its data roots.
+// v1 covers the WeChat family only; both exes get the union of
+// both generations' roots (4.x reads the legacy 3.x store while
+// migrating, 3.x never touches the new roots, and it is the
+// account store that must not leak either way). Extend by
+// adding an exe base name with its roots — nothing else in the
+// seal pipeline is per-app.
+var sealTemplates = map[string][]sealPath{
+	"weixin.exe": sealWeChatRoots,
+	"wechat.exe": sealWeChatRoots,
+}
+
+// sealPathsForExe returns the template roots for an exe base
+// name (case-insensitive), or nil when the app is not covered.
+func sealPathsForExe(exeBase string) []sealPath {
+	return sealTemplates[strings.ToLower(exeBase)]
+}
+
+// appSealedByExe reports whether an exe base name is covered
+// by a data-seal template.
+func appSealedByExe(exeBase string) bool { return len(sealPathsForExe(exeBase)) > 0 }
+
+// sealRuleLinesForExe renders the [MJBox] rule lines for ONE
+// exe base name (pure): per-program WriteFilePath rules in
+// template order. The program prefix keeps the exe's own
+// spelling; Sandboxie matches image names case-insensitively,
+// and the rule applies only when the sandboxed process image
+// has exactly that base name (the documented Program Name
+// Prefix semantics).
+func sealRuleLinesForExe(exeBase string) []string {
+	paths := sealPathsForExe(exeBase)
+	if len(paths) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		out = append(out, "WriteFilePath="+exeBase+","+p.pattern)
+	}
+	return out
+}
+
+// sealRuleLines renders the MJ-managed rule lines for a whole
+// registry (pure): every covered app contributes its lines,
+// duplicates collapse (two registrations of one exe share its
+// template), and the result is sorted, so the generated
+// section is a pure function of the registry — merging twice
+// is a no-op, and removing an app removes exactly its lines
+// when no other registration still needs them.
+func sealRuleLines(reg map[string]boxApp) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, app := range reg {
+		for _, ln := range sealRuleLinesForExe(virtualBase(app.Exe)) {
+			if !seen[ln] {
+				seen[ln] = true
+				out = append(out, ln)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// currentSealLines is sealRuleLines over the live registry.
+func currentSealLines() []string {
+	boxAppsMu.Lock()
+	defer boxAppsMu.Unlock()
+	return sealRuleLines(loadBoxApps())
+}
+
+// sealNeeded reports whether an app still owes its one-time
+// purge (pure): covered by a template and not yet sealed.
+func sealNeeded(app boxApp) bool {
+	return !app.DataSealed && appSealedByExe(virtualBase(app.Exe))
+}
+
+// sealVirtualForUser expands one template root to the virtual
+// path it has for the given box user (pure).
+func sealVirtualForUser(p sealPath, user string) string {
+	var base string
+	switch p.kind {
+	case sealRootRoaming:
+		base = `C:\Users\` + user + `\AppData\Roaming`
+	case sealRootLocal:
+		base = `C:\Users\` + user + `\AppData\Local`
+	case sealRootDocs:
+		base = `C:\Users\` + user + `\Documents`
+	}
+	if p.sub == "" {
+		return base
+	}
+	return base + `\` + p.sub
+}
+
+// sealShadowPaths returns the physical shadow folders one
+// covered exe's template maps to for the given box users
+// (pure): one virtualToPhysical per (root, user).
+func sealShadowPaths(boxRoot, exeBase string, users []string) []string {
+	paths := sealPathsForExe(exeBase)
+	if len(paths) == 0 {
+		return nil
+	}
+	var out []string
+	for _, u := range users {
+		if u == "" {
+			continue
+		}
+		for _, p := range paths {
+			if phys := virtualToPhysical(boxRoot, sealVirtualForUser(p, u)); phys != "" {
+				out = append(out, phys)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// insideBoxStrict reports whether p resolves strictly INSIDE
+// boxRoot (pure): the box root itself, anything outside it,
+// and prefix-siblings (MJBox2 parked next to MJBox) are all
+// refused. The leaked-copy purge deletes only paths that pass
+// this check.
+func insideBoxStrict(boxRoot, p string) bool {
+	rel, err := filepath.Rel(boxRoot, p)
+	if err != nil || rel == "." || rel == ".." {
+		return false
+	}
+	return !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // ---------- virtual <-> physical path conversion ----------
@@ -410,6 +615,12 @@ type boxApp struct {
 	AppDataDirs []string `json:"appDataDirs,omitempty"`
 	Installer   string   `json:"installer,omitempty"` // installer file the app came from
 	At          string   `json:"at"`
+	// DataSealed records that the v0.42 one-time purge ran for
+	// this app: the shadow copies its data-seal template covers
+	// were deleted once, so its next start was a true first run.
+	// Meaningful only for template-covered apps (see sealNeeded);
+	// absent/false for everything else.
+	DataSealed bool `json:"dataSealed,omitempty"`
 }
 
 var boxAppsMu sync.Mutex
@@ -499,6 +710,10 @@ type boxExeCand struct {
 	Virtual  string `json:"virtual"`
 	Physical string `json:"-"`
 	Size     int64  `json:"size"`
+	// Sealed marks a candidate whose exe is covered by a
+	// data-seal template (v0.42): the registration dialog uses
+	// it to promise the fresh-data behavior up front.
+	Sealed bool `json:"sealed,omitempty"`
 }
 
 // snapshotBoxExes walks the box and lists every .exe with its
@@ -952,10 +1167,11 @@ func ensureBoxPlaced() (bool, bool) {
 	} else if !os.IsNotExist(rerr) {
 		return false, true
 	}
-	if iniHasCurrentBox(text, sandboxBoxRoot()) {
+	lines := currentSealLines()
+	if iniHasCurrentBox(text, sandboxBoxRoot(), lines) {
 		return true, false
 	}
-	merged, _ := mergeBoxSection(text, sandboxBoxRoot())
+	merged, _ := mergeBoxSection(text, sandboxBoxRoot(), lines)
 	if err := os.WriteFile(iniPath, encodeSbieIni(merged, utf16enc), 0o644); err != nil {
 		return false, true
 	}
@@ -971,7 +1187,7 @@ func iniPlacedCurrent() bool {
 		return false
 	}
 	text, _ := decodeSbieIni(raw)
-	return iniHasCurrentBox(text, sandboxBoxRoot())
+	return iniHasCurrentBox(text, sandboxBoxRoot(), currentSealLines())
 }
 
 // placeBox is the full placement used by install/repair/register
@@ -1059,7 +1275,7 @@ func helperWriteIni(iniPath, boxRoot string) int {
 	if len(raw) == 0 {
 		utf16enc = true // a fresh ini gets Sandboxie's native encoding
 	}
-	merged, _ := mergeBoxSection(text, boxRoot)
+	merged, _ := mergeBoxSection(text, boxRoot, currentSealLines())
 	_ = os.MkdirAll(filepath.Dir(iniPath), 0o755)
 	if err := os.WriteFile(iniPath, encodeSbieIni(merged, utf16enc), 0o644); err != nil {
 		fmt.Fprintln(os.Stderr, "sbie-ini:", err)
@@ -1577,6 +1793,9 @@ func runBoxInstall(url, sha256hex, file string) {
 		}
 	}
 	ranked := rankBoxCandidates(fresh, installerName)
+	for i := range ranked {
+		ranked[i].Sealed = appSealedByExe(virtualBase(ranked[i].Virtual))
+	}
 	logf("sandbox", "info", "盒内安装结束：%s 用时 %s，盒内新增 exe %d 个，候选 %d 个",
 		installerName, time.Since(start).Round(time.Second), len(fresh), len(ranked))
 	if len(ranked) == 0 {
@@ -1649,6 +1868,18 @@ func registerBoxApp(name, virtualExe string) (boxApp, error) {
 	sbieBoxOp.Unlock()
 	sbieBoxSet("done", "已登记到桌面："+name)
 	logf("sandbox", "info", "盒内应用已登记：%s（%s，数据目录 %d 个）", name, virtualExe, len(appDataV))
+	// v0.42: the seal rules are a function of the registry, so
+	// a new registration refreshes the ini placement — the new
+	// app's WriteFilePath lines land with it — and a covered
+	// app's one-time purge runs right away: anything the
+	// installer copied into the shadow while reading the host
+	// is wiped before the app's first launch.
+	if appSealedByExe(virtualBase(app.Exe)) {
+		if !placeBox() {
+			logf("sandbox", "warn", "盒内应用已登记：%s 的数据封堵规则这次没写进盒子配置，将在下次启动或修复时补上", name)
+		}
+		applyDataSeal(app)
+	}
 	return app, nil
 }
 
@@ -1734,7 +1965,13 @@ func launchBoxApp(app boxApp) error {
 		return fmt.Errorf("应用隔离组件还没装，先去 设置 → 应用隔离 装组件")
 	}
 	if !iniPlacedCurrent() {
-		if placed, _ := ensureBoxPlaced(); !placed {
+		// placeBox (direct write, else the one-UAC helper), not
+		// the bare in-process attempt: after a version update
+		// the section usually only lacks the newest managed
+		// lines (v0.42: an app's data-seal rules), and sending
+		// the user to 设置 → 修复 for that would be pure
+		// friction on the exact click they are making.
+		if !placeBox() {
 			return fmt.Errorf("盒子配置与当前 Data 位置对不上，去 设置 → 应用隔离 点一次「修复」")
 		}
 	}
@@ -1742,6 +1979,11 @@ func launchBoxApp(app boxApp) error {
 	if _, err := os.Stat(physExe); err != nil {
 		return fmt.Errorf("盒子里找不到这个程序了（盒子可能被清空过），请移除后重新隔离安装")
 	}
+	// v0.42: a covered app's first launch under the seal runs
+	// its one-time purge of leaked shadow copies first (it
+	// stops the app if it is somehow already running). No-op
+	// once sealed, and for uncovered apps.
+	applyDataSeal(app)
 	// v0.40: the claiming identity for a boxed launch is the box
 	// PID list itself, snapshotted BEFORE Start.exe hands off.
 	// The old flow (trackAppLaunch, keyed on the started process
@@ -2034,6 +2276,98 @@ func pollBoxLaunch(app boxApp, before map[uint32]bool, beforeWins map[uint64]boo
 	logf("winmgr", "warn", "%s", boxLaunchFailMessage(app.Name, kind, beforeList, lastList, cross))
 }
 
+// ---------- data seal: one-time leaked-copy purge (v0.42) ----------
+
+// boxUserNames lists the user shadows present in the box.
+func boxUserNames(boxRoot string) []string {
+	entries, _ := os.ReadDir(filepath.Join(boxRoot, "user"))
+	var out []string
+	for _, e := range entries {
+		if e.IsDir() {
+			out = append(out, e.Name())
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// applyDataSeal runs one covered app's one-time purge of the
+// shadow copies that leaked under its template roots before
+// the seal existed. The app's own processes are stopped first
+// — same-name PIDs only, the v0.41 residual discipline —
+// because deleting a live app's data folder under it helps no
+// one; if they will not die, the purge is skipped and the
+// marker left unset, so the next launch retries it. Only paths
+// strictly inside the box root are ever removed (each one is
+// prefix-checked and logged); host data is never touched —
+// this function cannot even name a path outside the box.
+func applyDataSeal(app boxApp) {
+	if !sealNeeded(app) {
+		return
+	}
+	exeBase := virtualBase(app.Exe)
+	pids, err := sbieBoxPidsE()
+	if err != nil {
+		logf("sandbox", "warn", "数据封堵 %s：读不到盒内进程名单（%v），这次先不清，下次启动前再试", app.Name, err)
+		return
+	}
+	if len(pids) > 0 {
+		facts := make([]procNameFact, 0, len(pids))
+		for _, pid := range pids {
+			facts = append(facts, procNameFact{PID: uint32(pid), ImageBase: filepath.Base(sbieProcImagePath(uint32(pid)))})
+		}
+		same := sameNameBoxPIDs(facts, exeBase)
+		if len(same) > 0 {
+			for _, pid := range same {
+				if err := sbieKillPid(int(pid)); err != nil {
+					logf("sandbox", "warn", "数据封堵 %s：终止其盒内进程 %d 失败：%v", app.Name, pid, err)
+				}
+			}
+			set := make(map[uint32]bool, len(same))
+			for _, p := range same {
+				set[p] = true
+			}
+			waitBoxPidsGone(set, 3*time.Second)
+			if left, err2 := sbieBoxPidsE(); err2 == nil {
+				facts2 := make([]procNameFact, 0, len(left))
+				for _, pid := range left {
+					facts2 = append(facts2, procNameFact{PID: uint32(pid), ImageBase: filepath.Base(sbieProcImagePath(uint32(pid)))})
+				}
+				if len(sameNameBoxPIDs(facts2, exeBase)) > 0 {
+					logf("sandbox", "warn", "数据封堵 %s：它还有进程在盒内跑着，这次先不清，下次启动前再试", app.Name)
+					return
+				}
+			}
+		}
+	}
+	boxRoot := sandboxBoxRoot()
+	removed := 0
+	for _, target := range sealShadowPaths(boxRoot, exeBase, boxUserNames(boxRoot)) {
+		if !insideBoxStrict(boxRoot, target) {
+			logf("sandbox", "warn", "数据封堵 %s：拒绝清除盒子之外的路径 %s", app.Name, target)
+			continue
+		}
+		if _, err := os.Stat(target); err != nil {
+			continue // no shadow copy there: nothing leaked in
+		}
+		if err := os.RemoveAll(target); err != nil {
+			logf("sandbox", "warn", "数据封堵 %s：清除 %s 失败：%v", app.Name, target, err)
+			continue
+		}
+		removed++
+		logf("sandbox", "info", "数据封堵 %s：已清除盒内漏入的旧数据副本 %s", app.Name, target)
+	}
+	boxAppsMu.Lock()
+	reg := loadBoxApps()
+	if cur, ok := reg[app.ID]; ok {
+		cur.DataSealed = true
+		reg[app.ID] = cur
+		saveBoxApps(reg)
+	}
+	boxAppsMu.Unlock()
+	logf("sandbox", "info", "数据封堵 %s：已套上——它的数据目录从此只认盒内这一份，宿主机那份读不到；清除旧副本 %d 处，下次启动是全新首启", app.Name, removed)
+}
+
 func removeBoxApp(app boxApp) error {
 	boxRoot := sandboxBoxRoot()
 	physExe := virtualToPhysical(boxRoot, app.Exe)
@@ -2072,6 +2406,13 @@ func removeBoxApp(app boxApp) error {
 	reg = boxAppsRemove(reg, app.ID)
 	saveBoxApps(reg)
 	boxAppsMu.Unlock()
+	// v0.42: a removed app's seal rules leave the ini with it.
+	// Lines shared with another registration of the same exe
+	// survive — sealRuleLines is registry-driven, so the
+	// refresh simply regenerates from what remains.
+	if appSealedByExe(virtualBase(app.Exe)) && sbieStartExePath() != "" && !placeBox() {
+		logf("sandbox", "warn", "移除 %s 后刷新盒子配置失败，它的数据封堵规则可能还留在配置里（下次落位会清掉）", app.Name)
+	}
 	logf("sandbox", "info", "盒内应用已移除：%s（程序与数据一并删除）", app.Name)
 	return nil
 }
@@ -2138,6 +2479,23 @@ func dirSizeBytes(root string) int64 {
 
 // ---------- status ----------
 
+// boxAppView is a registry entry plus what the UI needs to
+// badge it: Sealed = the app is covered by a data-seal
+// template (v0.42), i.e. its data roots exist only inside the
+// box and the host's copy is unreadable to it.
+type boxAppView struct {
+	boxApp
+	Sealed bool `json:"sealed"`
+}
+
+func boxAppViews(apps []boxApp) []boxAppView {
+	out := make([]boxAppView, 0, len(apps))
+	for _, a := range apps {
+		out = append(out, boxAppView{boxApp: a, Sealed: appSealedByExe(virtualBase(a.Exe))})
+	}
+	return out
+}
+
 func sandboxStatusMap() map[string]any {
 	svc, drv, ver := sbiePlatformStatus()
 	installed := sbieStartExePath() != ""
@@ -2179,7 +2537,7 @@ func sandboxStatusMap() map[string]any {
 			"progress": bProg, "size": bSize, "busy": sbieBoxBusy(),
 			"candidates": cands,
 		},
-		"apps": apps,
+		"apps": boxAppViews(apps),
 	}
 }
 
@@ -2196,12 +2554,13 @@ func sandboxAppsHandler(w http.ResponseWriter, r *http.Request) {
 	type appView struct {
 		boxApp
 		Present bool `json:"present"`
+		Sealed  bool `json:"sealed"`
 	}
 	views := make([]appView, 0, len(apps))
 	for _, a := range apps {
 		phys := virtualToPhysical(sandboxBoxRoot(), a.Exe)
 		_, err := os.Stat(phys)
-		views = append(views, appView{boxApp: a, Present: err == nil})
+		views = append(views, appView{boxApp: a, Present: err == nil, Sealed: appSealedByExe(virtualBase(a.Exe))})
 	}
 	writeJSON(w, map[string]any{"apps": views})
 }
@@ -2437,6 +2796,7 @@ func sandboxInit() {
 		}
 		if placed, _ := ensureBoxPlaced(); placed {
 			logf("sandbox", "info", "应用隔离组件就绪：盒子指向当前 Data（%s）", sandboxBoxRoot())
+			logf("sandbox", "info", "盒内窗口的 Sandboxie 黄色边框已在盒子配置里关闭（BorderColor 按官方键设为 off；窗口归属看台前调度）")
 		} else {
 			logf("sandbox", "warn", "应用隔离：盒子配置与当前 Data 位置不一致（多半是刚换了电脑或挪了文件夹），去 设置 → 应用隔离 点「修复」")
 		}
