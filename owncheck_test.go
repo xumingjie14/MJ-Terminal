@@ -170,8 +170,77 @@ func TestClassifyOwnership(t *testing.T) {
 	}
 }
 
+func TestClassifyOwnershipBox(t *testing.T) {
+	weixin := `C:\Program Files\Tencent\Weixin\Weixin.exe` // virtual path, outside the terminal folder
+	boxCtx := func(pids map[uint32]bool) ownContext {
+		c := tCtx()
+		c.BoxPIDs = pids
+		return c
+	}
+	cases := []struct {
+		name    string
+		procs   []procFact
+		ctx     ownContext
+		wantPID uint32
+		want    string
+	}{
+		{
+			name: "box: boxed WeChat (service-created, virtual image path) is owned via the box list",
+			procs: []procFact{
+				{PID: 300, PPID: 88, ImagePath: weixin},
+			},
+			ctx: boxCtx(map[uint32]bool{300: true}), wantPID: 300, want: ownBox,
+		},
+		{
+			name: "box: child of a boxed process joins via tree closure",
+			procs: []procFact{
+				{PID: 300, PPID: 88, ImagePath: weixin},
+				{PID: 301, PPID: 300, ImagePath: `C:\Program Files\Tencent\Weixin\WeChatAppEx.exe`},
+			},
+			ctx: boxCtx(map[uint32]bool{300: true}), wantPID: 301, want: ownTree,
+		},
+		{
+			name: "NEG host WeChat, same image, PID not on the box list",
+			procs: []procFact{
+				{PID: 301, PPID: 4, ImagePath: weixin},
+			},
+			ctx: boxCtx(map[uint32]bool{300: true}), wantPID: 301, want: "",
+		},
+		{
+			name: "NEG empty box list: a boxed-looking process is not owned",
+			procs: []procFact{
+				{PID: 300, PPID: 88, ImagePath: weixin},
+			},
+			ctx: boxCtx(map[uint32]bool{}), wantPID: 300, want: "",
+		},
+		{
+			name: "NEG nil box list (component absent): not owned",
+			procs: []procFact{
+				{PID: 300, PPID: 88, ImagePath: weixin},
+			},
+			ctx: boxCtx(nil), wantPID: 300, want: "",
+		},
+		{
+			name: "NEG the daemon itself is never box-owned even if listed",
+			procs: []procFact{
+				{PID: 999, PPID: 4, ImagePath: `C:\MJ-Terminal\MJ-System.exe`},
+			},
+			ctx: boxCtx(map[uint32]bool{999: true}), wantPID: 999, want: "",
+		},
+	}
+	for _, c := range cases {
+		owned := classifyOwnership(c.procs, nil, c.ctx)
+		if got := owned[c.wantPID]; got != c.want {
+			t.Errorf("%s: pid %d classified %q, want %q", c.name, c.wantPID, got, c.want)
+		}
+	}
+	if txt := ownReasonText(ownBox); txt != "盒内进程名单" {
+		t.Errorf("ownReasonText(ownBox) = %q", txt)
+	}
+}
+
 func TestDecideClaim(t *testing.T) {
-	owned := map[uint32]string{200: ownProfile, 210: ownExe, 220: ownTree, 230: ownProfile}
+	owned := map[uint32]string{200: ownProfile, 210: ownExe, 220: ownTree, 230: ownProfile, 240: ownBox}
 	reg := map[uint64]bool{5000: true}
 	base := claimOpts{AutoClaimBrowser: true, BrowserPIDs: map[uint32]bool{}, ShellPIDs: map[uint32]bool{}}
 	browserWin := windowFact{HWND: 6001, PID: 200, Class: "Chrome_WidgetWin_1", Title: "GitHub - Google Chrome", Visible: true, W: 900, H: 700}
@@ -215,6 +284,11 @@ func TestDecideClaim(t *testing.T) {
 			claimVerdict{Gated: true, Browser: true, Reason: ownTree}},
 		{"tree window (PDF viewer child) claims", windowFact{HWND: 6011, PID: 220, Class: "SUMATRA_PDF_FRAME", Title: "doc.pdf", Visible: true, W: 900, H: 700}, base,
 			claimVerdict{Claim: true, Reason: ownTree}},
+		{"box window claims (boxed app main window, non-browser class)", windowFact{HWND: 6012, PID: 240, Class: "Qt6QWindow", Title: "微信", Visible: true, W: 900, H: 700}, base,
+			claimVerdict{Claim: true, Reason: ownBox}},
+		{"box window claims regardless of the browser auto-claim switch", windowFact{HWND: 6012, PID: 240, Class: "Qt6QWindow", Title: "微信", Visible: true, W: 900, H: 700},
+			claimOpts{AutoClaimBrowser: false, BrowserPIDs: map[uint32]bool{}, ShellPIDs: map[uint32]bool{}},
+			claimVerdict{Claim: true, Reason: ownBox}},
 	}
 	for _, c := range cases {
 		got := decideClaim(c.w, owned, reg, c.opts)

@@ -216,6 +216,309 @@ func trackLaunch(app, targetURL, exePath string, before map[uint64]bool, shell, 
 	}()
 }
 
+// ---------- v0.40: explicit PID-set claiming (boxed apps) ----------
+//
+// A boxed app's process is created by the Sandboxie SERVICE, not
+// by the Start.exe the daemon launches (Start.exe hands off and
+// exits), and its image path reports the virtual path -- so the
+// two identity lines trackLaunch and the patrol historically had
+// (daemon process tree, exe under the terminal folder) both miss
+// it, and its window went unclaimed in v0.39. Sandboxie itself
+// knows exactly which PIDs live in the box (Start.exe /listpids),
+// so v0.40 promotes that list to a first-class identity source:
+//
+//   - at launch, sandbox.go snapshots the box PID set, polls the
+//     difference after Start.exe hands off, and hands the NEW PID
+//     set to claimWindowByPIDs below (explicit-PID registration,
+//     no process-tree assumption anywhere);
+//   - on a SECOND launch (the app is already running in the box)
+//     the difference is legitimately empty; the launch then
+//     presents the window the EXISTING PID set already owns
+//     (presentWindowForPIDs) instead of failing;
+//   - the patrol refreshes the box PID set once per tick and the
+//     ownership classifier gains the matching "box" signal
+//     (owncheck.go), so any boxed window the launch path missed
+//     is still claimed as a fallback.
+
+// pidSetFromInts builds a PID lookup set from a /listpids result.
+func pidSetFromInts(pids []int) map[uint32]bool {
+	out := make(map[uint32]bool, len(pids))
+	for _, p := range pids {
+		if p > 0 {
+			out[uint32(p)] = true
+		}
+	}
+	return out
+}
+
+// sortedPIDList renders a PID set deterministically for log lines
+// (the console log is the field-diagnosis record, so the raw set
+// must read the same way every time).
+func sortedPIDList(set map[uint32]bool) []int {
+	out := make([]int, 0, len(set))
+	for p := range set {
+		out = append(out, int(p))
+	}
+	sort.Ints(out)
+	return out
+}
+
+// diffPIDs returns the PIDs present in after but not in before
+// (pure): the processes one launch brought into the box.
+func diffPIDs(before, after map[uint32]bool) map[uint32]bool {
+	out := map[uint32]bool{}
+	for p := range after {
+		if !before[p] {
+			out[p] = true
+		}
+	}
+	return out
+}
+
+// pidSetsOverlap reports whether two PID sets share any member
+// (pure).
+func pidSetsOverlap(a, b map[uint32]bool) bool {
+	for p := range a {
+		if b[p] {
+			return true
+		}
+	}
+	return false
+}
+
+// pickWindowForPIDs chooses the window an explicit PID set owns
+// (pure). Candidates must be visible, unowned (not a dialog), and
+// outside the exclude set (windows that existed before the launch
+// plus everything already registered). When image evidence is
+// available, a candidate whose process image base matches
+// imageBase wins over one that does not (a boxed app can spawn
+// helpers whose windows are not the main window); when NO
+// candidate matches the image, the largest candidate is taken
+// anyway -- the PID set itself is the identity evidence, the
+// image is only a ranking hint. Ties break on the lowest HWND so
+// the choice is deterministic.
+func pickWindowForPIDs(wins []windowFact, pids map[uint32]bool, exclude map[uint64]bool, imageByPID map[uint32]string, imageBase string) (windowFact, bool) {
+	if len(pids) == 0 {
+		return windowFact{}, false
+	}
+	var cands []windowFact
+	for _, w := range wins {
+		if !pids[w.PID] || exclude[w.HWND] || !w.Visible || w.Owned {
+			continue
+		}
+		cands = append(cands, w)
+	}
+	if len(cands) == 0 {
+		return windowFact{}, false
+	}
+	if imageBase != "" {
+		var matched []windowFact
+		for _, w := range cands {
+			img := imageByPID[w.PID]
+			if img != "" && strings.EqualFold(filepath.Base(img), imageBase) {
+				matched = append(matched, w)
+			}
+		}
+		if len(matched) > 0 {
+			cands = matched
+		}
+	}
+	sort.Slice(cands, func(i, j int) bool {
+		ai, aj := int64(cands[i].W)*int64(cands[i].H), int64(cands[j].W)*int64(cands[j].H)
+		if ai != aj {
+			return ai > aj
+		}
+		return cands[i].HWND < cands[j].HWND
+	})
+	return cands[0], true
+}
+
+// windowsOwnedByPIDs is the timeout cross-check (pure): every
+// enumerated top-level window whose owning PID is in the set,
+// regardless of visibility or shape. It answers the field
+// question "the box has processes -- do ANY of them hold a
+// window, and under which PID / title?"
+func windowsOwnedByPIDs(wins []windowFact, pids map[uint32]bool) []windowFact {
+	var out []windowFact
+	for _, w := range wins {
+		if pids[w.PID] {
+			out = append(out, w)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].HWND < out[j].HWND })
+	return out
+}
+
+// registerPIDClaimedWindow inserts one window into the registry
+// on behalf of an explicit PID set (the testable core of
+// claimWindowByPIDs). False means the window was already
+// registered (by the patrol, most likely) -- a duplicate claim
+// is not an error, just a lost race.
+func registerPIDClaimedWindow(app string, wf windowFact, origin string) bool {
+	extMu.Lock()
+	defer extMu.Unlock()
+	if _, dup := extWins[wf.HWND]; dup {
+		return false
+	}
+	extWins[wf.HWND] = &extWindow{
+		HWND: wf.HWND, App: app, Title: wf.Title, pid: wf.PID,
+		lastTitle: wf.Title, origin: origin,
+	}
+	return true
+}
+
+// claimWindowByPIDs makes ONE attempt to find and register a
+// window owned by the given explicit PID set, then runs the same
+// birth settlement (landing + presentation) as a launch claim.
+// Serialized with trackLaunch through extClaimMu so two launches
+// can never race for the same fresh window.
+func claimWindowByPIDs(app string, pids map[uint32]bool, exclude map[uint64]bool, imageBase, origin string) (uint64, bool) {
+	if len(pids) == 0 {
+		return 0, false
+	}
+	extClaimMu.Lock()
+	defer extClaimMu.Unlock()
+	ex := make(map[uint64]bool, len(exclude))
+	for h := range exclude {
+		ex[h] = true
+	}
+	extMu.Lock()
+	for h := range extWins {
+		ex[h] = true
+	}
+	extMu.Unlock()
+	imageByPID := map[uint32]string{}
+	for _, p := range platformProcessSnapshot() {
+		if p.ImagePath != "" {
+			imageByPID[p.PID] = p.ImagePath
+		}
+	}
+	wf, ok := pickWindowForPIDs(platformAllTopWindows(), pids, ex, imageByPID, imageBase)
+	if !ok {
+		return 0, false
+	}
+	if !registerPIDClaimedWindow(app, wf, origin) {
+		return 0, false
+	}
+	logf("winmgr", "info", "已登记外部窗口：%s（显式 PID 集认领，PID %d）", app, wf.PID)
+	platformSetAppID(wf.HWND)
+	settleNewWindow(wf.HWND, true)
+	return wf.HWND, true
+}
+
+// pickRegisteredForPIDs finds an already-registered window owned
+// by a PID in the set (pure). A registration matches when its app
+// label is the app being launched, or when it entered the
+// registry through the box signal itself (a patrol-claimed boxed
+// window is labelled by its page/exe title, not by the registry
+// name the launch path knows). Shell windows never match.
+func pickRegisteredForPIDs(wins map[uint64]*extWindow, app string, pids map[uint32]bool) (uint64, bool) {
+	hwnds := make([]uint64, 0, len(wins))
+	for h := range wins {
+		hwnds = append(hwnds, h)
+	}
+	sort.Slice(hwnds, func(i, j int) bool { return hwnds[i] < hwnds[j] })
+	for _, h := range hwnds {
+		e := wins[h]
+		if e.Shell || e.pid == 0 || !pids[e.pid] {
+			continue
+		}
+		if e.App == app || e.origin == ownBox {
+			return h, true
+		}
+	}
+	return 0, false
+}
+
+// presentWindowForPIDs raises the window an explicit PID set
+// already owns in the registry -- the second-launch path: the app
+// was already running in the box, no new PID exists, and the
+// correct response to the user's click is to PRESENT its window
+// (through the same restore-then-raise path a Stage Manager
+// click uses), never to report a failed launch.
+func presentWindowForPIDs(app string, pids map[uint32]bool) (uint64, bool) {
+	extMu.Lock()
+	hwnd, ok := pickRegisteredForPIDs(extWins, app, pids)
+	extMu.Unlock()
+	if !ok {
+		return 0, false
+	}
+	if _, alive := platformWindowTitle(hwnd); !alive {
+		extMu.Lock()
+		delete(extWins, hwnd)
+		extMu.Unlock()
+		return 0, false
+	}
+	grpRestoreForFocus()
+	if !platformFocusWindow(hwnd) {
+		return 0, false
+	}
+	extMu.Lock()
+	if e, ok2 := extWins[hwnd]; ok2 {
+		e.presentPending = false
+	}
+	extMu.Unlock()
+	return hwnd, true
+}
+
+// currentTopWindowHWNDs snapshots the HWNDs of all top-level
+// windows that exist right now (the "before" picture a launch
+// diffs its new window against).
+func currentTopWindowHWNDs() map[uint64]bool {
+	out := map[uint64]bool{}
+	for _, w := range platformAllTopWindows() {
+		out[w.HWND] = true
+	}
+	return out
+}
+
+// ---------- v0.40: patrol box-list refresh ----------
+
+var boxPatrolState struct {
+	sync.Mutex
+	lastWarn time.Time
+	warned   bool
+}
+
+// decideBoxWarn throttles /listpids failure warnings (pure): the
+// first failure logs, repeats are silent for a minute -- a broken
+// box must be visible in the console, never a 2-second spam loop.
+func decideBoxWarn(last time.Time, warned bool, now time.Time) bool {
+	if !warned {
+		return true
+	}
+	return now.Sub(last) >= time.Minute
+}
+
+// refreshBoxPIDsForPatrol fetches the box PID set for this patrol
+// tick. It is called exactly once per tick and the result feeds
+// the whole tick's classification. Any failure (component absent,
+// box not placed, /listpids error) degrades to an empty set --
+// the box rule just does not fire this tick -- with failures
+// warned about at most once a minute.
+func refreshBoxPIDsForPatrol() map[uint32]bool {
+	if sbieStartExePath() == "" || !iniPlacedCurrent() {
+		return nil
+	}
+	pids, err := sbieBoxPidsE()
+	if err != nil {
+		boxPatrolState.Lock()
+		if decideBoxWarn(boxPatrolState.lastWarn, boxPatrolState.warned, time.Now()) {
+			boxPatrolState.lastWarn = time.Now()
+			boxPatrolState.warned = true
+			boxPatrolState.Unlock()
+			logf("winmgr", "warn", "台前调度：读取盒内进程名单失败（%v），本轮按无盒内进程处理", err)
+		} else {
+			boxPatrolState.Unlock()
+		}
+		return nil
+	}
+	boxPatrolState.Lock()
+	boxPatrolState.warned = false
+	boxPatrolState.Unlock()
+	return pidSetFromInts(pids)
+}
+
 // pruneExtWindowsLocked drops registrations whose window is gone and
 // refreshes titles. A title change usually means the page finished
 // loading (or a popup took over the window), so the AppID is
@@ -549,7 +852,10 @@ func extWinNote(format string, args ...any) {
 // windows and a full process snapshot, classifies every process by
 // durable facts (isolated-profile command line / image under the
 // terminal folder / descent from a daemon seed), and claims every
-// terminal-owned main window that is not registered yet.
+// terminal-owned main window that is not registered yet. v0.40
+// adds a fourth fact: membership in Sandboxie's in-box process
+// list (refreshed once per tick, see refreshBoxPIDsForPatrol) --
+// the only fact that identifies a boxed app's process at all.
 //
 // Claimed windows join the Stage Manager strip (listed,
 // clickable to raise) and are never focus-stolen by the patrol.
@@ -730,10 +1036,15 @@ func patrolTick() {
 	delete(seedPIDs, selfPID)
 	delete(shellPIDs, selfPID)
 
+	// v0.40: one box-list refresh per tick, shared by the whole
+	// tick's classification (the "box" ownership signal).
+	boxPIDs := refreshBoxPIDsForPatrol()
+
 	owned := classifyOwnership(procs, seedPIDs, ownContext{
 		RootDir:     exeDir(),
 		ProfileDirs: []string{filepath.Join(dataDir(), "ChromeProfile"), ffProfileDir()},
 		SelfPID:     selfPID,
+		BoxPIDs:     boxPIDs,
 	})
 	opts := claimOpts{
 		AutoClaimBrowser: settingStageAutoClaimBrowser(),

@@ -281,6 +281,75 @@ func TestInstallerHint(t *testing.T) {
 	}
 }
 
+func TestClassifyBoxLaunchTimeout(t *testing.T) {
+	cases := []struct {
+		name               string
+		sawNew, stillAlive bool
+		cross              int
+		want               boxLaunchFailKind
+	}{
+		{"never appeared in the box list", false, false, 0, boxFailNoProcess},
+		{"appeared then exited", true, false, 0, boxFailExited},
+		{"alive but zero windows", true, true, 0, boxFailNoWindow},
+		{"already-running process alive, no window found", false, true, 0, boxFailNoWindow},
+		{"cross-check found windows under boxed PIDs", true, true, 2, boxFailWindowPID},
+		{"cross-check wins over exited", true, false, 1, boxFailWindowPID},
+	}
+	for _, c := range cases {
+		if got := classifyBoxLaunchTimeout(c.sawNew, c.stillAlive, c.cross); got != c.want {
+			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+func TestBoxLaunchFailMessage(t *testing.T) {
+	before := []int{10, 20}
+	last := []int{10, 20, 300}
+	msgs := map[boxLaunchFailKind]string{}
+	for _, kind := range []boxLaunchFailKind{boxFailNoProcess, boxFailExited, boxFailNoWindow, boxFailWindowPID} {
+		msgs[kind] = boxLaunchFailMessage("Weixin", kind, before, last, nil)
+		if !strings.Contains(msgs[kind], string(kind)) || !strings.Contains(msgs[kind], "Weixin") {
+			t.Errorf("%s: message must carry kind and app: %q", kind, msgs[kind])
+		}
+	}
+	// The four shapes must be distinguishable by wording alone,
+	// and must carry the raw PID sets for field diagnosis.
+	if !strings.Contains(msgs[boxFailNoProcess], "名单里一直没出现") || !strings.Contains(msgs[boxFailNoProcess], "[10 20]") {
+		t.Errorf("no-process wording: %q", msgs[boxFailNoProcess])
+	}
+	if !strings.Contains(msgs[boxFailExited], "出现过又消失") {
+		t.Errorf("exited wording: %q", msgs[boxFailExited])
+	}
+	if !strings.Contains(msgs[boxFailNoWindow], "没有窗口") || !strings.Contains(msgs[boxFailNoWindow], "[10 20 300]") {
+		t.Errorf("no-window wording: %q", msgs[boxFailNoWindow])
+	}
+	if !strings.Contains(msgs[boxFailWindowPID], "没能登记") {
+		t.Errorf("window-pid wording: %q", msgs[boxFailWindowPID])
+	}
+	seen := map[string]bool{}
+	for k, m := range msgs {
+		if seen[m] {
+			t.Fatalf("duplicate message for %s", k)
+		}
+		seen[m] = true
+	}
+}
+
+func TestFormatBoxCrossCheck(t *testing.T) {
+	if s := formatBoxCrossCheck(nil); !strings.Contains(s, "没有任何顶级窗口") {
+		t.Fatalf("empty cross-check: %q", s)
+	}
+	s := formatBoxCrossCheck([]windowFact{{HWND: 77, PID: 300, Title: "微信", Class: "Qt6QWindow", Visible: true}})
+	for _, want := range []string{"pid=300", "微信", "Qt6QWindow"} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("cross-check %q missing %q", s, want)
+		}
+	}
+	if !equalIntSlices([]int{1, 2}, []int{1, 2}) || equalIntSlices([]int{1}, []int{1, 2}) || equalIntSlices([]int{1, 3}, []int{1, 2}) {
+		t.Fatal("equalIntSlices wrong")
+	}
+}
+
 func TestVerifyPinnedFile(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "f.bin")

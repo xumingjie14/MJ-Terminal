@@ -27,6 +27,18 @@ package main
 //	           daemon started itself, or a process that already
 //	           owns a registered window. Descendance is computed
 //	           over the snapshot's parent links each tick.
+//	box     -- (v0.40) the process PID is on Sandboxie's own list
+//	           of processes running inside MJ's box (Start.exe
+//	           /listpids, refreshed by the patrol). Boxed processes
+//	           are created by the Sandboxie service, NOT by the
+//	           daemon, and their image path reports the VIRTUAL
+//	           path (C:\Program Files\...) -- so tree and exe both
+//	           miss them, which is exactly why boxed apps' windows
+//	           went unclaimed in v0.39. Membership in the box list
+//	           is first-party evidence from Sandboxie itself, as
+//	           strong as the spawn ledger: a host process (the
+//	           user's real WeChat, say) is never on it, whatever
+//	           its image is named.
 //
 // This file holds ONLY the pure decision logic: the platform layer
 // collects procFact / windowFact values, everything testable lives
@@ -64,6 +76,7 @@ const (
 	ownProfile = "profile" // command line carries an isolated profile dir
 	ownExe     = "exe"     // image lives under the terminal folder
 	ownTree    = "tree"    // descends from a daemon seed process
+	ownBox     = "box"     // PID is on Sandboxie's in-box process list (v0.40)
 )
 
 // ownContext carries the fixed facts classification runs against.
@@ -71,6 +84,12 @@ type ownContext struct {
 	RootDir     string   // terminal folder (the EXE's directory)
 	ProfileDirs []string // isolated browser profile directories
 	SelfPID     uint32   // the daemon itself: never owned, never a seed target
+	// BoxPIDs is the boxed-process PID set the patrol refreshed
+	// from Sandboxie for this tick (v0.40). Nil/empty when the
+	// component is absent or the box is not placed: the box rule
+	// then simply never fires -- an empty list must never be read
+	// as "everything is boxed" OR as positive evidence of any kind.
+	BoxPIDs map[uint32]bool
 }
 
 // normalizeWinPath makes a path comparable: backslashes everywhere,
@@ -145,6 +164,15 @@ func classifyOwnership(procs []procFact, seeds map[uint32]bool, ctx ownContext) 
 			}
 		}
 		if owned[p.PID] != "" {
+			continue
+		}
+		if ctx.BoxPIDs[p.PID] {
+			// v0.40: Sandboxie's own in-box list. Checked before
+			// exe/tree: it is first-party evidence, and a boxed
+			// process's virtual image path would fail the exe
+			// rule anyway, so this ordering is what gives boxed
+			// processes their (correct) audit reason.
+			owned[p.PID] = ownBox
 			continue
 		}
 		if p.ImagePath != "" && pathUnderDir(p.ImagePath, ctx.RootDir) {
@@ -226,6 +254,10 @@ func decideClaim(w windowFact, owned map[uint32]string, registered map[uint64]bo
 		return claimVerdict{}
 	}
 	v := claimVerdict{Reason: reason}
+	// ownBox (v0.40) deliberately has no case below: a boxed app is
+	// claimed like an exe/tree window -- any main-window class, and
+	// NOT subject to the browser auto-claim gate (it is not a
+	// browser window class by virtue of being boxed).
 	switch {
 	case reason == ownProfile:
 		// A browser process grows helper windows of other classes
@@ -271,6 +303,8 @@ func ownReasonText(reason string) string {
 		return "终端文件夹内程序"
 	case ownTree:
 		return "终端进程树"
+	case ownBox:
+		return "盒内进程名单"
 	}
 	return reason
 }
