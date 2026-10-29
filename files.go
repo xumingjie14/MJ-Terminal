@@ -322,6 +322,18 @@ func filesImportHandler(w http.ResponseWriter, r *http.Request) {
 		logf("files", "info", "导入文件：%s（%d 字节，通道 %s）", final, n, via)
 		imported = append(imported, imp{Name: final, Size: n})
 	}
+	if len(imported) > 0 {
+		// v0.47 hook (notify): one event per import request. The
+		// dedupe key carries the first file's name, so a multi-file
+		// drag reports once as a batch while separate single-file
+		// drags each report themselves.
+		title := "文件导入完成"
+		body := imported[0].Name
+		if len(imported) > 1 {
+			body = fmt.Sprintf("%s 等 %d 个文件", imported[0].Name, len(imported))
+		}
+		postNotify(notifySrcFiles, "import:"+imported[0].Name, title, body, "")
+	}
 	writeJSON(w, map[string]any{"imported": imported, "errors": errs})
 }
 

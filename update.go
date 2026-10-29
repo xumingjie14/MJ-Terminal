@@ -45,7 +45,7 @@ import (
 // AppVersion is the single source of truth for the running version.
 // The CI workflow must publish the Release with the matching tag
 // (v + AppVersion) and update.json.
-const AppVersion = "0.46"
+const AppVersion = "0.47"
 
 const updateRepo = "xumingjie14/MJ-Terminal"
 const updateZipName = "MJ-System-64bit.zip"
@@ -267,6 +267,13 @@ func checkUpdate() {
 	upd.mu.Unlock()
 	if compareVersions(man.Version, AppVersion) > 0 {
 		upd.set("available", fmt.Sprintf("发现新版本 v%s（当前 v%s），大小 %.1f MB", man.Version, AppVersion, float64(man.Size)/1024/1024))
+		// v0.47 hook (notify): one event per detected version, at
+		// the detection moment only (postNotifyOnce persists its
+		// key). The persistent "update available" presence in
+		// Notification Center is the status item, assembled from
+		// this same phase -- the event exists to raise the banner.
+		postNotifyOnce("update-available:"+man.Version, notifySrcUpdate, "available",
+			"发现新版本 v"+man.Version, fmt.Sprintf("新版本 v%s 已可下载（当前 v%s）", man.Version, AppVersion), "setpage:update")
 	} else {
 		upd.set("uptodate", "已经是最新版本 v"+AppVersion)
 	}

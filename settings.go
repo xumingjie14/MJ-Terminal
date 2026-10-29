@@ -95,6 +95,33 @@ type mjSettings struct {
 	//                   first, same philosophy as immersion).
 	DockPosition string `json:"dockPosition"`
 	DockAutoHide bool   `json:"dockAutoHide"`
+	// v0.47: Dock icon size (the Control Center slider writes it,
+	// the Dock reads it live), Control Center tile visibility,
+	// per-source notification switches, and the Notification
+	// Center widget layout. The node big tile has NO cc_show key:
+	// like the manual's core controls it cannot be removed.
+	DockIconSize        int  `json:"dockIconSize"`
+	CCShowImmersive     bool `json:"cc_show_immersive"`
+	CCShowStage         bool `json:"cc_show_stage"`
+	CCShowFullscreen    bool `json:"cc_show_fullscreen"`
+	CCShowDockHide      bool `json:"cc_show_dockhide"`
+	CCShowRemote        bool `json:"cc_show_remote"`
+	CCShowWallpaper     bool `json:"cc_show_wallpaper"`
+	NotifyAllowSandbox  bool `json:"notify_allow_sandbox"`
+	NotifyAllowUpdate   bool `json:"notify_allow_update"`
+	NotifyAllowServer   bool `json:"notify_allow_servermon"`
+	NotifyAllowNode     bool `json:"notify_allow_node"`
+	NotifyAllowRemote   bool `json:"notify_allow_remote"`
+	NotifyAllowFiles    bool `json:"notify_allow_files"`
+	NotifyBannerSandbox bool `json:"notify_banner_sandbox"`
+	NotifyBannerUpdate  bool `json:"notify_banner_update"`
+	NotifyBannerServer  bool `json:"notify_banner_servermon"`
+	NotifyBannerNode    bool `json:"notify_banner_node"`
+	NotifyBannerRemote  bool `json:"notify_banner_remote"`
+	NotifyBannerFiles   bool `json:"notify_banner_files"`
+	// NCWidgets is a JSON array [{"id":"calendar","show":true},...]
+	// in display order; ids are calendar/server/node.
+	NCWidgets string `json:"nc_widgets"`
 }
 
 func defaultSettings() mjSettings {
@@ -116,7 +143,140 @@ func defaultSettings() mjSettings {
 		DesktopFullscreen:     false,
 		DockPosition:          "bottom",
 		DockAutoHide:          false,
+		DockIconSize:          52,
+		CCShowImmersive:       true,
+		CCShowStage:           true,
+		CCShowFullscreen:      true,
+		CCShowDockHide:        true,
+		CCShowRemote:          true,
+		CCShowWallpaper:       true,
+		NotifyAllowSandbox:    true,
+		NotifyAllowUpdate:     true,
+		NotifyAllowServer:     true,
+		NotifyAllowNode:       true,
+		NotifyAllowRemote:     true,
+		NotifyAllowFiles:      true,
+		NotifyBannerSandbox:   true,
+		NotifyBannerUpdate:    true,
+		NotifyBannerServer:    true,
+		NotifyBannerNode:      true,
+		NotifyBannerRemote:    true,
+		NotifyBannerFiles:     true,
+		NCWidgets:             defaultNCWidgets,
 	}
+}
+
+// defaultNCWidgets: Notification Center widgets in display order
+// (calendar, server, node -- all shown). The frontend editor
+// rewrites this; sanitizeSettings keeps it well-formed.
+const defaultNCWidgets = `[{"id":"calendar","show":true},{"id":"server","show":true},{"id":"node","show":true}]`
+
+var ncWidgetIDs = map[string]bool{"calendar": true, "server": true, "node": true}
+
+// ncWidgetsValid reports whether v is a well-formed widget
+// layout: a non-empty array of {id, show} with known, unique ids.
+func ncWidgetsValid(v string) bool {
+	if strings.TrimSpace(v) == "" {
+		return false
+	}
+	var arr []struct {
+		ID   string `json:"id"`
+		Show bool   `json:"show"`
+	}
+	if json.Unmarshal([]byte(v), &arr) != nil || len(arr) == 0 {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, w := range arr {
+		if !ncWidgetIDs[w.ID] || seen[w.ID] {
+			return false
+		}
+		seen[w.ID] = true
+	}
+	return true
+}
+
+// sanitizeNCWidgets canonicalizes the widget layout JSON.
+// Anything malformed resets to the default layout (a broken
+// editor state must never hide the whole widget area).
+func sanitizeNCWidgets(v string) string {
+	if !ncWidgetsValid(v) {
+		return defaultNCWidgets
+	}
+	var arr []struct {
+		ID   string `json:"id"`
+		Show bool   `json:"show"`
+	}
+	_ = json.Unmarshal([]byte(v), &arr)
+	out, err := json.Marshal(arr)
+	if err != nil {
+		return defaultNCWidgets
+	}
+	return string(out)
+}
+
+// boolSettingPtr resolves the v0.47 boolean key families
+// (cc_show_*, notify_allow_*, notify_banner_*) to their struct
+// field. It is the whitelist for those families: an unknown key
+// returns nil and the POST handler rejects it like any other
+// unknown key.
+func boolSettingPtr(s *mjSettings, key string) *bool {
+	switch key {
+	case "cc_show_immersive":
+		return &s.CCShowImmersive
+	case "cc_show_stage":
+		return &s.CCShowStage
+	case "cc_show_fullscreen":
+		return &s.CCShowFullscreen
+	case "cc_show_dockhide":
+		return &s.CCShowDockHide
+	case "cc_show_remote":
+		return &s.CCShowRemote
+	case "cc_show_wallpaper":
+		return &s.CCShowWallpaper
+	case "notify_allow_sandbox":
+		return &s.NotifyAllowSandbox
+	case "notify_allow_update":
+		return &s.NotifyAllowUpdate
+	case "notify_allow_servermon":
+		return &s.NotifyAllowServer
+	case "notify_allow_node":
+		return &s.NotifyAllowNode
+	case "notify_allow_remote":
+		return &s.NotifyAllowRemote
+	case "notify_allow_files":
+		return &s.NotifyAllowFiles
+	case "notify_banner_sandbox":
+		return &s.NotifyBannerSandbox
+	case "notify_banner_update":
+		return &s.NotifyBannerUpdate
+	case "notify_banner_servermon":
+		return &s.NotifyBannerServer
+	case "notify_banner_node":
+		return &s.NotifyBannerNode
+	case "notify_banner_remote":
+		return &s.NotifyBannerRemote
+	case "notify_banner_files":
+		return &s.NotifyBannerFiles
+	}
+	return nil
+}
+
+// notifyAllowed / notifyBanner read the per-source notification
+// switches (used by notify.go; unknown sources default to allowed
+// so a new source can never be silently muted).
+func notifyAllowed(s mjSettings, source string) bool {
+	if p := boolSettingPtr(&s, "notify_allow_"+source); p != nil {
+		return *p
+	}
+	return true
+}
+
+func notifyBanner(s mjSettings, source string) bool {
+	if p := boolSettingPtr(&s, "notify_banner_"+source); p != nil {
+		return *p
+	}
+	return true
 }
 
 var dockPositions = map[string]bool{"bottom": true, "left": true, "right": true}
@@ -180,6 +340,10 @@ func sanitizeSettings(s mjSettings) mjSettings {
 	if !dockPositions[s.DockPosition] {
 		s.DockPosition = d.DockPosition
 	}
+	if s.DockIconSize < 44 || s.DockIconSize > 64 {
+		s.DockIconSize = d.DockIconSize
+	}
+	s.NCWidgets = sanitizeNCWidgets(s.NCWidgets)
 	return s
 }
 
@@ -219,24 +383,44 @@ func settingsSaveLocked() error {
 func settingsMap() map[string]any {
 	s := settingsGet()
 	return map[string]any{
-		"wallpaper":             s.Wallpaper,
-		"stageManager":          s.StageManager,
-		"idleExitMinutes":       s.IdleExitMinutes,
-		"phoneMode":             s.PhoneMode,
-		"phoneTriggerWidth":     s.PhoneTriggerWidth,
-		"phoneWidth":            s.PhoneWidth,
-		"chromeCacheMB":         s.ChromeCacheMB,
-		"stageAutoClaimBrowser": s.StageAutoClaimBrowser,
-		"filesOnDesktop":        s.FilesOnDesktop,
-		"remoteEnabled":         s.RemoteEnabled,
-		"winPlaceOnClaim":       s.WinPlaceOnClaim,
-		"winHideOnMinimize":     s.WinHideOnMinimize,
-		"winCloseToTray":        s.WinCloseToTray,
-		"immersiveMode":         s.ImmersiveMode,
-		"desktopFullscreen":     s.DesktopFullscreen,
-		"dockPosition":          s.DockPosition,
-		"dockAutoHide":          s.DockAutoHide,
-		"fresh":                 settingsFresh(),
+		"wallpaper":               s.Wallpaper,
+		"stageManager":            s.StageManager,
+		"idleExitMinutes":         s.IdleExitMinutes,
+		"phoneMode":               s.PhoneMode,
+		"phoneTriggerWidth":       s.PhoneTriggerWidth,
+		"phoneWidth":              s.PhoneWidth,
+		"chromeCacheMB":           s.ChromeCacheMB,
+		"stageAutoClaimBrowser":   s.StageAutoClaimBrowser,
+		"filesOnDesktop":          s.FilesOnDesktop,
+		"remoteEnabled":           s.RemoteEnabled,
+		"winPlaceOnClaim":         s.WinPlaceOnClaim,
+		"winHideOnMinimize":       s.WinHideOnMinimize,
+		"winCloseToTray":          s.WinCloseToTray,
+		"immersiveMode":           s.ImmersiveMode,
+		"desktopFullscreen":       s.DesktopFullscreen,
+		"dockPosition":            s.DockPosition,
+		"dockAutoHide":            s.DockAutoHide,
+		"dockIconSize":            s.DockIconSize,
+		"cc_show_immersive":       s.CCShowImmersive,
+		"cc_show_stage":           s.CCShowStage,
+		"cc_show_fullscreen":      s.CCShowFullscreen,
+		"cc_show_dockhide":        s.CCShowDockHide,
+		"cc_show_remote":          s.CCShowRemote,
+		"cc_show_wallpaper":       s.CCShowWallpaper,
+		"notify_allow_sandbox":    s.NotifyAllowSandbox,
+		"notify_allow_update":     s.NotifyAllowUpdate,
+		"notify_allow_servermon":  s.NotifyAllowServer,
+		"notify_allow_node":       s.NotifyAllowNode,
+		"notify_allow_remote":     s.NotifyAllowRemote,
+		"notify_allow_files":      s.NotifyAllowFiles,
+		"notify_banner_sandbox":   s.NotifyBannerSandbox,
+		"notify_banner_update":    s.NotifyBannerUpdate,
+		"notify_banner_servermon": s.NotifyBannerServer,
+		"notify_banner_node":      s.NotifyBannerNode,
+		"notify_banner_remote":    s.NotifyBannerRemote,
+		"notify_banner_files":     s.NotifyBannerFiles,
+		"nc_widgets":              s.NCWidgets,
+		"fresh":                   settingsFresh(),
 	}
 }
 
@@ -427,6 +611,41 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 				} else if v != next.DockAutoHide {
 					next.DockAutoHide = v
 					changed = append(changed, boolLog("dockAutoHide", v))
+				}
+			case "dockIconSize":
+				var v int
+				if json.Unmarshal(val, &v) != nil || v < 44 || v > 64 {
+					fail = "dockIconSize 须在 44–64 之间"
+				} else if v != next.DockIconSize {
+					next.DockIconSize = v
+					changed = append(changed, intLog("dockIconSize", v))
+				}
+			case "nc_widgets":
+				var v string
+				if json.Unmarshal(val, &v) != nil {
+					fail = "nc_widgets 必须是字符串"
+				} else if !ncWidgetsValid(v) {
+					fail = "nc_widgets 格式不对（小部件 id 只能是 calendar/server/node，不可重复）"
+				} else if canon := sanitizeNCWidgets(v); canon != next.NCWidgets {
+					next.NCWidgets = canon
+					changed = append(changed, "nc_widgets 已更新")
+				}
+			case "cc_show_immersive", "cc_show_stage", "cc_show_fullscreen",
+				"cc_show_dockhide", "cc_show_remote", "cc_show_wallpaper",
+				"notify_allow_sandbox", "notify_allow_update", "notify_allow_servermon",
+				"notify_allow_node", "notify_allow_remote", "notify_allow_files",
+				"notify_banner_sandbox", "notify_banner_update", "notify_banner_servermon",
+				"notify_banner_node", "notify_banner_remote", "notify_banner_files":
+				// v0.47 boolean families, resolved through the
+				// boolSettingPtr whitelist.
+				var v bool
+				if json.Unmarshal(val, &v) != nil {
+					fail = key + " 必须是 true/false"
+				} else if p := boolSettingPtr(&next, key); p == nil {
+					fail = "不支持的设置项：" + key
+				} else if v != *p {
+					*p = v
+					changed = append(changed, boolLog(key, v))
 				}
 			case "remoteEnabled":
 				var v bool

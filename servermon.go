@@ -613,6 +613,68 @@ func monEvaluate(st *monServerState, c sshConn, cfg monCfg, s *monSample) {
 	}
 }
 
+// monAlertSummary (v0.47) reports whether any server currently
+// trips an alert condition, using the SAME rules as monEvaluate
+// (disk threshold, monthly-traffic threshold, a watched service
+// that was on and is now off), evaluated read-only against the
+// latest snapshot. Used by the Notification Center's status-type
+// assembly; it never logs and never mutates alert state.
+func monAlertSummary() (bool, string) {
+	for _, c := range sshLoadConns() {
+		st := monState(c.ID)
+		st.mu.Lock()
+		s := st.snap
+		wasOn := map[string]bool{}
+		for k, v := range st.svcWasOn {
+			wasOn[k] = v
+		}
+		st.mu.Unlock()
+		if s == nil || !s.OK {
+			continue
+		}
+		cfg := monGetCfg(c.ID)
+		if cfg.AlertDisk > 0 && s.DiskPct >= float64(cfg.AlertDisk) {
+			return true, fmt.Sprintf("%s：磁盘已用 %.0f%%，超过告警线 %d%%", c.Name, s.DiskPct, cfg.AlertDisk)
+		}
+		if cfg.QuotaGB > 0 && cfg.AlertTraffic > 0 {
+			u := monGetUsage(c.ID)
+			usedGB := float64(u.MonthRx+u.MonthTx) / 1e9
+			if pct := usedGB * 100 / cfg.QuotaGB; pct >= float64(cfg.AlertTraffic) {
+				return true, fmt.Sprintf("%s：本月流量已用 %.0f%%，接近配额", c.Name, pct)
+			}
+		}
+		if cfg.AlertSvc {
+			for _, svc := range s.Services {
+				if wasOn[svc.Name] && !svc.On {
+					return true, fmt.Sprintf("%s：服务 %s 已停止", c.Name, svc.Name)
+				}
+			}
+		}
+	}
+	return false, ""
+}
+
+// monWidgetSummary (v0.47) returns the primary server's name,
+// online state and latest CPU/memory for the Notification Center
+// server widget. Primary = first configured server that has a
+// snapshot, else the first configured server. Read-only.
+func monWidgetSummary() (name string, online bool, hasSnap bool, cpuPct, memPct float64) {
+	conns := sshLoadConns()
+	if len(conns) == 0 {
+		return "", false, false, 0, 0
+	}
+	for _, c := range conns {
+		st := monState(c.ID)
+		st.mu.Lock()
+		s, on := st.snap, st.online
+		st.mu.Unlock()
+		if s != nil {
+			return c.Name, on, true, s.CPUPct, s.MemPct
+		}
+	}
+	return conns[0].Name, false, false, 0, 0
+}
+
 func monEngineLoop(st *monServerState, c sshConn) {
 	defer func() {
 		st.mu.Lock()

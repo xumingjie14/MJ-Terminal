@@ -909,6 +909,15 @@ func startCoreLocked() error {
 		} else if waitErr == nil && !coreStopReq.Load() {
 			logf("core", "warn", "sing-box 已退出（非用户手动停止）")
 		}
+		if !coreStopReq.Load() {
+			// v0.47 hook (notify): the node dropped without the
+			// user asking -- an event notification.
+			body := "节点连接已断开（核心进程退出）"
+			if waitErr != nil {
+				body = "节点核心异常退出：" + waitErr.Error()
+			}
+			postNotify(notifySrcNode, "core-exit", "节点已断开", body, "core")
+		}
 	}()
 	// 3) Wait briefly until the proxy port really accepts connections,
 	//    or the process dies -- then report which one happened.
@@ -964,6 +973,8 @@ func coreControl(w http.ResponseWriter, r *http.Request) {
 	case "start":
 		if err := startCoreLocked(); err != nil {
 			logf("core", "error", "核心启动失败：%v", err)
+			// v0.47 hook (notify): node connect failure event.
+			postNotify(notifySrcNode, "connect-fail", "节点连接失败", err.Error(), "core")
 			writeJSON(w, map[string]any{"running": false, "message": err.Error()})
 			return
 		}
@@ -1719,6 +1730,10 @@ func runServer(portFlag int, isDaemon bool) {
 		_, _ = w.Write(indexHTML)
 	})
 	mux.HandleFunc("/api/system", sysInfo)
+	mux.HandleFunc("/api/notify", notifyHandler)
+	mux.HandleFunc("/api/notify/dismiss", notifyDismissHandler)
+	mux.HandleFunc("/api/notify/clear-source", notifyClearSourceHandler)
+	mux.HandleFunc("/api/notify/stream", notifyStreamHandler)
 	mux.HandleFunc("/api/wallpaper", wallpaperHandler)
 	mux.HandleFunc("/api/list", listFiles)
 	mux.HandleFunc("/api/run", runCmd)
@@ -1863,6 +1878,9 @@ func runServer(portFlag int, isDaemon bool) {
 			coreMu.Unlock()
 			if err != nil {
 				logf("core", "error", "启动时自动拉起核心失败：%v", err)
+				// v0.47 hook (notify): same connect-failure event
+				// (dedupe shares the key with the manual path).
+				postNotify(notifySrcNode, "connect-fail", "节点连接失败", "开机自动连接失败："+err.Error(), "core")
 			}
 		}()
 	}

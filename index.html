@@ -31,7 +31,87 @@ body{font-family:-apple-system,"SF Pro Display","PingFang SC","Microsoft YaHei",
 #mb-remote.active #mb-rdot{background:#30d158;box-shadow:0 0 8px #30d158}
 #mb-dot{width:9px;height:9px;border-radius:50%;background:#8e8e93;box-shadow:0 0 6px rgba(0,0,0,.3)}
 #mb-dot.on{background:#30d158;box-shadow:0 0 8px #30d158}
-#mb-clock{font-variant-numeric:tabular-nums}
+#mb-clock{font-variant-numeric:tabular-nums;cursor:pointer}
+/* ---------- control center / notification center / banners (v0.47) ----------
+   Durations match the named JS constants in the v0.47 block
+   (ANIM_PANEL_MS .28s dropdown, ANIM_NC_MS .3s column slide,
+   ANIM_BANNER_MS .32s banner) -- macOS-scale, per the manual. */
+#mb-cc{cursor:pointer;display:flex;align-items:center;padding:3px 5px;border-radius:8px}
+#mb-cc:hover,#mb-cc.on{background:rgba(255,255,255,.16)}
+#mb-priv{width:9px;height:9px;border-radius:50%;background:#ff9f0a;box-shadow:0 0 7px rgba(255,159,10,.9);display:none;margin-left:-9px}
+.glasspanel{background:rgba(28,28,36,.55);backdrop-filter:blur(26px) saturate(180%);-webkit-backdrop-filter:blur(26px) saturate(180%);border:1px solid rgba(255,255,255,.22);box-shadow:0 18px 50px rgba(0,0,0,.45);color:#fff}
+#ccpanel{position:fixed;top:46px;right:10px;width:356px;border-radius:20px;padding:14px;z-index:1500;transition:opacity .28s ease,transform .28s ease}
+#ccpanel.hidden{display:none}
+#ccpanel.pop{opacity:0;transform:scale(.97) translateY(-6px)}
+.cc-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.cc-tile{position:relative;border-radius:16px;background:rgba(255,255,255,.10);padding:11px 12px;cursor:pointer;min-height:58px;box-sizing:border-box}
+.cc-tile:hover{background:rgba(255,255,255,.16)}
+.cc-tile.wide{grid-column:1/-1}
+.cc-tile .cc-ico{display:inline-flex;width:30px;height:30px;border-radius:50%;background:#636366;color:#fff;align-items:center;justify-content:center;font-size:15px;vertical-align:top}
+.cc-tile.on .cc-ico{background:#0a84ff}
+.cc-tile .cc-tx{display:inline-block;margin-left:9px;vertical-align:top;max-width:calc(100% - 44px)}
+.cc-tile .cc-name{font-size:13.5px;font-weight:600;line-height:30px}
+.cc-tile .cc-sub{font-size:12px;opacity:.75;margin-top:2px;line-height:1.35}
+.cc-tile .cc-chev{position:absolute;right:10px;top:50%;transform:translateY(-50%);opacity:.55;font-size:13px;padding:6px}
+.cc-list{margin-top:10px;border-top:1px solid rgba(255,255,255,.12);padding-top:6px}
+.cc-li{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:9px;font-size:13px;cursor:pointer}
+.cc-li:hover{background:rgba(255,255,255,.12)}
+.cc-li .cc-dot{width:8px;height:8px;border-radius:50%;background:#8e8e93;flex:none}
+.cc-li .cc-dot.on{background:#30d158}
+.cc-li .cc-cur{margin-left:auto;font-size:11.5px;opacity:.65}
+.cc-slider{display:flex;align-items:center;gap:12px;margin-top:12px;padding:11px 12px;border-radius:16px;background:rgba(255,255,255,.10);font-size:13px}
+.cc-slider input[type=range]{flex:1;accent-color:#0a84ff}
+.cc-foot{margin-top:12px;text-align:center}
+.cc-foot button{background:none;border:0;color:#fff;opacity:.8;font-size:13px;cursor:pointer;padding:4px 10px}
+.cc-foot button:hover{opacity:1;text-decoration:underline}
+#ncenter{position:fixed;top:46px;right:10px;bottom:12px;width:376px;border-radius:22px;z-index:1500;display:flex;flex-direction:column;overflow:hidden;transition:transform .3s ease,opacity .3s ease}
+#ncenter.nc-off{transform:translateX(calc(100% + 24px));opacity:0;pointer-events:none}
+#nc-scroll{overflow-y:auto;padding:16px 14px;flex:1}
+#nc-date{font-size:21px;font-weight:700;margin:2px 2px 12px}
+.nc-sec{font-size:12.5px;font-weight:600;opacity:.6;margin:14px 2px 7px;letter-spacing:.4px}
+.ncard{position:relative;border-radius:16px;background:rgba(255,255,255,.10);padding:11px 13px;margin-bottom:9px;cursor:pointer}
+.ncard:hover{background:rgba(255,255,255,.15)}
+.ncard .n-src{font-size:11.5px;opacity:.65;letter-spacing:.3px}
+.ncard .n-title{font-size:13.5px;font-weight:600;margin-top:1px}
+.ncard .n-body{font-size:12.5px;opacity:.8;margin-top:2px;line-height:1.45;word-break:break-word}
+.ncard .n-time{position:absolute;right:12px;top:11px;font-size:11px;opacity:.55}
+.ncard .n-act{margin-top:8px}
+.ncard .n-act button{background:#0a84ff;color:#fff;border:0;border-radius:8px;padding:5px 12px;font-size:12.5px;cursor:pointer}
+.ncard .nx{position:absolute;left:-7px;top:-7px;width:20px;height:20px;border-radius:50%;background:rgba(90,90,100,.95);color:#fff;border:1px solid rgba(255,255,255,.35);font-size:11px;line-height:18px;text-align:center;cursor:pointer;opacity:0;transition:opacity .15s}
+.ncard:hover .nx,.nstack:hover .nx{opacity:1}
+.nstack{position:relative;margin-bottom:9px}
+.nstack .npeek{position:absolute;left:6px;right:6px;bottom:-5px;height:14px;border-radius:12px;background:rgba(255,255,255,.07);z-index:0}
+.nstack .ncard{margin-bottom:0;position:relative;z-index:1}
+.nstack .n-count{display:inline-block;background:rgba(255,255,255,.22);border-radius:8px;font-size:11px;padding:0 6px;margin-left:7px;vertical-align:1px}
+.nstack .n-clear{position:absolute;right:2px;top:-24px;font-size:12px;opacity:0;cursor:pointer;background:none;border:0;color:#fff}
+.nstack:hover .n-clear{opacity:.85}
+.nc-showless{text-align:center;font-size:12.5px;opacity:.75;cursor:pointer;padding:3px 0 9px}
+.nc-showless:hover{opacity:1}
+.nc-empty{font-size:13px;opacity:.6;padding:8px 2px}
+.wdg{border-radius:18px;background:rgba(255,255,255,.10);padding:12px 13px;margin-bottom:10px;cursor:pointer}
+.wdg:hover{background:rgba(255,255,255,.15)}
+.wdg .w-name{font-size:12.5px;font-weight:600;opacity:.75;margin-bottom:7px}
+.wdg .w-big{font-size:15px;font-weight:600}
+.wdg .w-sub{font-size:12.5px;opacity:.75;margin-top:2px}
+.wdg .w-bar{height:5px;border-radius:3px;background:rgba(255,255,255,.18);margin-top:7px;overflow:hidden}
+.wdg .w-bar i{display:block;height:100%;background:#30d158;border-radius:3px}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;font-size:11.5px;text-align:center}
+.cal-grid .cal-h{opacity:.55;padding:2px 0}
+.cal-grid .cal-d{padding:3px 0;border-radius:50%}
+.cal-grid .cal-d.dim{opacity:.3}
+.cal-grid .cal-d.today{background:#ff453a;color:#fff;font-weight:700}
+.wdg-edit{display:flex;align-items:center;gap:8px;border-radius:14px;background:rgba(255,255,255,.07);padding:9px 12px;margin-bottom:8px;font-size:13px}
+.wdg-edit .row{margin-left:auto;display:flex;gap:6px;align-items:center}
+.wdg-edit button{background:rgba(255,255,255,.14);border:0;color:#fff;border-radius:7px;padding:3px 9px;cursor:pointer;font-size:12px}
+.nc-foot{padding:10px 14px;border-top:1px solid rgba(255,255,255,.12);text-align:center}
+.nc-foot button{background:none;border:0;color:#fff;opacity:.8;font-size:13px;cursor:pointer}
+.nc-foot button:hover{opacity:1;text-decoration:underline}
+#banners{position:fixed;top:46px;right:10px;z-index:1600;display:flex;flex-direction:column;gap:10px;width:376px;pointer-events:none}
+.banner{pointer-events:auto;position:relative;border-radius:18px;padding:12px 14px;cursor:pointer;transition:transform .32s ease,opacity .32s ease}
+.banner.b-in{transform:translateX(40px);opacity:0}
+.banner.b-out{transform:translateX(40px);opacity:0}
+.banner .nx{position:absolute;left:-7px;top:-7px;width:20px;height:20px;border-radius:50%;background:rgba(90,90,100,.95);color:#fff;border:1px solid rgba(255,255,255,.35);font-size:11px;line-height:18px;text-align:center;cursor:pointer;opacity:0;transition:opacity .15s}
+.banner:hover .nx{opacity:1}
 /* ---------- desktop icons ---------- */
 #icons{position:fixed;inset:0;z-index:5;pointer-events:none}
 .icon{position:absolute;width:92px;padding:8px 2px 6px;border:1px solid transparent;border-radius:12px;background:transparent;cursor:pointer;color:#fff;text-align:center;pointer-events:auto;touch-action:none;user-select:none;-webkit-user-select:none;transition:left .25s ease,top .25s ease,transform .18s ease,opacity .18s ease}
@@ -322,7 +402,9 @@ table.gridtab td,table.gridtab th{white-space:nowrap;max-width:280px;overflow:hi
     <span id="mb-node" title="节点状态"><span id="mb-dot"></span><span id="mb-nodetxt">节点</span></span>
     <span id="mb-stage" title="台前调度：只显示当前应用">▦</span>
     <span>📶</span><span>🔋</span>
-    <span id="mb-clock">--</span>
+    <span id="mb-cc" title="控制中心"><svg width="18" height="18" viewBox="0 0 20 20" aria-hidden="true"><rect x="1" y="2.6" width="18" height="6.4" rx="3.2" fill="rgba(255,255,255,.38)"/><circle cx="14.2" cy="5.8" r="2.7" fill="#fff"/><rect x="1" y="11" width="18" height="6.4" rx="3.2" fill="rgba(255,255,255,.38)"/><circle cx="5.8" cy="14.2" r="2.7" fill="#fff"/></svg></span>
+    <span id="mb-priv" title="远程协助进行中"></span>
+    <span id="mb-clock" title="通知中心">--</span>
   </span>
 </div>
 
@@ -330,6 +412,9 @@ table.gridtab td,table.gridtab th{white-space:nowrap;max-width:280px;overflow:hi
 <div id="wins"></div>
 <div id="extstrip" class="hidden"></div>
 <div id="ctxmenu" class="hidden"></div>
+<div id="ccpanel" class="glasspanel hidden"></div>
+<div id="ncenter" class="glasspanel nc-off"><div id="nc-scroll"></div><div class="nc-foot"><button id="nc-editbtn">编辑小部件</button></div></div>
+<div id="banners"></div>
 <div id="folderpop" class="hidden"></div>
 <div id="dropveil" class="hidden">松开，把文件导入到终端桌面</div>
 <div id="toast" class="hidden"></div>
@@ -384,7 +469,7 @@ async function api(p,opt){const r=await fetch(p,opt);let t=await r.text();try{re
    reports "fresh" (no settings file yet), the old local values are
    migrated up once and the local copies dropped. */
 let SETTINGS=null;
-const SETDEF={wallpaper:'tahoe',stageManager:false,idleExitMinutes:30,phoneMode:true,phoneTriggerWidth:1200,phoneWidth:400,chromeCacheMB:200,stageAutoClaimBrowser:true,filesOnDesktop:true,remoteEnabled:false,winPlaceOnClaim:true,winHideOnMinimize:true,winCloseToTray:true,immersiveMode:false,desktopFullscreen:false,dockPosition:'bottom',dockAutoHide:false};
+const SETDEF={wallpaper:'tahoe',stageManager:false,idleExitMinutes:30,phoneMode:true,phoneTriggerWidth:1200,phoneWidth:400,chromeCacheMB:200,stageAutoClaimBrowser:true,filesOnDesktop:true,remoteEnabled:false,winPlaceOnClaim:true,winHideOnMinimize:true,winCloseToTray:true,immersiveMode:false,desktopFullscreen:false,dockPosition:'bottom',dockAutoHide:false,dockIconSize:52,cc_show_immersive:true,cc_show_stage:true,cc_show_fullscreen:true,cc_show_dockhide:true,cc_show_remote:true,cc_show_wallpaper:true,notify_allow_sandbox:true,notify_allow_update:true,notify_allow_servermon:true,notify_allow_node:true,notify_allow_remote:true,notify_allow_files:true,notify_banner_sandbox:true,notify_banner_update:true,notify_banner_servermon:true,notify_banner_node:true,notify_banner_remote:true,notify_banner_files:true,nc_widgets:'[{"id":"calendar","show":true},{"id":"server","show":true},{"id":"node","show":true}]'};
 function wallKey(){ if(SETTINGS) return SETTINGS.wallpaper||'tahoe'; return localStorage.getItem('mj-wall')||'tahoe' }
 /* v0.46 Dock basics: position + auto-hide are view-side behaviours
    over daemon settings (same pattern as the wallpaper). */
@@ -449,13 +534,18 @@ document.getElementById('mb-node').onclick=()=>openApp('core');
    (last 60s, reported by the daemon) strengthens it to green. */
 async function pollRemote(){
  const el=document.getElementById('mb-remote'); if(!el) return;
+ const dot=document.getElementById('mb-priv');
  try{
   const s=await api('/api/remote/state');
+  /* v0.47 privacy indicator (the manual's dot beside Control
+     Center): orange while a remote-assist session is actually
+     live -- driven by the daemon's read-only sessionActive. */
+  if(dot) dot.style.display=s.sessionActive?'block':'none';
   if(!s.enabled||!s.supported||s.netState==='off'||s.netState==='unsupported'){ el.style.display='none'; return; }
   el.style.display='flex';
   el.classList.toggle('active',!!s.recentActivity);
   document.getElementById('mb-rtxt').textContent=s.netState==='online'?'远程协助中':(s.netState==='needslogin'?'远程协助待登录':'远程协助启动中');
- }catch(e){ el.style.display='none'; }
+ }catch(e){ el.style.display='none'; if(dot) dot.style.display='none'; }
 }
 pollRemote();setInterval(pollRemote,10000);
 document.getElementById('mb-remote').onclick=()=>openApp('sys');
@@ -1636,7 +1726,10 @@ async function openWebApp(url){
    geometry constants are named here, in one place -- the future
    unified-animation pass adopts them from this block. */
 const dockWrapEl=document.getElementById('dockwrap');
-const DOCK_BASE=52;           // icon edge at rest (px) -- the size the CSS ships
+/* v0.47: the rest size is a setting now (dockIconSize 44-64,
+   written by the Control Center slider); the CSS ships 52 as the
+   pre-settings default. */
+function dockBase(){ const v=SETTINGS&&SETTINGS.dockIconSize; return (v>=44&&v<=64)?v:52 }
 const DOCK_PEAK=1.85;         // magnification at the pointer's icon (macOS magnitude, under 2x)
 const DOCK_RADIUS_PITCHES=3;  // falloff radius, in icon pitches (base + flex gap)
 const DOCK_GAP=7;             // #dock flex gap (px), the other half of the pitch
@@ -1675,13 +1768,13 @@ function dockMagApply(){
     that read as lag and jitter. Sizes are now written per frame
     with no transition at all. */
  const centers=icons.map(ic=>{ const r=ic.getBoundingClientRect(); return vertical? r.top+r.height/2 : r.left+r.width/2; });
- const sizes=dockMagSizes(centers,vertical?dockPointer.y:dockPointer.x,DOCK_BASE,DOCK_RADIUS_PITCHES*(DOCK_BASE+DOCK_GAP),DOCK_PEAK);
+ const sizes=dockMagSizes(centers,vertical?dockPointer.y:dockPointer.x,dockBase(),DOCK_RADIUS_PITCHES*(dockBase()+DOCK_GAP),DOCK_PEAK);
  icons.forEach((ic,i)=>{ ic.style.width=sizes[i]+'px'; ic.style.height=sizes[i]+'px'; });
 }
 function dockMagReset(){
  if(dockRAF){ cancelAnimationFrame(dockRAF); dockRAF=0; }
  dockEl.classList.add('settle');
- dockIcons().forEach(ic=>{ ic.style.width=DOCK_BASE+'px'; ic.style.height=DOCK_BASE+'px'; });
+ dockIcons().forEach(ic=>{ ic.style.width=dockBase()+'px'; ic.style.height=dockBase()+'px'; });
  setTimeout(()=>dockEl.classList.remove('settle'),DOCK_SETTLE_MS+40);
 }
 dockEl.addEventListener('pointermove',e=>{
@@ -1864,7 +1957,8 @@ function bind(id){
   const fmtB=n=>{ n=+n||0; if(n>=1073741824) return (n/1073741824).toFixed(2)+' GB'; if(n>=1048576) return (n/1048576).toFixed(1)+' MB'; if(n>=1024) return (n/1024).toFixed(1)+' KB'; return n+' B' };
   const PAGES=[
    {id:'appearance',n:'外观',g:'linear-gradient(180deg,#64d2ff,#bf5af2)',glyph:'🖼',kw:'壁纸 背景 个性化 wallpaper'},
-   {id:'desktop',n:'桌面与 Dock',g:'linear-gradient(180deg,#2dd4bf,#0e7490)',glyph:'▦',kw:'台前调度 手机宽 落位 dock 位置 左侧 右侧 自动隐藏 窗口 导入 文件 桌面图标 沉浸 全屏 任务栏'},
+   {id:'desktop',n:'桌面与 Dock',g:'linear-gradient(180deg,#2dd4bf,#0e7490)',glyph:'▦',kw:'台前调度 手机宽 落位 dock 位置 左侧 右侧 自动隐藏 窗口 导入 文件 桌面图标 沉浸 全屏 任务栏 控制中心'},
+   {id:'notify',n:'通知',g:'linear-gradient(180deg,#ff453a,#ff9f0a)',glyph:'🔔',kw:'通知 横幅 提醒 通知中心 banner 允许'},
    {id:'network',n:'节点与网络',g:'linear-gradient(180deg,#bf5af2,#7d2ae8)',glyph:'🚀',kw:'节点 加速 代理 下载 网络'},
    {id:'browser',n:'浏览器',g:'linear-gradient(180deg,#5ec2ff,#0a62d6)',glyph:'◎',kw:'chrome firefox 缓存 同步 谷歌 浏览器'},
    {id:'components',n:'组件',g:'linear-gradient(180deg,#ffb340,#ff7139)',glyph:'🧩',kw:'firefox 小龙虾 openclaw 组件'},
@@ -1893,19 +1987,30 @@ function bind(id){
   };
   const paintDesktop=()=>{
    const s=SETTINGS||SETDEF;
-   G('set-main').innerHTML=`<div class="set-page"><div class="set-sec">台前调度</div><div class="set-desc">开启后，桌面只显示当前应用，其他打开的应用缩到左侧成一排实时缩略图，点缩略图就切换过来。菜单栏右侧的 ▦ 也可以随开随关。</div><div class="sm-card"><div class="sm-row"><span>台前调度</span><label class="sm-sw"><input type="checkbox" id="ds-stage" ${stageOn()?'checked':''}><i></i></label></div><div class="sm-row"><span>浏览器新窗口自动纳入台前调度</span><label class="sm-sw"><input type="checkbox" id="ds-autoclaim" ${s.stageAutoClaimBrowser!==false?'checked':''}><i></i></label></div></div><p class="set-note">自动纳入：隔离 Chrome / Firefox 自己新开的窗口（网页弹窗、新窗口、拖出的标签、独立的开发者工具）会自动登记进台前调度，方便切换；登记后是否摆位由下方「开窗礼仪」里的开关决定。已经登记的窗口不受这个开关影响。</p><div class="set-sec">Dock</div><div class="set-desc">终端机自己的 Dock，和 macOS 一样可以换边、可以自动隐藏；图标放大跟随指针连续缩放。改动即时生效，不用重启。</div><div class="sm-card"><div class="sm-row"><span>位置</span><span class="seg" id="ds-dockpos"><button data-p="bottom">底部</button><button data-p="left">左侧</button><button data-p="right">右侧</button></span></div><div class="sm-row"><span>自动隐藏 Dock</span><label class="sm-sw"><input type="checkbox" id="ds-dockhide" ${s.dockAutoHide?'checked':''}><i></i></label></div></div><p class="set-note">自动隐藏后，Dock 沿它所在的那条边滑出，只留一条 3px 的边：指针贴到那条边停约 0.3 秒（或快速甩到边沿）它就滑进来，移开约 0.4 秒又滑回去。台前调度开着时把 Dock 放到左侧，会和台前调度条带抢左缘——条带（系统内缩略图和外部应用卡片）会临时镜像到右缘，Dock 改回来它也跟着回来，只是位置镜像，行为不变。</p><div class="set-sec">小窗手机宽</div><div class="set-desc">桌面窗口没最大化、或窄于触发宽度时，新打开的网站应用按手机宽度落位，网站多会显示手机版页面。只管打开时摆好，之后随你拖动。</div><div class="sm-card"><div class="sm-row"><span>手机宽模式</span><label class="sm-sw"><input type="checkbox" id="ds-pm" ${s.phoneMode?'checked':''}><i></i></label></div><div class="sm-row"><span>触发宽度（桌面窄于此值，px）</span><input class="set-num" id="ds-ptw" type="number" min="600" max="4000" step="50" value="${s.phoneTriggerWidth}"></div><div class="sm-row"><span>手机宽度（落位宽度，px）</span><input class="set-num" id="ds-pw" type="number" min="280" max="800" step="10" value="${s.phoneWidth}"></div></div><div class="set-sec">开窗礼仪</div><div class="set-desc">从终端机打开、或被台前调度认领的窗口，第一次出现时自动摆进桌面区域（约 62% × 85%，菜单栏和 Dock 不会被盖住），你正在终端里操作时桌面还会垫在新窗口后面，就像在自己的系统里开应用；摆好之后完全归你，拖动、最大化都不再被拉回。你在宿主的其他软件里忙时，新窗口只登记、不抢屏。</div><div class="sm-card"><div class="sm-row"><span>新窗口自动落位（桌面垫背）</span><label class="sm-sw"><input type="checkbox" id="ds-place" ${s.winPlaceOnClaim!==false?'checked':''}><i></i></label></div><div class="sm-row"><span>最小化时联动隐藏</span><label class="sm-sw"><input type="checkbox" id="ds-hidemin" ${s.winHideOnMinimize!==false?'checked':''}><i></i></label></div><div class="sm-row"><span>关闭桌面时隐藏到托盘</span><label class="sm-sw"><input type="checkbox" id="ds-tray" ${s.winCloseToTray!==false?'checked':''}><i></i></label></div></div><p class="set-note">联动隐藏：最小化桌面时已登记的窗口整套跟着藏起，桌面自己留在宿主任务栏里找得到，恢复桌面时整套按原样回来（你自己单独最小化的窗口不会被动）。关闭桌面则藏得更彻底：任务栏不留按钮，宿主右下角系统托盘会出现终端机图标，点它（或照旧双击程序）整套恢复。无论哪种藏法，退出系统前所有被藏的窗口都会先恢复显示。</p><div class="set-sec">沉浸模式</div><div class="set-desc">开启后，终端机打开的一切只留在终端机里：已经登记进台前调度的窗口（包括桌面自己）会从宿主任务栏和 Alt-Tab 里消失，切换入口只剩台前调度与 Dock；宿主右下角的托盘图标是回宿主的锚，点它整套回来。没有被台前调度认领的窗口永远不会被隐藏，一直留在宿主任务栏上找得到。</div><div class="sm-card"><div class="sm-row"><span>沉浸模式</span><label class="sm-sw"><input type="checkbox" id="ds-immersive" ${s.immersiveMode?'checked':''}><i></i></label></div><div class="sm-row"><span>桌面全屏</span><label class="sm-sw"><input type="checkbox" id="ds-fullscreen" ${s.desktopFullscreen?'checked':''}><i></i></label></div></div><p class="set-note">桌面全屏：桌面视图以无边框全屏占据它所在的显示器，关掉这个开关就恢复原来的窗口大小与位置；两个开关都即时生效，不用重启。一句实话：万一终端机异常退出（被强杀或崩溃），个别已沉浸的窗口可能暂时留在隐藏状态——把那个窗口关掉即自愈，重新打开终端机时启动清扫也会把它们还原回任务栏。</p><div class="set-sec">导入的文件</div><div class="set-desc">从电脑导入到终端桌面的文件存在 Data/files 里，和应用图标混排在桌面上。关掉只是不在桌面上显示这些图标，文件本身、导入通道（拖入 / 桌面菜单导入 / 粘贴）都不受影响。</div><div class="sm-card"><div class="sm-row"><span>在桌面显示导入的文件</span><label class="sm-sw"><input type="checkbox" id="ds-files" ${s.filesOnDesktop!==false?'checked':''}><i></i></label></div></div></div>`;
+   G('set-main').innerHTML=`<div class="set-page"><div class="set-sec">台前调度</div><div class="set-desc">开启后，桌面只显示当前应用，其他打开的应用缩到左侧成一排实时缩略图，点缩略图就切换过来。菜单栏右侧的 ▦ 也可以随开随关。</div><div class="sm-card"><div class="sm-row"><span>台前调度</span><label class="sm-sw"><input type="checkbox" id="ds-stage" ${stageOn()?'checked':''}><i></i></label></div><div class="sm-row"><span>浏览器新窗口自动纳入台前调度</span><label class="sm-sw"><input type="checkbox" id="ds-autoclaim" ${s.stageAutoClaimBrowser!==false?'checked':''}><i></i></label></div></div><p class="set-note">自动纳入：隔离 Chrome / Firefox 自己新开的窗口（网页弹窗、新窗口、拖出的标签、独立的开发者工具）会自动登记进台前调度，方便切换；登记后是否摆位由下方「开窗礼仪」里的开关决定。已经登记的窗口不受这个开关影响。</p><div class="set-sec">Dock</div><div class="set-desc">终端机自己的 Dock，和 macOS 一样可以换边、可以自动隐藏；图标放大跟随指针连续缩放。改动即时生效，不用重启。</div><div class="sm-card"><div class="sm-row"><span>位置</span><span class="seg" id="ds-dockpos"><button data-p="bottom">底部</button><button data-p="left">左侧</button><button data-p="right">右侧</button></span></div><div class="sm-row"><span>自动隐藏 Dock</span><label class="sm-sw"><input type="checkbox" id="ds-dockhide" ${s.dockAutoHide?'checked':''}><i></i></label></div></div><p class="set-note">自动隐藏后，Dock 沿它所在的那条边滑出，只留一条 3px 的边：指针贴到那条边停约 0.3 秒（或快速甩到边沿）它就滑进来，移开约 0.4 秒又滑回去。台前调度开着时把 Dock 放到左侧，会和台前调度条带抢左缘——条带（系统内缩略图和外部应用卡片）会临时镜像到右缘，Dock 改回来它也跟着回来，只是位置镜像，行为不变。</p><div class="set-sec">小窗手机宽</div><div class="set-desc">桌面窗口没最大化、或窄于触发宽度时，新打开的网站应用按手机宽度落位，网站多会显示手机版页面。只管打开时摆好，之后随你拖动。</div><div class="sm-card"><div class="sm-row"><span>手机宽模式</span><label class="sm-sw"><input type="checkbox" id="ds-pm" ${s.phoneMode?'checked':''}><i></i></label></div><div class="sm-row"><span>触发宽度（桌面窄于此值，px）</span><input class="set-num" id="ds-ptw" type="number" min="600" max="4000" step="50" value="${s.phoneTriggerWidth}"></div><div class="sm-row"><span>手机宽度（落位宽度，px）</span><input class="set-num" id="ds-pw" type="number" min="280" max="800" step="10" value="${s.phoneWidth}"></div></div><div class="set-sec">开窗礼仪</div><div class="set-desc">从终端机打开、或被台前调度认领的窗口，第一次出现时自动摆进桌面区域（约 62% × 85%，菜单栏和 Dock 不会被盖住），你正在终端里操作时桌面还会垫在新窗口后面，就像在自己的系统里开应用；摆好之后完全归你，拖动、最大化都不再被拉回。你在宿主的其他软件里忙时，新窗口只登记、不抢屏。</div><div class="sm-card"><div class="sm-row"><span>新窗口自动落位（桌面垫背）</span><label class="sm-sw"><input type="checkbox" id="ds-place" ${s.winPlaceOnClaim!==false?'checked':''}><i></i></label></div><div class="sm-row"><span>最小化时联动隐藏</span><label class="sm-sw"><input type="checkbox" id="ds-hidemin" ${s.winHideOnMinimize!==false?'checked':''}><i></i></label></div><div class="sm-row"><span>关闭桌面时隐藏到托盘</span><label class="sm-sw"><input type="checkbox" id="ds-tray" ${s.winCloseToTray!==false?'checked':''}><i></i></label></div></div><p class="set-note">联动隐藏：最小化桌面时已登记的窗口整套跟着藏起，桌面自己留在宿主任务栏里找得到，恢复桌面时整套按原样回来（你自己单独最小化的窗口不会被动）。关闭桌面则藏得更彻底：任务栏不留按钮，宿主右下角系统托盘会出现终端机图标，点它（或照旧双击程序）整套恢复。无论哪种藏法，退出系统前所有被藏的窗口都会先恢复显示。</p><div class="set-sec">沉浸模式</div><div class="set-desc">开启后，终端机打开的一切只留在终端机里：已经登记进台前调度的窗口（包括桌面自己）会从宿主任务栏和 Alt-Tab 里消失，切换入口只剩台前调度与 Dock；宿主右下角的托盘图标是回宿主的锚，点它整套回来。没有被台前调度认领的窗口永远不会被隐藏，一直留在宿主任务栏上找得到。</div><div class="sm-card"><div class="sm-row"><span>沉浸模式</span><label class="sm-sw"><input type="checkbox" id="ds-immersive" ${s.immersiveMode?'checked':''}><i></i></label></div><div class="sm-row"><span>桌面全屏</span><label class="sm-sw"><input type="checkbox" id="ds-fullscreen" ${s.desktopFullscreen?'checked':''}><i></i></label></div></div><p class="set-note">桌面全屏：桌面视图以无边框全屏占据它所在的显示器，关掉这个开关就恢复原来的窗口大小与位置；两个开关都即时生效，不用重启。一句实话：万一终端机异常退出（被强杀或崩溃），个别已沉浸的窗口可能暂时留在隐藏状态——把那个窗口关掉即自愈，重新打开终端机时启动清扫也会把它们还原回任务栏。</p><div class="set-sec">导入的文件</div><div class="set-desc">从电脑导入到终端桌面的文件存在 Data/files 里，和应用图标混排在桌面上。关掉只是不在桌面上显示这些图标，文件本身、导入通道（拖入 / 桌面菜单导入 / 粘贴）都不受影响。</div><div class="sm-card"><div class="sm-row"><span>在桌面显示导入的文件</span><label class="sm-sw"><input type="checkbox" id="ds-files" ${s.filesOnDesktop!==false?'checked':''}><i></i></label></div></div><div class="set-sec">控制中心</div><div class="set-desc">菜单栏右边双开关图标打开的控制中心里放哪些格子，改动即时生效。节点大格是核心控制，和 macOS 的核心控件一样不能关。</div><div class="sm-card"><div class="sm-row"><span>节点（核心控制）</span><span class="set-val">始终显示</span></div>${[['immersive','沉浸模式'],['stage','台前调度'],['fullscreen','桌面全屏'],['dockhide','Dock 自动隐藏'],['remote','远程协助'],['wallpaper','壁纸']].map(([k,n])=>`<div class="sm-row"><span>${n}</span><label class="sm-sw"><input type="checkbox" id="ds-cc-${k}" ${s['cc_show_'+k]!==false?'checked':''}><i></i></label></div>`).join('')}</div></div>`;
    G('ds-stage').onchange=e=>toggleStage(e.target.checked);
    G('ds-files').onchange=async e=>{ const r=await saveSetting({filesOnDesktop:e.target.checked}); if(r&&r.error){ alert('保存失败：'+r.error); e.target.checked=!e.target.checked; return; } renderDesk(); };
    G('ds-autoclaim').onchange=async e=>{ const r=await saveSetting({stageAutoClaimBrowser:e.target.checked}); if(r&&r.error){ alert('保存失败：'+r.error); e.target.checked=!e.target.checked; } };
    const bindWinTgl=(id,key)=>{ const el=G(id); if(el) el.onchange=async e=>{ const r=await saveSetting({[key]:e.target.checked}); if(r&&r.error){ alert('保存失败：'+r.error); e.target.checked=!e.target.checked; } }; };
    bindWinTgl('ds-place','winPlaceOnClaim'); bindWinTgl('ds-hidemin','winHideOnMinimize'); bindWinTgl('ds-tray','winCloseToTray');
    bindWinTgl('ds-immersive','immersiveMode'); bindWinTgl('ds-fullscreen','desktopFullscreen');
+   ['immersive','stage','fullscreen','dockhide','remote','wallpaper'].forEach(k=>bindWinTgl('ds-cc-'+k,'cc_show_'+k));
    const dockPosPaint=()=>{ const seg=G('ds-dockpos'); if(seg) seg.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.p===dockPos())); };
    dockPosPaint();
    G('ds-dockpos').querySelectorAll('button').forEach(b=>b.onclick=async()=>{ const prev=dockPos(); if(b.dataset.p===prev) return; if(!SETTINGS) SETTINGS={...SETDEF}; SETTINGS.dockPosition=b.dataset.p; dockPosPaint(); applyDockLayout(); const r=await saveSetting({dockPosition:b.dataset.p}); if(r&&r.error){ alert('保存失败：'+r.error); SETTINGS.dockPosition=prev; dockPosPaint(); applyDockLayout(); } });
    G('ds-dockhide').onchange=async e=>{ const want=e.target.checked; const r=await saveSetting({dockAutoHide:want}); if(r&&r.error){ alert('保存失败：'+r.error); e.target.checked=!want; if(SETTINGS) SETTINGS.dockAutoHide=!want; return; } applyDockLayout(); };
    const savePhone=async()=>{ const r=await saveSetting({phoneMode:G('ds-pm').checked,phoneTriggerWidth:+G('ds-ptw').value||1200,phoneWidth:+G('ds-pw').value||400}); if(r&&r.error) alert('保存失败：'+r.error); };
    G('ds-pm').onchange=savePhone; G('ds-ptw').onchange=savePhone; G('ds-pw').onchange=savePhone;
+  };
+  const paintNotify=()=>{
+   /* v0.47 设置 → 通知：macOS Notifications grammar -- one row
+      per source, 允许通知 + 横幅 switches, both daemon settings
+      (notify_allow_<src> / notify_banner_<src>). */
+   const s=SETTINGS||SETDEF;
+   const SRCS=[['sandbox','应用隔离'],['update','软件更新'],['servermon','服务器监控'],['node','节点'],['remote','远程协助'],['files','文件']];
+   G('set-main').innerHTML=`<div class="set-page"><div class="set-sec">通知</div><div class="set-desc">通知中心（点菜单栏右边的日期时间打开）里有两类东西：状态型的（隔离安装待登记、更新可用、服务器告警——状态在就一直在）和事件型的（装完了、断开了这类刚发生的事，留下来等你处理）。这里按来源逐个管：关掉「允许通知」，这个来源的事件不再记录、状态型也不再出现在通知中心（功能本身在各自页面照常）；关掉「横幅」只是不弹横幅，通知照样进通知中心。</div><div class="sm-card">${SRCS.map(([id,n])=>`<div class="sm-row"><span>${n}</span><span class="row"><span style="font-size:12px;opacity:.65">允许通知</span><label class="sm-sw"><input type="checkbox" id="nt-allow-${id}" ${s['notify_allow_'+id]!==false?'checked':''}><i></i></label><span style="font-size:12px;opacity:.65">横幅</span><label class="sm-sw"><input type="checkbox" id="nt-banner-${id}" ${s['notify_banner_'+id]!==false?'checked':''}><i></i></label></span></div>`).join('')}</div><p class="set-note">横幅是新事件发生时在桌面右上角滑入的小卡片，约 6 秒后自动消失，鼠标停在上面会等你。沉浸模式不拦横幅——它不是专注模式。</p></div>`;
+   const bindN=(elid,key)=>{ const el=G(elid); if(el) el.onchange=async e=>{ const r=await saveSetting({[key]:e.target.checked}); if(r&&r.error){ alert('保存失败：'+r.error); e.target.checked=!e.target.checked; } }; };
+   SRCS.forEach(([id])=>{ bindN('nt-allow-'+id,'notify_allow_'+id); bindN('nt-banner-'+id,'notify_banner_'+id); });
   };
   const paintNetwork=async()=>{
    G('set-main').innerHTML=`<div class="set-page"><div class="set-sec">软件内全局加速</div><div class="set-desc">开着时：桌面窗口、从软件里点开的链接、终端里跑的命令都走节点；宿主电脑自己的浏览器和程序完全不受影响。</div><div class="sm-card"><div class="sm-row"><span>全局加速</span><label class="sm-sw"><input type="checkbox" id="nw-accel"><i></i></label></div><div class="sm-row"><span>当前状态</span><span class="set-val" id="nw-state">读取中…</span></div><div class="sm-row"><span>守护进程下载（更新、组件）</span><span class="set-val" id="nw-route">…</span></div></div><div class="set-sec">节点</div><div class="set-desc">节点链接、订阅导入和节点启停在「节点」应用里。</div><div class="row"><button class="btn gray" id="nw-open">打开节点页</button></div></div>`;
@@ -2045,10 +2150,14 @@ function bind(id){
    updDl.onclick=async()=>{ updPaint(await api('/api/update/download',{method:'POST'})); updRefresh(); };
    updApply.onclick=async()=>{ if(!confirm('现在重启并更新到新版本？节点会断开几秒，之后自动重连。')) return; const r=await api('/api/update/apply',{method:'POST'}); if(r.error){ updStatus.textContent='更新失败：'+r.error; return; } document.body.innerHTML='<div style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;font-size:20px;color:#fff;text-shadow:0 2px 10px #000">正在更新到新版本，桌面马上自动重开…</div>'; };
   };
-  const paintPage=pid=>{ ({appearance:paintAppearance,desktop:paintDesktop,network:paintNetwork,browser:paintBrowser,components:paintComponents,isolation:paintIsolation,storage:paintStorage,security:paintSecurity,general:paintGeneral,about:paintAbout,update:paintUpdate})[pid]?.(); };
+  const paintPage=pid=>{ ({appearance:paintAppearance,desktop:paintDesktop,notify:paintNotify,network:paintNetwork,browser:paintBrowser,components:paintComponents,isolation:paintIsolation,storage:paintStorage,security:paintSecurity,general:paintGeneral,about:paintAbout,update:paintUpdate})[pid]?.(); };
   G('set-q').oninput=navPaint;
   G('set-mecard').onclick=()=>goto('update');
   window.sysRefresh=()=>{ navPaint(); paintPage(curPage); };
+  /* v0.47: Control Center / Notification Center jump into a
+     specific settings page through here (the only sanctioned
+     cross-scope handle, next to sysRefresh). */
+  window.sysGoto=pid=>{ if(PAGES.some(p=>p.id===pid)) goto(pid); };
   window.sysGoto=pid=>{ goto(pid); };
   (async()=>{ try{ const si=await api('/api/system'); const el=G('set-me-ver'); if(el) el.textContent='v'+si.version+' · 点这里看软件更新'; }catch(e){} })();
   if(!SETTINGS){ loadSettings().then(()=>paintPage(curPage)); }
@@ -2656,6 +2765,320 @@ function bind(id){
    };
  }
 }
+/* ----- control center + notification center (v0.47) -----
+   Built from the macOS User Guide (Use Control Center on Mac /
+   Use Notification Center on Mac), mapped onto the functions
+   this product actually has:
+   - Control Center drops from the two-toggle menu bar icon;
+     item click = toggle, chevron = expand in place (node list,
+     remote tiers, wallpaper presets); one slider row (Dock icon
+     size -- a real parameter); footer jumps to 设置 → 桌面与 Dock
+     → 控制中心 where tiles can be hidden (the node tile cannot,
+     like the manual's core controls).
+   - Notification Center opens from the menu bar CLOCK (click
+     desktop / Esc closes): daemon-assembled status items on
+     top, recorded events stacked BY SOURCE below (click stack
+     expands, Show less collapses, hover = × per item and
+     全部清除 per stack, body click = jump + clear), widgets
+     under them with an edit mode (show/hide + reorder).
+   - A fresh event raises a banner at the top right while NC is
+     closed (~6s, hover pauses, click = jump + clear).
+   - The orange dot beside the CC icon is the manual's privacy
+     indicator, mapped to the one thing here that watches the
+     user back: a live remote-assist session.
+   Every action goes through the existing feature APIs and
+   settings keys -- these panels are shells, not second state. */
+const ANIM_PANEL_MS=280;   // CC dropdown fade/scale (CSS #ccpanel)
+const ANIM_NC_MS=300;      // NC column slide (CSS #ncenter)
+const ANIM_BANNER_MS=320;  // banner in/out (CSS .banner)
+const BANNER_HOLD_MS=6000; // banner dwell before auto-dismiss
+const NC_SRCNAMES={sandbox:'应用隔离',update:'软件更新',servermon:'服务器监控',node:'节点',remote:'远程协助',files:'文件'};
+
+/* === ncgroup pure (node-testable) === */
+/* Stack recorded events by source (the manual's grouping):
+   groups are ordered by their newest event, items inside a
+   group stay newest-first (the daemon lists newest-first). */
+function ncGroupEvents(events){
+ const groups=[], bySrc={};
+ for(const e of events||[]){
+  let g=bySrc[e.source];
+  if(!g){ g={source:e.source,items:[]}; bySrc[e.source]=g; groups.push(g); }
+  g.items.push(e);
+ }
+ return groups;
+}
+/* Widget layout from the nc_widgets setting string: an array of
+   {id, show} in display order. Anything malformed falls back to
+   the default layout rather than hiding the widget area. */
+function ncLayoutWidgets(raw){
+ const DEF=[{id:'calendar',show:true},{id:'server',show:true},{id:'node',show:true}];
+ try{
+  const a=JSON.parse(raw||'');
+  if(!Array.isArray(a)||!a.length) return DEF.map(w=>({...w}));
+  const seen={}, out=[];
+  for(const w of a){
+   if(!w||!DEF.some(d=>d.id===w.id)||seen[w.id]) return DEF.map(x=>({...x}));
+   seen[w.id]=1; out.push({id:w.id,show:!!w.show});
+  }
+  return out;
+ }catch(e){ return DEF.map(w=>({...w})); }
+}
+/* === end ncgroup pure === */
+
+const ccEl=document.getElementById('ccpanel'), ncEl=document.getElementById('ncenter'), bannersEl=document.getElementById('banners');
+let ccOpen=false, ncOpen=false, ccNodesOpen=false, ccRemoteOpen=false, ccWallOpen=false, ncEditMode=false, ccSliderDrag=false;
+const ncExpandedSrc=new Set();
+function routeJump(route){
+ if(!route) return;
+ closeCC(); closeNC();
+ if(route.startsWith('setpage:')){
+  openApp('sys');
+  const pg=route.slice(8), go=()=>{ if(window.sysGoto) window.sysGoto(pg); };
+  go(); setTimeout(go,150);
+ } else openApp(route);
+}
+function closeCC(){ if(!ccOpen) return; ccOpen=false; ccEl.classList.add('hidden'); const b=document.getElementById('mb-cc'); if(b) b.classList.remove('on'); }
+function openCC(){ closeNC(); ccOpen=true; ccEl.classList.remove('hidden'); ccEl.classList.add('pop'); requestAnimationFrame(()=>requestAnimationFrame(()=>ccEl.classList.remove('pop'))); const b=document.getElementById('mb-cc'); if(b) b.classList.add('on'); paintCC(); }
+function closeNC(){ if(!ncOpen) return; ncOpen=false; ncEl.classList.add('nc-off'); ncEditMode=false; }
+function openNC(){ closeCC(); ncOpen=true; ncEl.classList.remove('nc-off'); paintNC(); }
+document.getElementById('mb-cc').onclick=e=>{ e.stopPropagation(); ccOpen?closeCC():openCC(); };
+document.getElementById('mb-clock').onclick=e=>{ e.stopPropagation(); ncOpen?closeNC():openNC(); };
+document.addEventListener('click',e=>{
+ if(ccOpen&&!ccEl.contains(e.target)) closeCC();
+ if(ncOpen&&!ncEl.contains(e.target)) closeNC();
+});
+document.addEventListener('keydown',e=>{
+ if(e.key!=='Escape') return;
+ if(ccOpen) closeCC(); else if(ncOpen) closeNC();
+});
+
+/* ----- control center ----- */
+function ccTile(id,on,ico,name,sub,chev){
+ return `<div class="cc-tile ${on?'on':''}" id="cc-${id}"><span class="cc-ico">${ico}</span><span class="cc-tx"><div class="cc-name">${name}</div>${sub?`<div class="cc-sub">${sub}</div>`:''}</span>${chev?'<span class="cc-chev">›</span>':''}</div>`;
+}
+async function paintCC(){
+ if(!ccEl.innerHTML) ccEl.innerHTML='<div class="nc-empty">读取中…</div>';
+ const s=SETTINGS||SETDEF;
+ const [core,node,remote,pairing]=await Promise.all([
+  api('/api/core',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'status'})}).catch(()=>({})),
+  api('/api/node').catch(()=>({nodes:[]})),
+  api('/api/remote/state').catch(()=>({})),
+  api('/api/remote/pairing').catch(()=>({operators:[]}))
+ ]);
+ const running=!!core.running, nodes=node.nodes||[];
+ const curNode=nodes.length?nodes[0]:null;
+ const rsum=remoteSummary(remote,pairing);
+ const wallName=customWall?'自定义壁纸':((WALLPAPERS[wallKey()]||{}).n||wallKey());
+ let h='<div class="cc-grid">';
+ /* node big tile: always present (core control, not hideable) */
+ h+=`<div class="cc-tile wide ${running?'on':''}" id="cc-node"><span class="cc-ico">🚀</span><span class="cc-tx"><div class="cc-name">节点 ${running?'已连接':'未连接'}</div><div class="cc-sub">${running?(curNode?esc(curNode.name):'—'):(nodes.length?('默认节点：'+esc(nodes[0].name)):'还没有节点')}</div></span><span class="cc-chev" id="cc-node-chev">${ccNodesOpen?'⌄':'›'}</span></div>`;
+ if(s.cc_show_immersive!==false) h+=ccTile('immersive',!!s.immersiveMode,'◑','沉浸模式',s.immersiveMode?'开':'关');
+ if(s.cc_show_stage!==false) h+=ccTile('stage',stageOn(),'▦','台前调度',stageOn()?'开':'关');
+ if(s.cc_show_fullscreen!==false) h+=ccTile('fullscreen',!!s.desktopFullscreen,'⛶','桌面全屏',s.desktopFullscreen?'开':'关');
+ if(s.cc_show_dockhide!==false) h+=ccTile('dockhide',dockAutoHideOn(),'▭','Dock 自动隐藏',dockAutoHideOn()?'开':'关');
+ if(s.cc_show_remote!==false) h+=ccTile('remote',!!rsum.on,'🔗','远程协助',rsum.label,true);
+ if(s.cc_show_wallpaper!==false) h+=ccTile('wall',false,'🖼','壁纸',wallName,true);
+ h+='</div>';
+ if(ccNodesOpen){
+  h+='<div class="cc-list">'+(nodes.length?nodes.map((n,i)=>`<div class="cc-li" data-ccnode="${i}"><span class="cc-dot ${running&&i===0?'on':''}"></span><span>${esc(n.name)}<span style="opacity:.6"> · ${esc(n.type)} ${esc(n.server)}:${n.port}</span></span>${i===0?'<span class="cc-cur">默认</span>':''}</div>`).join(''):'<div class="cc-li">还没有节点</div>')+'<div style="font-size:12px;opacity:.6;padding:6px 8px 2px">连接时用默认（第一个）节点；节点的增删在「节点」页。</div></div>';
+ }
+ if(ccRemoteOpen&&s.cc_show_remote!==false){
+  const rows=[['off','关闭'],['read','只读诊断'],['assist','协助']];
+  const curMode=!rsum.on?'off':(rsum.mode||'mixed');
+  h+='<div class="cc-list">'+rows.map(([m,n])=>`<div class="cc-li" data-ccremote="${m}"><span>${n}</span>${curMode===m?'<span class="cc-cur">✓ 当前</span>':''}</div>`).join('')+(rsum.mode==='mixed'?'<div style="font-size:12px;opacity:.6;padding:6px 8px 2px">现在各位操作者的档位不一样，点上面任一档会统一到该档；按人分别设在 设置 → 安全与隐私。</div>':'')+'</div>';
+ }
+ if(ccWallOpen&&s.cc_show_wallpaper!==false){
+  h+='<div class="cc-list">'+Object.entries(WALLPAPERS).map(([k,v])=>`<div class="cc-li" data-ccwall="${k}"><span>${v.n}</span>${!customWall&&wallKey()===k?'<span class="cc-cur">✓ 当前</span>':''}</div>`).join('')+(customWall?'<div style="font-size:12px;opacity:.6;padding:6px 8px 2px">现在是自定义壁纸，点任一预设即换回预设。</div>':'')+'</div>';
+ }
+ h+=`<div class="cc-slider"><span>Dock 图标大小</span><input type="range" id="cc-docksize" min="44" max="64" step="1" value="${dockBase()}"><span id="cc-docksize-v" style="opacity:.7;font-variant-numeric:tabular-nums">${dockBase()}</span></div>`;
+ h+='<div class="cc-foot"><button id="cc-edit">编辑控制中心</button></div>';
+ ccEl.innerHTML=h;
+ const nodeTile=ccEl.querySelector('#cc-node');
+ if(nodeTile) nodeTile.onclick=async e=>{
+  if(e.target.closest('#cc-node-chev')||e.target.closest('.cc-li')) return;
+  nodeTile.style.opacity='.55';
+  await api('/api/core',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:running?'stop':'start'})}).catch(()=>{});
+  pollNode(); paintCC();
+ };
+ const chev=ccEl.querySelector('#cc-node-chev');
+ if(chev) chev.onclick=e=>{ e.stopPropagation(); ccNodesOpen=!ccNodesOpen; paintCC(); };
+ ccEl.querySelectorAll('[data-ccnode]').forEach(el=>el.onclick=()=>{ closeCC(); openApp('core'); });
+ const tgl=(id,fn)=>{ const el=ccEl.querySelector('#cc-'+id); if(el) el.onclick=fn; };
+ tgl('immersive',async()=>{ const r=await saveSetting({immersiveMode:!((SETTINGS||SETDEF).immersiveMode)}); if(r&&r.error) alert('保存失败：'+r.error); paintCC(); });
+ tgl('stage',()=>{ toggleStage(!stageOn()); paintCC(); });
+ tgl('fullscreen',async()=>{ const r=await saveSetting({desktopFullscreen:!((SETTINGS||SETDEF).desktopFullscreen)}); if(r&&r.error) alert('保存失败：'+r.error); paintCC(); });
+ tgl('dockhide',async()=>{ const r=await saveSetting({dockAutoHide:!dockAutoHideOn()}); if(r&&r.error){ alert('保存失败：'+r.error); return; } applyDockLayout(); paintCC(); });
+ tgl('remote',async e=>{
+  if(e.target.closest('.cc-chev')||e.target.closest('.cc-li')) return;
+  if(ccRemoteOpen){ ccRemoteOpen=false; paintCC(); return; }
+  const r=await saveSetting({remoteEnabled:!rsum.on}); if(r&&r.error){ alert('保存失败：'+r.error); return; } paintCC();
+ });
+ const remoteTile=ccEl.querySelector('#cc-remote');
+ if(remoteTile){ const cv=remoteTile.querySelector('.cc-chev'); if(cv) cv.onclick=e=>{ e.stopPropagation(); ccRemoteOpen=!ccRemoteOpen; paintCC(); }; }
+ ccEl.querySelectorAll('[data-ccremote]').forEach(el=>el.onclick=()=>ccSetRemote(el.dataset.ccremote,remote,pairing));
+ tgl('wall',async e=>{
+  if(e.target.closest('.cc-chev')||e.target.closest('.cc-li')) return;
+  await ccNextWallpaper(); paintCC();
+ });
+ const wallTile=ccEl.querySelector('#cc-wall');
+ if(wallTile){ const cv=wallTile.querySelector('.cc-chev'); if(cv) cv.onclick=e=>{ e.stopPropagation(); ccWallOpen=!ccWallOpen; paintCC(); }; }
+ ccEl.querySelectorAll('[data-ccwall]').forEach(el=>el.onclick=async()=>{ await ccSetWallpaper(el.dataset.ccwall); paintCC(); });
+ const slider=ccEl.querySelector('#cc-docksize');
+ if(slider){
+  slider.addEventListener('pointerdown',()=>{ ccSliderDrag=true; });
+  slider.addEventListener('pointerup',()=>{ ccSliderDrag=false; });
+  slider.oninput=()=>{ if(SETTINGS) SETTINGS.dockIconSize=+slider.value; const v=ccEl.querySelector('#cc-docksize-v'); if(v) v.textContent=slider.value; dockMagReset(); };
+  slider.onchange=async()=>{ ccSliderDrag=false; const r=await saveSetting({dockIconSize:+slider.value}); if(r&&r.error) alert('保存失败：'+r.error); };
+ }
+ const edit=ccEl.querySelector('#cc-edit');
+ if(edit) edit.onclick=()=>routeJump('setpage:desktop');
+}
+function remoteSummary(state,pairing){
+ if(!state||!state.enabled) return {on:false,mode:'off',label:'关'};
+ const ops=(pairing&&pairing.operators)||[];
+ if(!ops.length) return {on:true,mode:'',label:'已开启 · 无操作者'};
+ const tiers=new Set(ops.map(o=>o.tier));
+ if(tiers.size>1) return {on:true,mode:'mixed',label:'分别设置'};
+ const t=ops[0].tier;
+ return {on:true,mode:t,label:t==='assist'?'协助':'只读诊断'};
+}
+async function ccSetRemote(mode){
+ if(mode==='off'){ await saveSetting({remoteEnabled:false}); paintCC(); return; }
+ if(!(SETTINGS&&SETTINGS.remoteEnabled)) await saveSetting({remoteEnabled:true});
+ const pr=await api('/api/remote/pairing').catch(()=>({operators:[]}));
+ for(const o of pr.operators||[]){
+  if(o.tier!==mode) await api('/api/remote/pairing',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'tier',id:o.id,tier:mode})}).catch(()=>{});
+ }
+ ccRemoteOpen=false; paintCC();
+}
+async function ccSetWallpaper(key){
+ if(customWall){ await api('/api/wallpaper',{method:'DELETE'}).catch(()=>{}); customWall=false; }
+ await saveSetting({wallpaper:key}); applyWallpaper();
+}
+async function ccNextWallpaper(){
+ const keys=Object.keys(WALLPAPERS);
+ const idx=customWall?-1:keys.indexOf(wallKey());
+ await ccSetWallpaper(keys[(idx+1)%keys.length]);
+}
+
+/* ----- notification center ----- */
+function fmtNTime(ms){
+ const d=new Date(ms), now=new Date();
+ const hm=d.toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',hour12:false});
+ return (d.toDateString()===now.toDateString())?hm:(d.getMonth()+1)+'/'+d.getDate()+' '+hm;
+}
+async function paintNC(){
+ const scroll=document.getElementById('nc-scroll');
+ if(!scroll.innerHTML) scroll.innerHTML='<div class="nc-empty">读取中…</div>';
+ const [data,nodeR,coreR]=await Promise.all([
+  api('/api/notify').catch(()=>({status:[],events:[],widgets:{}})),
+  api('/api/node').catch(()=>({nodes:[]})),
+  api('/api/core',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'status'})}).catch(()=>({}))
+ ]);
+ const now=new Date();
+ let h=`<div id="nc-date">${now.toLocaleDateString('zh-CN',{weekday:'long',month:'long',day:'numeric'})}</div>`;
+ const status=data.status||[], events=data.events||[];
+ if(ncEditMode){
+  h+='<div class="nc-sec">编辑小部件</div>'+ncWidgetsEditHTML();
+ } else {
+  if(!status.length&&!events.length) h+='<div class="nc-empty">没有通知</div>';
+  for(const it of status){
+   h+=`<div class="ncard" data-nroute="${esc(it.route||'')}" style="cursor:pointer"><div class="n-src">${esc(NC_SRCNAMES[it.source]||it.source)}</div><div class="n-title">${esc(it.title)}</div>${it.body?`<div class="n-body">${esc(it.body)}</div>`:''}<div class="n-act"><button data-nact="${esc(it.route||'')}">${esc(it.action||'打开')}</button></div></div>`;
+  }
+  for(const g of ncGroupEvents(events)){
+   const srcName=NC_SRCNAMES[g.source]||g.source;
+   if(g.items.length===1){
+    const e0=g.items[0];
+    h+=`<div class="ncard" data-nev="${e0.id}" data-nroute="${esc(e0.route||'')}"><span class="nx" data-nx="${e0.id}">✕</span><div class="n-src">${esc(srcName)}</div><div class="n-title">${esc(e0.title)}</div>${e0.body?`<div class="n-body">${esc(e0.body)}</div>`:''}<span class="n-time">${fmtNTime(e0.time)}</span></div>`;
+   } else if(ncExpandedSrc.has(g.source)){
+    h+=`<div class="nstack"><button class="n-clear" data-nclear="${g.source}">全部清除</button>${g.items.map(e0=>`<div class="ncard" data-nev="${e0.id}" data-nroute="${esc(e0.route||'')}"><span class="nx" data-nx="${e0.id}">✕</span><div class="n-src">${esc(srcName)}</div><div class="n-title">${esc(e0.title)}</div>${e0.body?`<div class="n-body">${esc(e0.body)}</div>`:''}<span class="n-time">${fmtNTime(e0.time)}</span></div>`).join('')}<div class="nc-showless" data-nless="${g.source}">Show less</div></div>`;
+   } else {
+    const e0=g.items[0];
+    h+=`<div class="nstack"><button class="n-clear" data-nclear="${g.source}">全部清除</button><div class="npeek"></div><div class="ncard" data-nexpand="${g.source}"><div class="n-src">${esc(srcName)}<span class="n-count">${g.items.length}</span></div><div class="n-title">${esc(e0.title)}</div>${e0.body?`<div class="n-body">${esc(e0.body)}</div>`:''}<span class="n-time">${fmtNTime(e0.time)}</span></div></div>`;
+   }
+  }
+  h+='<div class="nc-sec">小部件</div>'+ncWidgetsHTML(data,nodeR,coreR);
+ }
+ scroll.innerHTML=h;
+ const eb=document.getElementById('nc-editbtn'); if(eb) eb.textContent=ncEditMode?'完成':'编辑小部件';
+ scroll.querySelectorAll('[data-nact]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); routeJump(b.dataset.nact); });
+ scroll.querySelectorAll('.ncard[data-nroute]').forEach(c=>{
+  if(c.dataset.nexpand!==undefined&&c.dataset.nexpand!=='') return;
+  c.onclick=()=>{ const id=c.dataset.nev; if(id) ncDismiss(id); routeJump(c.dataset.nroute); };
+ });
+ scroll.querySelectorAll('[data-nexpand]').forEach(c=>c.onclick=()=>{ ncExpandedSrc.add(c.dataset.nexpand); paintNC(); });
+ scroll.querySelectorAll('[data-nless]').forEach(el=>el.onclick=()=>{ ncExpandedSrc.delete(el.dataset.nless); paintNC(); });
+ scroll.querySelectorAll('[data-nx]').forEach(x=>x.onclick=e=>{ e.stopPropagation(); ncDismiss(x.dataset.nx); });
+ scroll.querySelectorAll('[data-nclear]').forEach(b=>b.onclick=async e=>{ e.stopPropagation(); await api('/api/notify/clear-source',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source:b.dataset.nclear})}).catch(()=>{}); ncExpandedSrc.delete(b.dataset.nclear); paintNC(); });
+ scroll.querySelectorAll('[data-wdg]').forEach(el=>el.onclick=()=>{ const r=el.dataset.wdg; if(r) routeJump(r); });
+ scroll.querySelectorAll('[data-wshow]').forEach(el=>el.onchange=()=>ncWidgetEdit(el.dataset.wshow,'show',el.checked));
+ scroll.querySelectorAll('[data-wmove]').forEach(b=>b.onclick=()=>ncWidgetEdit(b.dataset.wmove,'move',+b.dataset.dir));
+}
+async function ncDismiss(id){
+ await api('/api/notify/dismiss',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})}).catch(()=>{});
+ if(ncOpen) paintNC();
+}
+const NC_WNAMES={calendar:'日历',server:'服务器',node:'节点'};
+function ncWidgetsEditHTML(){
+ const layout=ncLayoutWidgets(SETTINGS&&SETTINGS.nc_widgets);
+ return layout.map((w,i)=>`<div class="wdg-edit"><span>${NC_WNAMES[w.id]||w.id}</span><span class="row"><button data-wmove="${w.id}" data-dir="-1" ${i===0?'disabled style="opacity:.35"':''}>↑</button><button data-wmove="${w.id}" data-dir="1" ${i===layout.length-1?'disabled style="opacity:.35"':''}>↓</button><label class="sm-sw"><input type="checkbox" data-wshow="${w.id}" ${w.show?'checked':''}><i></i></label></span></div>`).join('')+'<p class="set-note" style="margin:4px 2px">开关 = 在通知中心显示这个小部件；↑↓ 调整上下顺序。改动即时保存。</p>';
+}
+async function ncWidgetEdit(id,kind,val){
+ const layout=ncLayoutWidgets(SETTINGS&&SETTINGS.nc_widgets);
+ const i=layout.findIndex(w=>w.id===id); if(i<0) return;
+ if(kind==='show') layout[i].show=!!val;
+ else { const j=i+val; if(j<0||j>=layout.length) return; const t=layout[i]; layout[i]=layout[j]; layout[j]=t; }
+ const r=await saveSetting({nc_widgets:JSON.stringify(layout)});
+ if(r&&r.error){ alert('保存失败：'+r.error); return; }
+ paintNC();
+}
+function ncWidgetsHTML(data,nodeR,coreR){
+ const layout=ncLayoutWidgets(SETTINGS&&SETTINGS.nc_widgets).filter(w=>w.show);
+ if(!layout.length) return '<div class="nc-empty">小部件都隐藏了，点下方「编辑小部件」恢复</div>';
+ return layout.map(w=>{
+  if(w.id==='calendar'){
+   const now=new Date(), y=now.getFullYear(), m=now.getMonth(), today=now.getDate();
+   const first=new Date(y,m,1).getDay(), days=new Date(y,m+1,0).getDate();
+   let cells=['日','一','二','三','四','五','六'].map(d=>`<span class="cal-h">${d}</span>`).join('');
+   for(let i=0;i<first;i++) cells+='<span class="cal-d dim"></span>';
+   for(let d=1;d<=days;d++) cells+=`<span class="cal-d${d===today?' today':''}">${d}</span>`;
+   return `<div class="wdg" style="cursor:default"><div class="w-name">日历 · ${y}年${m+1}月</div><div class="cal-grid">${cells}</div></div>`;
+  }
+  if(w.id==='server'){
+   const sv=(data.widgets&&data.widgets.server)||{};
+   if(!sv.name) return `<div class="wdg" data-wdg="servermon"><div class="w-name">服务器</div><div class="w-sub">还没有配置服务器</div></div>`;
+   const bars=sv.hasSnap?`<div class="w-sub">CPU ${Math.round(sv.cpuPct||0)}%</div><div class="w-bar"><i style="width:${Math.min(100,Math.max(0,sv.cpuPct||0))}%"></i></div><div class="w-sub">内存 ${Math.round(sv.memPct||0)}%</div><div class="w-bar"><i style="width:${Math.min(100,Math.max(0,sv.memPct||0))}%"></i></div>`:'<div class="w-sub">暂无采样数据</div>';
+   return `<div class="wdg" data-wdg="servermon"><div class="w-name">服务器</div><div class="w-big">${esc(sv.name)} <span style="font-size:12px;font-weight:400;opacity:.8">${sv.online?'● 在线':'○ 离线'}</span></div>${bars}</div>`;
+  }
+  const nodes=(nodeR&&nodeR.nodes)||[], cur=nodes.length?nodes[0]:null, running=!!(coreR&&coreR.running);
+  return `<div class="wdg" data-wdg="core"><div class="w-name">节点</div><div class="w-big">${cur?esc(cur.name):'还没有节点'}</div><div class="w-sub">${running?'已连接':'未连接'}${cur?(' · '+esc(cur.type)+' '+esc(cur.server)+':'+cur.port):''}</div></div>`;
+ }).join('');
+}
+document.getElementById('nc-editbtn').onclick=()=>{ ncEditMode=!ncEditMode; paintNC(); };
+setInterval(()=>{ if(ncOpen) paintNC(); if(ccOpen&&!ccSliderDrag) paintCC(); },20000);
+
+/* ----- banners (SSE from the daemon's notify module) ----- */
+function dismissBannerEl(el){ if(!el||el.classList.contains('b-out')) return; el.classList.add('b-out'); setTimeout(()=>el.remove(),ANIM_BANNER_MS); }
+function showBanner(ev){
+ const el=document.createElement('div');
+ el.className='banner glasspanel b-in';
+ el.innerHTML=`<span class="nx">✕</span><div class="n-src" style="font-size:11.5px;opacity:.65">${esc(NC_SRCNAMES[ev.source]||ev.source)}</div><div class="n-title" style="font-size:13.5px;font-weight:600;margin-top:1px">${esc(ev.title)}</div>${ev.body?`<div class="n-body" style="font-size:12.5px;opacity:.8;margin-top:2px;line-height:1.45">${esc(ev.body)}</div>`:''}`;
+ bannersEl.appendChild(el);
+ while(bannersEl.children.length>3) bannersEl.firstElementChild.remove();
+ requestAnimationFrame(()=>requestAnimationFrame(()=>el.classList.remove('b-in')));
+ let timer=setTimeout(()=>dismissBannerEl(el),BANNER_HOLD_MS);
+ el.addEventListener('mouseenter',()=>clearTimeout(timer));
+ el.addEventListener('mouseleave',()=>{ timer=setTimeout(()=>dismissBannerEl(el),2500); });
+ el.querySelector('.nx').onclick=e=>{ e.stopPropagation(); ncDismiss(ev.id); dismissBannerEl(el); };
+ el.onclick=()=>{ ncDismiss(ev.id); dismissBannerEl(el); routeJump(ev.route); };
+}
+(function connectNotifyStream(){
+ try{
+  const es=new EventSource('/api/notify/stream');
+  es.onmessage=e=>{ try{ const ev=JSON.parse(e.data); if(ncOpen) paintNC(); else showBanner(ev); }catch(_){} };
+ }catch(e){}
+})();
+
 openApp('home');
 (async()=>{ await Promise.all([loadLayout(),loadWebApps(),loadStoreApps(),loadBoxApps(),loadDeskFiles(),settingsReady]); renderDesk(); restoreSession(); })();
 </script>

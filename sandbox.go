@@ -2689,6 +2689,10 @@ func runBoxInstall(url, sha256hex, file string) {
 		logf("sandbox", "info", "隔离安装待登记：%s 已装入盒子（%d 个候选）。请到 应用商店 → 隔离安装 选主程序完成登记——这一步已经存盘，关掉页面或重启终端都不会丢。",
 			installerName, len(ranked))
 	}
+	// v0.47 hook (notify): the install finished and waits at the
+	// registration picker (both fresh and already-in-box paths).
+	postNotify(notifySrcSandbox, "install-done:"+installerName, "隔离安装完成",
+		installerName+" 已装入盒子，等你确认主程序完成登记", "appstore")
 }
 
 // registerBoxApp finalizes a boxed install into the registry.

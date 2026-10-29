@@ -383,6 +383,9 @@ func remoteStateMap() map[string]any {
 		"operators":      nOps,
 		"pending":        nPend,
 		"recentActivity": last > 0 && time.Now().Unix()-last <= 60,
+		// v0.47: read-only session flag for the menu bar privacy
+		// indicator (orange dot while an operator session is live).
+		"sessionActive": remoteSessionActive(),
 	}
 }
 
@@ -658,6 +661,10 @@ func remoteMuxHandler() http.Handler {
 		}
 		rmt.Unlock()
 		logf("remote", "info", "远程请求放行：%s %s（操作者 %s · %s 档）", r.Method, r.URL.Path, op.Name, op.Tier)
+		// v0.47 hook (notify): observe session start/end for the
+		// notification events and the privacy dot. Observation
+		// only -- nothing about the request changes.
+		notifyRemoteActivity(op.Name)
 		ctx := context.WithValue(r.Context(), remoteOpCtxKey{}, op)
 		route.H(w, r.WithContext(ctx))
 	})
