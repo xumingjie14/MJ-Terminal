@@ -86,6 +86,15 @@ type mjSettings struct {
 	//                       fullscreen on its own monitor.
 	ImmersiveMode     bool `json:"immersiveMode"`
 	DesktopFullscreen bool `json:"desktopFullscreen"`
+	// v0.46 Dock basics （复刻线第一件）, read live by the desktop
+	// view on every settings fetch -- the daemon itself never moves
+	// the Dock, it only stores the preference:
+	//   DockPosition -- "bottom" (default) / "left" / "right".
+	//   DockAutoHide -- slide the Dock out until the pointer
+	//                   touches its edge. Default OFF (findability
+	//                   first, same philosophy as immersion).
+	DockPosition string `json:"dockPosition"`
+	DockAutoHide bool   `json:"dockAutoHide"`
 }
 
 func defaultSettings() mjSettings {
@@ -105,8 +114,12 @@ func defaultSettings() mjSettings {
 		WinCloseToTray:        true,
 		ImmersiveMode:         false,
 		DesktopFullscreen:     false,
+		DockPosition:          "bottom",
+		DockAutoHide:          false,
 	}
 }
+
+var dockPositions = map[string]bool{"bottom": true, "left": true, "right": true}
 
 var wallpaperKeys = map[string]bool{
 	"tahoe": true, "sonoma": true, "sequoia": true,
@@ -164,6 +177,9 @@ func sanitizeSettings(s mjSettings) mjSettings {
 	if !(s.ChromeCacheMB == 0 || (s.ChromeCacheMB >= 50 && s.ChromeCacheMB <= 2000)) {
 		s.ChromeCacheMB = d.ChromeCacheMB
 	}
+	if !dockPositions[s.DockPosition] {
+		s.DockPosition = d.DockPosition
+	}
 	return s
 }
 
@@ -218,6 +234,8 @@ func settingsMap() map[string]any {
 		"winCloseToTray":        s.WinCloseToTray,
 		"immersiveMode":         s.ImmersiveMode,
 		"desktopFullscreen":     s.DesktopFullscreen,
+		"dockPosition":          s.DockPosition,
+		"dockAutoHide":          s.DockAutoHide,
 		"fresh":                 settingsFresh(),
 	}
 }
@@ -393,6 +411,22 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 				} else if v != next.DesktopFullscreen {
 					next.DesktopFullscreen = v
 					changed = append(changed, boolLog("desktopFullscreen", v))
+				}
+			case "dockPosition":
+				var v string
+				if json.Unmarshal(val, &v) != nil || !dockPositions[v] {
+					fail = "dockPosition 须为 bottom / left / right"
+				} else if v != next.DockPosition {
+					next.DockPosition = v
+					changed = append(changed, "dockPosition = "+v)
+				}
+			case "dockAutoHide":
+				var v bool
+				if json.Unmarshal(val, &v) != nil {
+					fail = "dockAutoHide 必须是 true/false"
+				} else if v != next.DockAutoHide {
+					next.DockAutoHide = v
+					changed = append(changed, boolLog("dockAutoHide", v))
 				}
 			case "remoteEnabled":
 				var v bool

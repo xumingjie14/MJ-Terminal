@@ -244,17 +244,49 @@ table.gridtab td,table.gridtab th{white-space:nowrap;max-width:280px;overflow:hi
 .stbar{height:6px;border-radius:99px;background:rgba(255,255,255,.14);overflow:hidden}
 .stbar i{display:block;height:100%;background:var(--accent);border-radius:99px;transition:width .3s}
 /* ---------- dock ---------- */
-#dockwrap{position:fixed;left:0;right:0;bottom:10px;display:flex;justify-content:center;z-index:900;pointer-events:none}
+#dockwrap{position:fixed;left:0;right:0;bottom:10px;display:flex;justify-content:center;z-index:900;pointer-events:none;transition:transform .3s cubic-bezier(.22,1,.36,1)}
+/* v0.46: Dock position (bottom default / left / right) + auto-hide.
+   Side docks span the full edge height and centre the Dock on it;
+   magnification grows the icons toward the screen interior, the
+   running dot sits on the outboard side, labels pop inboard. */
+#dockwrap.pos-left{left:10px;right:auto;top:0;bottom:0;justify-content:flex-start;align-items:center}
+#dockwrap.pos-right{left:auto;right:10px;top:0;bottom:0;justify-content:flex-start;align-items:center}
+#dockwrap.pos-left #dock{flex-direction:column;align-items:flex-start}
+#dockwrap.pos-right #dock{flex-direction:column;align-items:flex-end}
+#dockwrap.pos-left .ditem,#dockwrap.pos-right .ditem{flex-direction:row;align-items:center}
+#dockwrap.pos-left .ddot{order:-1}
+#dockwrap.pos-left .dlabel{left:calc(100% + 14px);right:auto;bottom:auto;top:50%;transform:translateY(-50%)}
+#dockwrap.pos-right .dlabel{left:auto;right:calc(100% + 14px);bottom:auto;top:50%;transform:translateY(-50%)}
+/* auto-hide: slide the whole wrap off its edge, leaving a 3px
+   trigger sliver (the wrap sits 10px off the edge; 100% + 7px of
+   travel leaves exactly 3px showing). A hidden Dock takes no
+   pointer events -- the reveal trigger is the document-level
+   pointer tracker in the v0.46 dock behaviour block. */
+#dockwrap.pos-bottom.dock-hidden{transform:translateY(calc(100% + 7px))}
+#dockwrap.pos-left.dock-hidden{transform:translateX(calc(-100% - 7px))}
+#dockwrap.pos-right.dock-hidden{transform:translateX(calc(100% + 7px))}
+#dockwrap.dock-hidden #dock{pointer-events:none}
+/* magnification release: sizes are written per frame while the
+   pointer moves (no transition); the .settle class restores a
+   short transition only for the snap-back on pointer leave. */
+#dock.settle .dockbtn .appico{transition:width .18s ease-out,height .18s ease-out}
+/* settings segmented control (Dock position picker) */
+.seg{display:inline-flex;background:rgba(255,255,255,.1);border-radius:8px;padding:2px;gap:2px}
+.seg button{border:0;background:transparent;color:#e8e8ed;font:inherit;font-size:12.5px;padding:4px 12px;border-radius:6px;cursor:pointer}
+.seg button.on{background:#0a84ff;color:#fff}
 #dock{pointer-events:auto;display:flex;align-items:flex-end;gap:7px;padding:8px 10px;background:rgba(30,30,38,.42);backdrop-filter:blur(24px) saturate(180%);-webkit-backdrop-filter:blur(24px) saturate(180%);border:1px solid rgba(255,255,255,.24);border-radius:26px;box-shadow:0 18px 44px rgba(0,0,0,.4),inset 0 1px 0 rgba(255,255,255,.22)}
 .ditem{display:flex;flex-direction:column;align-items:center;gap:3px;position:relative}
 .dockbtn{border:0;background:transparent;cursor:pointer;padding:0;transition:transform .12s ease-out;transform-origin:bottom center}
-.dockbtn .appico{width:52px;height:52px;border-radius:12px;transition:width .12s,height .12s}
+.dockbtn .appico{width:52px;height:52px;border-radius:12px}
 .dlabel{position:absolute;bottom:calc(100% + 14px);left:50%;transform:translateX(-50%);background:rgba(40,40,46,.75);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.2);color:#fff;font-size:12px;padding:3px 10px;border-radius:7px;white-space:nowrap;opacity:0;pointer-events:none;transition:opacity .12s}
 .ditem:hover .dlabel{opacity:1}
 .ddot{width:4px;height:4px;border-radius:50%;background:rgba(255,255,255,.85);opacity:0}
 .ddot.on{opacity:1}
 /* ---------- external app windows in the stage strip (v0.18 窗口统一·乙) ---------- */
 #extstrip{position:fixed;left:10px;bottom:104px;z-index:25;width:148px;display:flex;flex-direction:column;gap:8px}
+/* v0.46 interim coexistence: with the Dock on the left edge the
+   Stage Manager strip mirrors to the right edge (position only). */
+#extstrip.mirror{left:auto;right:10px}
 #extstrip.hidden{display:none}
 #extstrip .extlab{font-size:11px;color:rgba(255,255,255,.88);text-shadow:0 1px 4px rgba(0,0,0,.85);padding:0 2px}
 .extcard{display:flex;align-items:center;gap:8px;width:100%;padding:9px 10px;border-radius:13px;background:var(--glass);border:1px solid var(--glass-brd);backdrop-filter:blur(24px) saturate(170%);-webkit-backdrop-filter:blur(24px) saturate(170%);box-shadow:0 10px 26px rgba(0,0,0,.42);cursor:pointer;color:#fff;text-align:left;font:inherit;opacity:.8;transition:opacity .25s,border-color .25s,box-shadow .25s}
@@ -303,7 +335,7 @@ table.gridtab td,table.gridtab th{white-space:nowrap;max-width:280px;overflow:hi
 <div id="toast" class="hidden"></div>
 <input type="file" id="deskimp" multiple style="display:none">
 
-<div id="dockwrap"><div id="dock"></div></div>
+<div id="dockwrap" class="pos-bottom"><div id="dock"></div></div>
 
 <script>
 const APPS=[
@@ -352,8 +384,12 @@ async function api(p,opt){const r=await fetch(p,opt);let t=await r.text();try{re
    reports "fresh" (no settings file yet), the old local values are
    migrated up once and the local copies dropped. */
 let SETTINGS=null;
-const SETDEF={wallpaper:'tahoe',stageManager:false,idleExitMinutes:30,phoneMode:true,phoneTriggerWidth:1200,phoneWidth:400,chromeCacheMB:200,stageAutoClaimBrowser:true,filesOnDesktop:true,remoteEnabled:false,winPlaceOnClaim:true,winHideOnMinimize:true,winCloseToTray:true,immersiveMode:false,desktopFullscreen:false};
+const SETDEF={wallpaper:'tahoe',stageManager:false,idleExitMinutes:30,phoneMode:true,phoneTriggerWidth:1200,phoneWidth:400,chromeCacheMB:200,stageAutoClaimBrowser:true,filesOnDesktop:true,remoteEnabled:false,winPlaceOnClaim:true,winHideOnMinimize:true,winCloseToTray:true,immersiveMode:false,desktopFullscreen:false,dockPosition:'bottom',dockAutoHide:false};
 function wallKey(){ if(SETTINGS) return SETTINGS.wallpaper||'tahoe'; return localStorage.getItem('mj-wall')||'tahoe' }
+/* v0.46 Dock basics: position + auto-hide are view-side behaviours
+   over daemon settings (same pattern as the wallpaper). */
+function dockPos(){ const p=SETTINGS&&SETTINGS.dockPosition; return (p==='left'||p==='right')?p:'bottom' }
+function dockAutoHideOn(){ return !!(SETTINGS&&SETTINGS.dockAutoHide) }
 function saveSetting(patch){
  if(SETTINGS) Object.assign(SETTINGS,patch);
  return api('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(patch)})
@@ -481,7 +517,12 @@ function applyStage(w,idx){
   w.dataset.sg=JSON.stringify({l:w.style.left,t:w.style.top,wd:w.style.width});
   w.classList.add('staged');
  }
- w.style.left='10px';
+ /* v0.46: position mirror only -- with the Dock on the left edge
+    the strip stacks along the right edge instead (same order,
+    same scale, same behaviour); applyDockLayout re-runs
+    layoutStrip() after a position flip so staged windows move. */
+ if(dockPos()==='left'){ w.style.left='auto'; w.style.right='10px'; w.style.transformOrigin='top right'; }
+ else { w.style.right=''; w.style.left='10px'; w.style.transformOrigin=''; }
  w.style.top=(64+idx*116)+'px';
  w.style.zIndex=20+idx;
  const gw=w.offsetWidth||700;
@@ -491,6 +532,7 @@ function restoreStage(w){
  if(!w.classList.contains('staged')) return;
  w.classList.remove('staged');
  w.style.transform='';
+ w.style.right=''; w.style.transformOrigin=''; /* v0.46: drop the strip mirror */
  try{const g=JSON.parse(w.dataset.sg||'{}'); if(g.l)w.style.left=g.l; if(g.t)w.style.top=g.t; if(g.wd)w.style.width=g.wd;}catch(e){}
 }
 function layoutStrip(){
@@ -1587,16 +1629,162 @@ async function openWebApp(url){
  api('/api/open',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});
 }
 
-/* dock magnification, like macOS */
+/* ----- dock behaviour (v0.46「Dock 基础行为包」) -----
+   Three pieces over the daemon settings dockPosition /
+   dockAutoHide: Dock position (bottom default / left / right),
+   auto-hide, and the calibrated magnification. The timing and
+   geometry constants are named here, in one place -- the future
+   unified-animation pass adopts them from this block. */
+const dockWrapEl=document.getElementById('dockwrap');
+const DOCK_BASE=52;           // icon edge at rest (px) -- the size the CSS ships
+const DOCK_PEAK=1.85;         // magnification at the pointer's icon (macOS magnitude, under 2x)
+const DOCK_RADIUS_PITCHES=3;  // falloff radius, in icon pitches (base + flex gap)
+const DOCK_GAP=7;             // #dock flex gap (px), the other half of the pitch
+const DOCK_EDGE_DWELL_MS=300; // pointer resting on the edge before the Dock slides in
+const DOCK_HIDE_GRACE_MS=400; // pointer away before the Dock slides out
+const DOCK_SLAM_MS=90;        // edge arrival within this window from >40px out = a deliberate slam: reveal at once
+const DOCK_SETTLE_MS=180;     // magnification snap-back on pointer leave (#dock.settle in CSS matches)
+
+/* === dockmag pure (node-testable) === */
+/* Raised-cosine magnification, the macOS model: the icon under the
+   pointer reaches the peak ratio, neighbours fall off on a cosine
+   curve (flat at the peak and at the rim, so the motion has no
+   kinks), and anything at or beyond the radius stays at 1. dist
+   and radius in px; the sign of dist is ignored (symmetric). */
+function dockMagScale(dist,radius,peak){
+ const d=Math.abs(dist);
+ if(!(radius>0)||d>=radius) return 1;
+ return 1+(peak-1)*0.5*(1+Math.cos(Math.PI*d/radius));
+}
+function dockMagSizes(centers,pointer,base,radius,peak){
+ return centers.map(c=>base*dockMagScale(c-pointer,radius,peak));
+}
+/* === end dockmag pure === */
+
+let dockRAF=0, dockPointer=null;
+function dockIcons(){ return [...dockEl.querySelectorAll('.dockbtn .appico')] }
+function dockMagApply(){
+ dockRAF=0;
+ if(!dockPointer) return;
+ const icons=dockIcons(); if(!icons.length) return;
+ const vertical=dockPos()!=='bottom';
+ /* measure-then-write: snapshot every centre from the current
+    layout first, then write all sizes in one pass. The pre-v0.46
+    code re-measured each icon after its predecessors had already
+    been resized and let a CSS transition chase each write --
+    that read as lag and jitter. Sizes are now written per frame
+    with no transition at all. */
+ const centers=icons.map(ic=>{ const r=ic.getBoundingClientRect(); return vertical? r.top+r.height/2 : r.left+r.width/2; });
+ const sizes=dockMagSizes(centers,vertical?dockPointer.y:dockPointer.x,DOCK_BASE,DOCK_RADIUS_PITCHES*(DOCK_BASE+DOCK_GAP),DOCK_PEAK);
+ icons.forEach((ic,i)=>{ ic.style.width=sizes[i]+'px'; ic.style.height=sizes[i]+'px'; });
+}
+function dockMagReset(){
+ if(dockRAF){ cancelAnimationFrame(dockRAF); dockRAF=0; }
+ dockEl.classList.add('settle');
+ dockIcons().forEach(ic=>{ ic.style.width=DOCK_BASE+'px'; ic.style.height=DOCK_BASE+'px'; });
+ setTimeout(()=>dockEl.classList.remove('settle'),DOCK_SETTLE_MS+40);
+}
 dockEl.addEventListener('pointermove',e=>{
- dockEl.querySelectorAll('.dockbtn .appico').forEach(ic=>{
-   const r=ic.getBoundingClientRect(),cx=r.left+r.width/2;
-   const dist=Math.min(Math.abs(e.clientX-cx),130);
-   const s=52+(1-dist/130)*24;
-   ic.style.width=s+'px';ic.style.height=s+'px';
- });
+ dockPointer={x:e.clientX,y:e.clientY};
+ if(!dockRAF) dockRAF=requestAnimationFrame(dockMagApply);
 });
-dockEl.addEventListener('pointerleave',()=>{dockEl.querySelectorAll('.dockbtn .appico').forEach(ic=>{ic.style.width='52px';ic.style.height='52px'})});
+dockEl.addEventListener('pointerleave',()=>{ dockPointer=null; dockMagReset(); });
+
+/* ----- dock auto-hide (v0.46) -----
+   All timers are one-shot and event-driven: nothing runs while
+   the view itself is hidden (pointermove stops, and the
+   visibilitychange hook below drops any pending timer). */
+let dockHidden=false, dockShowT=0, dockHideT=0, dockLastX=-9999, dockLastY=-9999, dockPrevEdge={t:0,d:1e9};
+function dockSetHidden(h){
+ if(h===dockHidden) return;
+ dockHidden=h;
+ dockWrapEl.classList.toggle('dock-hidden',h);
+ if(h) dockMagReset();
+ else { clearTimeout(dockHideT); dockHideT=0; }
+}
+/* Keep-visible holds: a desktop icon drag in flight (dragState is
+   the desktop drag engine's global), an HTML5 drag over the view
+   (handled in the dragover listener below) -- and, reserved for
+   the Dock context menu in the NEXT replication item,
+   window.__dockMenuOpen. The menu itself is not part of this
+   item; only the hook is. */
+function dockHoldActive(){
+ if(window.__dockMenuOpen) return true;
+ if(typeof dragState!=='undefined'&&dragState&&dragState.active) return true;
+ return false;
+}
+function dockEdgeDist(x,y){
+ const p=dockPos();
+ if(p==='bottom') return innerHeight-1-y;
+ if(p==='left') return x;
+ return innerWidth-1-x;
+}
+function dockNearDock(x,y){
+ const r=dockEl.getBoundingClientRect(),m=14;
+ return x>=r.left-m&&x<=r.right+m&&y>=r.top-m&&y<=r.bottom+m;
+}
+function dockArmHide(){
+ if(dockHideT||dockHidden) return;
+ dockHideT=setTimeout(()=>{
+  dockHideT=0;
+  const d=dockEdgeDist(dockLastX,dockLastY);
+  if(!dockHoldActive()&&!dockNearDock(dockLastX,dockLastY)&&!(d>=0&&d<=2)) dockSetHidden(true);
+ },DOCK_HIDE_GRACE_MS);
+}
+function dockAutoHideArm(){
+ clearTimeout(dockShowT); dockShowT=0;
+ clearTimeout(dockHideT); dockHideT=0;
+ if(!dockAutoHideOn()){ dockSetHidden(false); return; }
+ if(!dockNearDock(dockLastX,dockLastY)) dockArmHide();
+}
+document.addEventListener('pointermove',e=>{
+ dockLastX=e.clientX; dockLastY=e.clientY;
+ if(!dockAutoHideOn()||document.hidden) return;
+ const now=performance.now(), d=dockEdgeDist(e.clientX,e.clientY);
+ if(dockHidden){
+  if(d<=2){
+   const slam=(now-dockPrevEdge.t)<=DOCK_SLAM_MS&&dockPrevEdge.d>40;
+   if(slam){ clearTimeout(dockShowT); dockShowT=0; dockSetHidden(false); }
+   else if(!dockShowT){ dockShowT=setTimeout(()=>{ dockShowT=0; if(dockEdgeDist(dockLastX,dockLastY)<=4) dockSetHidden(false); },DOCK_EDGE_DWELL_MS); }
+  } else if(d>8){ clearTimeout(dockShowT); dockShowT=0; }
+ } else {
+  if(dockNearDock(e.clientX,e.clientY)||d<=2||dockHoldActive()){ clearTimeout(dockHideT); dockHideT=0; }
+  else dockArmHide();
+ }
+ dockPrevEdge={t:now,d};
+});
+/* HTML5 drags (a file dragged in from the host) do not produce a
+   reliable pointermove stream; reveal near the Dock's edge while
+   one is in flight and re-arm when it ends. Desktop icon drags
+   are pointer-based and hold via dockHoldActive instead. */
+document.addEventListener('dragover',e=>{
+ dockLastX=e.clientX; dockLastY=e.clientY;
+ if(!dockAutoHideOn()) return;
+ clearTimeout(dockHideT); dockHideT=0;
+ if(dockHidden&&dockEdgeDist(e.clientX,e.clientY)<=48) dockSetHidden(false);
+});
+document.addEventListener('drop',()=>dockAutoHideArm());
+document.addEventListener('dragend',()=>dockAutoHideArm());
+document.addEventListener('visibilitychange',()=>{
+ if(document.hidden){ clearTimeout(dockShowT); dockShowT=0; clearTimeout(dockHideT); dockHideT=0; }
+});
+
+/* ----- dock layout application (v0.46) ----- */
+function applyDockLayout(){
+ const p=dockPos();
+ dockWrapEl.classList.toggle('pos-bottom',p==='bottom');
+ dockWrapEl.classList.toggle('pos-left',p==='left');
+ dockWrapEl.classList.toggle('pos-right',p==='right');
+ dockMagReset();
+ /* interim coexistence: while the Dock owns the left edge, the
+    Stage Manager strip mirrors to the right edge (position only
+    -- see applyStage and #extstrip.mirror). */
+ const strip=document.getElementById('extstrip');
+ if(strip) strip.classList.toggle('mirror',p==='left');
+ if(stageOn()) layoutStrip();
+ dockAutoHideArm();
+}
+settingsReady.then(()=>applyDockLayout());
 
 /* ----- app contents (same real functions as before) ----- */
 function render(id){
@@ -1676,7 +1864,7 @@ function bind(id){
   const fmtB=n=>{ n=+n||0; if(n>=1073741824) return (n/1073741824).toFixed(2)+' GB'; if(n>=1048576) return (n/1048576).toFixed(1)+' MB'; if(n>=1024) return (n/1024).toFixed(1)+' KB'; return n+' B' };
   const PAGES=[
    {id:'appearance',n:'外观',g:'linear-gradient(180deg,#64d2ff,#bf5af2)',glyph:'🖼',kw:'壁纸 背景 个性化 wallpaper'},
-   {id:'desktop',n:'桌面与 Dock',g:'linear-gradient(180deg,#2dd4bf,#0e7490)',glyph:'▦',kw:'台前调度 手机宽 落位 dock 窗口 导入 文件 桌面图标 沉浸 全屏 任务栏'},
+   {id:'desktop',n:'桌面与 Dock',g:'linear-gradient(180deg,#2dd4bf,#0e7490)',glyph:'▦',kw:'台前调度 手机宽 落位 dock 位置 左侧 右侧 自动隐藏 窗口 导入 文件 桌面图标 沉浸 全屏 任务栏'},
    {id:'network',n:'节点与网络',g:'linear-gradient(180deg,#bf5af2,#7d2ae8)',glyph:'🚀',kw:'节点 加速 代理 下载 网络'},
    {id:'browser',n:'浏览器',g:'linear-gradient(180deg,#5ec2ff,#0a62d6)',glyph:'◎',kw:'chrome firefox 缓存 同步 谷歌 浏览器'},
    {id:'components',n:'组件',g:'linear-gradient(180deg,#ffb340,#ff7139)',glyph:'🧩',kw:'firefox 小龙虾 openclaw 组件'},
@@ -1705,13 +1893,17 @@ function bind(id){
   };
   const paintDesktop=()=>{
    const s=SETTINGS||SETDEF;
-   G('set-main').innerHTML=`<div class="set-page"><div class="set-sec">台前调度</div><div class="set-desc">开启后，桌面只显示当前应用，其他打开的应用缩到左侧成一排实时缩略图，点缩略图就切换过来。菜单栏右侧的 ▦ 也可以随开随关。</div><div class="sm-card"><div class="sm-row"><span>台前调度</span><label class="sm-sw"><input type="checkbox" id="ds-stage" ${stageOn()?'checked':''}><i></i></label></div><div class="sm-row"><span>浏览器新窗口自动纳入台前调度</span><label class="sm-sw"><input type="checkbox" id="ds-autoclaim" ${s.stageAutoClaimBrowser!==false?'checked':''}><i></i></label></div></div><p class="set-note">自动纳入：隔离 Chrome / Firefox 自己新开的窗口（网页弹窗、新窗口、拖出的标签、独立的开发者工具）会自动登记进台前调度，方便切换；登记后是否摆位由下方「开窗礼仪」里的开关决定。已经登记的窗口不受这个开关影响。</p><div class="set-sec">小窗手机宽</div><div class="set-desc">桌面窗口没最大化、或窄于触发宽度时，新打开的网站应用按手机宽度落位，网站多会显示手机版页面。只管打开时摆好，之后随你拖动。</div><div class="sm-card"><div class="sm-row"><span>手机宽模式</span><label class="sm-sw"><input type="checkbox" id="ds-pm" ${s.phoneMode?'checked':''}><i></i></label></div><div class="sm-row"><span>触发宽度（桌面窄于此值，px）</span><input class="set-num" id="ds-ptw" type="number" min="600" max="4000" step="50" value="${s.phoneTriggerWidth}"></div><div class="sm-row"><span>手机宽度（落位宽度，px）</span><input class="set-num" id="ds-pw" type="number" min="280" max="800" step="10" value="${s.phoneWidth}"></div></div><div class="set-sec">开窗礼仪</div><div class="set-desc">从终端机打开、或被台前调度认领的窗口，第一次出现时自动摆进桌面区域（约 62% × 85%，菜单栏和 Dock 不会被盖住），你正在终端里操作时桌面还会垫在新窗口后面，就像在自己的系统里开应用；摆好之后完全归你，拖动、最大化都不再被拉回。你在宿主的其他软件里忙时，新窗口只登记、不抢屏。</div><div class="sm-card"><div class="sm-row"><span>新窗口自动落位（桌面垫背）</span><label class="sm-sw"><input type="checkbox" id="ds-place" ${s.winPlaceOnClaim!==false?'checked':''}><i></i></label></div><div class="sm-row"><span>最小化时联动隐藏</span><label class="sm-sw"><input type="checkbox" id="ds-hidemin" ${s.winHideOnMinimize!==false?'checked':''}><i></i></label></div><div class="sm-row"><span>关闭桌面时隐藏到托盘</span><label class="sm-sw"><input type="checkbox" id="ds-tray" ${s.winCloseToTray!==false?'checked':''}><i></i></label></div></div><p class="set-note">联动隐藏：最小化桌面时已登记的窗口整套跟着藏起，桌面自己留在宿主任务栏里找得到，恢复桌面时整套按原样回来（你自己单独最小化的窗口不会被动）。关闭桌面则藏得更彻底：任务栏不留按钮，宿主右下角系统托盘会出现终端机图标，点它（或照旧双击程序）整套恢复。无论哪种藏法，退出系统前所有被藏的窗口都会先恢复显示。</p><div class="set-sec">沉浸模式</div><div class="set-desc">开启后，终端机打开的一切只留在终端机里：已经登记进台前调度的窗口（包括桌面自己）会从宿主任务栏和 Alt-Tab 里消失，切换入口只剩台前调度与 Dock；宿主右下角的托盘图标是回宿主的锚，点它整套回来。没有被台前调度认领的窗口永远不会被隐藏，一直留在宿主任务栏上找得到。</div><div class="sm-card"><div class="sm-row"><span>沉浸模式</span><label class="sm-sw"><input type="checkbox" id="ds-immersive" ${s.immersiveMode?'checked':''}><i></i></label></div><div class="sm-row"><span>桌面全屏</span><label class="sm-sw"><input type="checkbox" id="ds-fullscreen" ${s.desktopFullscreen?'checked':''}><i></i></label></div></div><p class="set-note">桌面全屏：桌面视图以无边框全屏占据它所在的显示器，关掉这个开关就恢复原来的窗口大小与位置；两个开关都即时生效，不用重启。一句实话：万一终端机异常退出（被强杀或崩溃），个别已沉浸的窗口可能暂时留在隐藏状态——把那个窗口关掉即自愈，重新打开终端机时启动清扫也会把它们还原回任务栏。</p><div class="set-sec">导入的文件</div><div class="set-desc">从电脑导入到终端桌面的文件存在 Data/files 里，和应用图标混排在桌面上。关掉只是不在桌面上显示这些图标，文件本身、导入通道（拖入 / 桌面菜单导入 / 粘贴）都不受影响。</div><div class="sm-card"><div class="sm-row"><span>在桌面显示导入的文件</span><label class="sm-sw"><input type="checkbox" id="ds-files" ${s.filesOnDesktop!==false?'checked':''}><i></i></label></div></div></div>`;
+   G('set-main').innerHTML=`<div class="set-page"><div class="set-sec">台前调度</div><div class="set-desc">开启后，桌面只显示当前应用，其他打开的应用缩到左侧成一排实时缩略图，点缩略图就切换过来。菜单栏右侧的 ▦ 也可以随开随关。</div><div class="sm-card"><div class="sm-row"><span>台前调度</span><label class="sm-sw"><input type="checkbox" id="ds-stage" ${stageOn()?'checked':''}><i></i></label></div><div class="sm-row"><span>浏览器新窗口自动纳入台前调度</span><label class="sm-sw"><input type="checkbox" id="ds-autoclaim" ${s.stageAutoClaimBrowser!==false?'checked':''}><i></i></label></div></div><p class="set-note">自动纳入：隔离 Chrome / Firefox 自己新开的窗口（网页弹窗、新窗口、拖出的标签、独立的开发者工具）会自动登记进台前调度，方便切换；登记后是否摆位由下方「开窗礼仪」里的开关决定。已经登记的窗口不受这个开关影响。</p><div class="set-sec">Dock</div><div class="set-desc">终端机自己的 Dock，和 macOS 一样可以换边、可以自动隐藏；图标放大跟随指针连续缩放。改动即时生效，不用重启。</div><div class="sm-card"><div class="sm-row"><span>位置</span><span class="seg" id="ds-dockpos"><button data-p="bottom">底部</button><button data-p="left">左侧</button><button data-p="right">右侧</button></span></div><div class="sm-row"><span>自动隐藏 Dock</span><label class="sm-sw"><input type="checkbox" id="ds-dockhide" ${s.dockAutoHide?'checked':''}><i></i></label></div></div><p class="set-note">自动隐藏后，Dock 沿它所在的那条边滑出，只留一条 3px 的边：指针贴到那条边停约 0.3 秒（或快速甩到边沿）它就滑进来，移开约 0.4 秒又滑回去。台前调度开着时把 Dock 放到左侧，会和台前调度条带抢左缘——条带（系统内缩略图和外部应用卡片）会临时镜像到右缘，Dock 改回来它也跟着回来，只是位置镜像，行为不变。</p><div class="set-sec">小窗手机宽</div><div class="set-desc">桌面窗口没最大化、或窄于触发宽度时，新打开的网站应用按手机宽度落位，网站多会显示手机版页面。只管打开时摆好，之后随你拖动。</div><div class="sm-card"><div class="sm-row"><span>手机宽模式</span><label class="sm-sw"><input type="checkbox" id="ds-pm" ${s.phoneMode?'checked':''}><i></i></label></div><div class="sm-row"><span>触发宽度（桌面窄于此值，px）</span><input class="set-num" id="ds-ptw" type="number" min="600" max="4000" step="50" value="${s.phoneTriggerWidth}"></div><div class="sm-row"><span>手机宽度（落位宽度，px）</span><input class="set-num" id="ds-pw" type="number" min="280" max="800" step="10" value="${s.phoneWidth}"></div></div><div class="set-sec">开窗礼仪</div><div class="set-desc">从终端机打开、或被台前调度认领的窗口，第一次出现时自动摆进桌面区域（约 62% × 85%，菜单栏和 Dock 不会被盖住），你正在终端里操作时桌面还会垫在新窗口后面，就像在自己的系统里开应用；摆好之后完全归你，拖动、最大化都不再被拉回。你在宿主的其他软件里忙时，新窗口只登记、不抢屏。</div><div class="sm-card"><div class="sm-row"><span>新窗口自动落位（桌面垫背）</span><label class="sm-sw"><input type="checkbox" id="ds-place" ${s.winPlaceOnClaim!==false?'checked':''}><i></i></label></div><div class="sm-row"><span>最小化时联动隐藏</span><label class="sm-sw"><input type="checkbox" id="ds-hidemin" ${s.winHideOnMinimize!==false?'checked':''}><i></i></label></div><div class="sm-row"><span>关闭桌面时隐藏到托盘</span><label class="sm-sw"><input type="checkbox" id="ds-tray" ${s.winCloseToTray!==false?'checked':''}><i></i></label></div></div><p class="set-note">联动隐藏：最小化桌面时已登记的窗口整套跟着藏起，桌面自己留在宿主任务栏里找得到，恢复桌面时整套按原样回来（你自己单独最小化的窗口不会被动）。关闭桌面则藏得更彻底：任务栏不留按钮，宿主右下角系统托盘会出现终端机图标，点它（或照旧双击程序）整套恢复。无论哪种藏法，退出系统前所有被藏的窗口都会先恢复显示。</p><div class="set-sec">沉浸模式</div><div class="set-desc">开启后，终端机打开的一切只留在终端机里：已经登记进台前调度的窗口（包括桌面自己）会从宿主任务栏和 Alt-Tab 里消失，切换入口只剩台前调度与 Dock；宿主右下角的托盘图标是回宿主的锚，点它整套回来。没有被台前调度认领的窗口永远不会被隐藏，一直留在宿主任务栏上找得到。</div><div class="sm-card"><div class="sm-row"><span>沉浸模式</span><label class="sm-sw"><input type="checkbox" id="ds-immersive" ${s.immersiveMode?'checked':''}><i></i></label></div><div class="sm-row"><span>桌面全屏</span><label class="sm-sw"><input type="checkbox" id="ds-fullscreen" ${s.desktopFullscreen?'checked':''}><i></i></label></div></div><p class="set-note">桌面全屏：桌面视图以无边框全屏占据它所在的显示器，关掉这个开关就恢复原来的窗口大小与位置；两个开关都即时生效，不用重启。一句实话：万一终端机异常退出（被强杀或崩溃），个别已沉浸的窗口可能暂时留在隐藏状态——把那个窗口关掉即自愈，重新打开终端机时启动清扫也会把它们还原回任务栏。</p><div class="set-sec">导入的文件</div><div class="set-desc">从电脑导入到终端桌面的文件存在 Data/files 里，和应用图标混排在桌面上。关掉只是不在桌面上显示这些图标，文件本身、导入通道（拖入 / 桌面菜单导入 / 粘贴）都不受影响。</div><div class="sm-card"><div class="sm-row"><span>在桌面显示导入的文件</span><label class="sm-sw"><input type="checkbox" id="ds-files" ${s.filesOnDesktop!==false?'checked':''}><i></i></label></div></div></div>`;
    G('ds-stage').onchange=e=>toggleStage(e.target.checked);
    G('ds-files').onchange=async e=>{ const r=await saveSetting({filesOnDesktop:e.target.checked}); if(r&&r.error){ alert('保存失败：'+r.error); e.target.checked=!e.target.checked; return; } renderDesk(); };
    G('ds-autoclaim').onchange=async e=>{ const r=await saveSetting({stageAutoClaimBrowser:e.target.checked}); if(r&&r.error){ alert('保存失败：'+r.error); e.target.checked=!e.target.checked; } };
    const bindWinTgl=(id,key)=>{ const el=G(id); if(el) el.onchange=async e=>{ const r=await saveSetting({[key]:e.target.checked}); if(r&&r.error){ alert('保存失败：'+r.error); e.target.checked=!e.target.checked; } }; };
    bindWinTgl('ds-place','winPlaceOnClaim'); bindWinTgl('ds-hidemin','winHideOnMinimize'); bindWinTgl('ds-tray','winCloseToTray');
    bindWinTgl('ds-immersive','immersiveMode'); bindWinTgl('ds-fullscreen','desktopFullscreen');
+   const dockPosPaint=()=>{ const seg=G('ds-dockpos'); if(seg) seg.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.p===dockPos())); };
+   dockPosPaint();
+   G('ds-dockpos').querySelectorAll('button').forEach(b=>b.onclick=async()=>{ const prev=dockPos(); if(b.dataset.p===prev) return; if(!SETTINGS) SETTINGS={...SETDEF}; SETTINGS.dockPosition=b.dataset.p; dockPosPaint(); applyDockLayout(); const r=await saveSetting({dockPosition:b.dataset.p}); if(r&&r.error){ alert('保存失败：'+r.error); SETTINGS.dockPosition=prev; dockPosPaint(); applyDockLayout(); } });
+   G('ds-dockhide').onchange=async e=>{ const want=e.target.checked; const r=await saveSetting({dockAutoHide:want}); if(r&&r.error){ alert('保存失败：'+r.error); e.target.checked=!want; if(SETTINGS) SETTINGS.dockAutoHide=!want; return; } applyDockLayout(); };
    const savePhone=async()=>{ const r=await saveSetting({phoneMode:G('ds-pm').checked,phoneTriggerWidth:+G('ds-ptw').value||1200,phoneWidth:+G('ds-pw').value||400}); if(r&&r.error) alert('保存失败：'+r.error); };
    G('ds-pm').onchange=savePhone; G('ds-ptw').onchange=savePhone; G('ds-pw').onchange=savePhone;
   };
