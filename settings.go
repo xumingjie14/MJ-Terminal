@@ -130,6 +130,34 @@ type mjSettings struct {
 	// without the vault the idle exit leaves them alone).
 	// Default ON.
 	ExitClosesApps bool `json:"exitClosesApps"`
+	// v0.49 node professionalization: durable preferences for the
+	// node subsystem. The live state (current mode, selection,
+	// subscriptions, rules, DNS choice) lives in Data/nodes.json
+	// (nodes.go); these are the cross-cutting preferences the
+	// spec parks in Settings:
+	//   NodeStartMode      -- "last" (restore the persisted mode,
+	//                         default) or a fixed rule/global/
+	//                         direct applied at core autostart.
+	//   NodeSubAuto        -- subscription auto-update master
+	//                         switch (default ON).
+	//   NodeSubIntervalMin -- default auto-update interval in
+	//                         minutes (a subscription can override
+	//                         with its own; 0 there = this value).
+	//   NodeTestURL        -- HTTP urltest target for latency
+	//                         tests through a node.
+	//   NodeTestTimeoutMs  -- per-node latency test timeout.
+	//   NodeClashAPI       -- enable the sing-box Clash API in the
+	//                         generated config (live connections,
+	//                         traffic, hot switching). Default ON;
+	//                         OFF degrades those features honestly
+	//                         (switching falls back to a core
+	//                         restart, latency to TCP timing).
+	NodeStartMode      string `json:"nodeStartMode"`
+	NodeSubAuto        bool   `json:"nodeSubAuto"`
+	NodeSubIntervalMin int    `json:"nodeSubIntervalMin"`
+	NodeTestURL        string `json:"nodeTestURL"`
+	NodeTestTimeoutMs  int    `json:"nodeTestTimeoutMs"`
+	NodeClashAPI       bool   `json:"nodeClashAPI"`
 }
 
 func defaultSettings() mjSettings {
@@ -172,8 +200,16 @@ func defaultSettings() mjSettings {
 		NotifyBannerFiles:     true,
 		NCWidgets:             defaultNCWidgets,
 		ExitClosesApps:        true,
+		NodeStartMode:         "last",
+		NodeSubAuto:           true,
+		NodeSubIntervalMin:    360,
+		NodeTestURL:           "http://www.gstatic.com/generate_204",
+		NodeTestTimeoutMs:     5000,
+		NodeClashAPI:          true,
 	}
 }
+
+var nodeStartModes = map[string]bool{"last": true, "rule": true, "global": true, "direct": true}
 
 // defaultNCWidgets: Notification Center widgets in display order
 // (calendar, server, node -- all shown). The frontend editor
@@ -353,7 +389,28 @@ func sanitizeSettings(s mjSettings) mjSettings {
 		s.DockIconSize = d.DockIconSize
 	}
 	s.NCWidgets = sanitizeNCWidgets(s.NCWidgets)
+	if !nodeStartModes[s.NodeStartMode] {
+		s.NodeStartMode = d.NodeStartMode
+	}
+	if s.NodeSubIntervalMin < 15 || s.NodeSubIntervalMin > 10080 {
+		s.NodeSubIntervalMin = d.NodeSubIntervalMin
+	}
+	if !validTestURL(s.NodeTestURL) {
+		s.NodeTestURL = d.NodeTestURL
+	}
+	if s.NodeTestTimeoutMs < 1000 || s.NodeTestTimeoutMs > 15000 {
+		s.NodeTestTimeoutMs = d.NodeTestTimeoutMs
+	}
 	return s
+}
+
+// validTestURL: the urltest target must be an absolute http(s)
+// URL -- it is handed to sing-box / the Clash API verbatim.
+func validTestURL(v string) bool {
+	if len(v) < 10 || len(v) > 300 {
+		return false
+	}
+	return strings.HasPrefix(v, "http://") || strings.HasPrefix(v, "https://")
 }
 
 func settingsGet() mjSettings {
@@ -430,6 +487,12 @@ func settingsMap() map[string]any {
 		"notify_banner_files":     s.NotifyBannerFiles,
 		"nc_widgets":              s.NCWidgets,
 		"exitClosesApps":          s.ExitClosesApps,
+		"nodeStartMode":           s.NodeStartMode,
+		"nodeSubAuto":             s.NodeSubAuto,
+		"nodeSubIntervalMin":      s.NodeSubIntervalMin,
+		"nodeTestURL":             s.NodeTestURL,
+		"nodeTestTimeoutMs":       s.NodeTestTimeoutMs,
+		"nodeClashAPI":            s.NodeClashAPI,
 		"fresh":                   settingsFresh(),
 	}
 }
@@ -462,6 +525,18 @@ func settingImmersiveMode() bool { return settingsGet().ImmersiveMode }
 func settingDesktopFullscreen() bool { return settingsGet().DesktopFullscreen }
 
 func settingExitClosesApps() bool { return settingsGet().ExitClosesApps }
+
+func settingNodeStartMode() string { return settingsGet().NodeStartMode }
+
+func settingNodeSubAuto() bool { return settingsGet().NodeSubAuto }
+
+func settingNodeSubIntervalMin() int { return settingsGet().NodeSubIntervalMin }
+
+func settingNodeTestURL() string { return settingsGet().NodeTestURL }
+
+func settingNodeTestTimeoutMs() int { return settingsGet().NodeTestTimeoutMs }
+
+func settingNodeClashAPI() bool { return settingsGet().NodeClashAPI }
 
 // settingsSetRemoteEnabledInternal flips the remote-assistance
 // master switch from inside the daemon (the pairing page's
@@ -674,6 +749,54 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 				} else if v != next.RemoteEnabled {
 					next.RemoteEnabled = v
 					changed = append(changed, boolLog("remoteEnabled", v))
+				}
+			case "nodeStartMode":
+				var v string
+				if json.Unmarshal(val, &v) != nil || !nodeStartModes[v] {
+					fail = "nodeStartMode 须为 last / rule / global / direct"
+				} else if v != next.NodeStartMode {
+					next.NodeStartMode = v
+					changed = append(changed, "nodeStartMode = "+v)
+				}
+			case "nodeSubAuto":
+				var v bool
+				if json.Unmarshal(val, &v) != nil {
+					fail = "nodeSubAuto 必须是 true/false"
+				} else if v != next.NodeSubAuto {
+					next.NodeSubAuto = v
+					changed = append(changed, boolLog("nodeSubAuto", v))
+				}
+			case "nodeSubIntervalMin":
+				var v int
+				if json.Unmarshal(val, &v) != nil || v < 15 || v > 10080 {
+					fail = "nodeSubIntervalMin 须在 15–10080 分钟之间"
+				} else if v != next.NodeSubIntervalMin {
+					next.NodeSubIntervalMin = v
+					changed = append(changed, intLog("nodeSubIntervalMin", v))
+				}
+			case "nodeTestURL":
+				var v string
+				if json.Unmarshal(val, &v) != nil || !validTestURL(v) {
+					fail = "nodeTestURL 须是 http(s) 地址"
+				} else if v != next.NodeTestURL {
+					next.NodeTestURL = v
+					changed = append(changed, "nodeTestURL = "+v)
+				}
+			case "nodeTestTimeoutMs":
+				var v int
+				if json.Unmarshal(val, &v) != nil || v < 1000 || v > 15000 {
+					fail = "nodeTestTimeoutMs 须在 1000–15000 之间"
+				} else if v != next.NodeTestTimeoutMs {
+					next.NodeTestTimeoutMs = v
+					changed = append(changed, intLog("nodeTestTimeoutMs", v))
+				}
+			case "nodeClashAPI":
+				var v bool
+				if json.Unmarshal(val, &v) != nil {
+					fail = "nodeClashAPI 必须是 true/false"
+				} else if v != next.NodeClashAPI {
+					next.NodeClashAPI = v
+					changed = append(changed, boolLog("nodeClashAPI", v))
 				}
 			case "chromeCacheMB":
 				var v int

@@ -70,6 +70,16 @@ type nodeEntry struct {
 	Port     int            `json:"port"`
 	Raw      string         `json:"-"`
 	Outbound map[string]any `json:"-"`
+	// v0.49 node professionalisation: stable identity, source
+	// group ("manual" or a subscription ID), detour target
+	// ("" / "warp" / node ID) and the last measured latency.
+	ID          string `json:"-"`
+	Group       string `json:"-"`
+	Detour      string `json:"-"`
+	LatencyMs   int    `json:"-"`
+	LatencyKind string `json:"-"`
+	LatencyErr  string `json:"-"`
+	LatencyAt   int64  `json:"-"`
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
@@ -564,62 +574,23 @@ func persistLinks() {
 	_ = os.WriteFile(filepath.Join(dataDir(), "links.txt"), []byte(strings.Join(lines, "\n")), 0o600)
 }
 
+// loadPersistedLinks loads the node store (Data/nodes.json),
+// importing the legacy links.txt into the manual group on
+// first run, and regenerates the core config.
 func loadPersistedLinks() {
-	b, err := os.ReadFile(filepath.Join(dataDir(), "links.txt"))
-	if err != nil {
-		return
-	}
-	for _, line := range strings.Split(string(b), "\n") {
-		if n, err := parseShareLink(line); err == nil {
-			nodes = append(nodes, *n)
-		}
-	}
+	npMu.Lock()
+	npLoadStoreLocked()
+	npMu.Unlock()
 	if len(nodes) > 0 {
 		_ = genConfig()
 	}
 }
 
+// genConfig regenerates the core config from the node store
+// (v0.49: buildCoreConfig in nodes.go). It never restarts the
+// core; callers that change live state use npRegen(true).
 func genConfig() error {
-	if len(nodes) == 0 {
-		return fmt.Errorf("no nodes")
-	}
-	coreMu.Lock()
-	defer coreMu.Unlock()
-	return genConfigLocked()
-}
-
-func genConfigLocked() error {
-	if len(nodes) == 0 {
-		return fmt.Errorf("no nodes")
-	}
-	outs := []map[string]any{}
-	tags := []string{}
-	for i, n := range nodes {
-		tag := fmt.Sprintf("node-%d", i+1)
-		o := map[string]any{}
-		for k, v := range n.Outbound {
-			o[k] = v
-		}
-		o["tag"] = tag
-		outs = append(outs, o)
-		tags = append(tags, tag)
-	}
-	selector := map[string]any{"type": "selector", "tag": "proxy", "outbounds": tags, "default": tags[0]}
-	cfg := map[string]any{
-		"log": map[string]any{"level": "info", "timestamp": true},
-		"inbounds": []map[string]any{
-			{"type": "mixed", "tag": "mixed-in", "listen": "127.0.0.1", "listen_port": proxyPort},
-		},
-		"outbounds": append([]map[string]any{selector}, append(outs, map[string]any{"type": "direct", "tag": "direct"})...),
-		"route":     map[string]any{"final": "proxy"},
-	}
-	dir := coreDir()
-	_ = os.MkdirAll(dir, 0o755)
-	b, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(filepath.Join(dir, "config.generated.json"), b, 0o600)
+	return npRegen(false)
 }
 
 func nodeListJSON() map[string]any {
@@ -630,6 +601,12 @@ func nodeListJSON() map[string]any {
 	return map[string]any{"count": len(nodes), "nodes": list, "proxy": fmt.Sprintf("socks5://127.0.0.1:%d", proxyPort)}
 }
 
+// nodeControl is the legacy /api/node surface (kept for the
+// remote read tier and older UI paths). Writes delegate to the
+// v0.49 node store (nodes.go): a posted link joins the manual
+// group, a posted suburl creates a real subscription, and
+// "clear" empties subscriptions + nodes (WARP, rules, DNS and
+// mode are kept). Rich state lives behind /api/nodepro/*.
 func nodeControl(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
 		writeJSON(w, nodeListJSON())
@@ -645,9 +622,14 @@ func nodeControl(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.Action == "clear" {
+		npMu.Lock()
+		npLoadStoreLocked()
+		npStore.Subs = nil
+		npStore.Selected = ""
 		nodes = nil
-		persistLinks()
-		logf("node", "info", "已清空全部节点")
+		npSaveStoreLocked()
+		npMu.Unlock()
+		logf("node", "info", "已清空全部节点与订阅")
 		writeJSON(w, nodeListJSON())
 		return
 	}
@@ -660,17 +642,29 @@ func nodeControl(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, map[string]any{"error": "节点链接解析失败: " + err.Error()})
 			return
 		}
+		npMu.Lock()
+		npLoadStoreLocked()
+		dup := false
 		for _, old := range nodes {
 			if old.Raw == n.Raw {
-				resp := nodeListJSON()
-				resp["message"] = "这个节点已经加过了，没重复添加"
-				writeJSON(w, resp)
-				return
+				dup = true
 			}
 		}
-		nodes = append(nodes, *n)
-		persistLinks()
-		if err := genConfig(); err != nil {
+		if !dup {
+			n.Group = "manual"
+			n.ID = nodeIDFor(n.Outbound)
+			n.LatencyMs = -1
+			nodes = append(nodes, *n)
+			npSaveStoreLocked()
+		}
+		npMu.Unlock()
+		if dup {
+			resp := nodeListJSON()
+			resp["message"] = "这个节点已经加过了，没重复添加"
+			writeJSON(w, resp)
+			return
+		}
+		if err := npRegen(true); err != nil {
 			logf("node", "error", "生成核心配置失败：%v", err)
 			writeJSON(w, map[string]any{"error": "生成配置失败: " + err.Error()})
 			return
@@ -684,76 +678,28 @@ func nodeControl(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(body.SubURL) != "" {
 		// Log only the subscription's host: full subscription URLs
 		// carry tokens and must never land in the log.
-		subHost := body.SubURL
-		if u, perr := url.Parse(body.SubURL); perr == nil && u.Host != "" {
-			subHost = u.Host
+		subHost := subURLHost(body.SubURL)
+		name := subHost
+		if name == "" {
+			name = "订阅"
 		}
-		links, err := fetchSubscription(body.SubURL)
+		npMu.Lock()
+		npLoadStoreLocked()
+		sub := subEntry{ID: newRandID("sub-"), Name: name, URL: strings.TrimSpace(body.SubURL), Enabled: true}
+		npStore.Subs = append(npStore.Subs, sub)
+		npSaveStoreLocked()
+		npMu.Unlock()
+		cnt, err := npUpdateSubscription(sub.ID, "手动")
 		if err != nil {
-			logf("node", "error", "订阅拉取失败：%s", subHost)
 			writeJSON(w, map[string]any{"error": "订阅拉取失败: " + err.Error()})
 			return
 		}
-		var parsed []nodeEntry
-		seen := map[string]bool{}
-		for _, l := range links {
-			if n, err := parseShareLink(l); err == nil && !seen[n.Raw] {
-				seen[n.Raw] = true
-				parsed = append(parsed, *n)
-			}
-		}
-		if len(parsed) == 0 {
-			logf("node", "warn", "订阅 %s 里没解析出可用节点（共 %d 条链接）", subHost, len(links))
-			writeJSON(w, map[string]any{"error": fmt.Sprintf("订阅里没解析出可用节点（共 %d 条链接）", len(links))})
-			return
-		}
-		nodes = parsed
-		persistLinks()
-		if err := genConfig(); err != nil {
-			logf("node", "error", "生成核心配置失败：%v", err)
-			writeJSON(w, map[string]any{"error": "生成配置失败: " + err.Error()})
-			return
-		}
-		logf("node", "info", "订阅导入成功：%s 共 %d 个节点", subHost, len(parsed))
 		resp := nodeListJSON()
-		resp["message"] = fmt.Sprintf("订阅导入成功：%d 个节点", len(parsed))
+		resp["message"] = fmt.Sprintf("订阅导入成功：%d 个节点", cnt)
 		writeJSON(w, resp)
 		return
 	}
 	writeJSON(w, map[string]any{"error": "empty"})
-}
-
-func fetchSubscription(subURL string) ([]string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, subURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", "sing-box/1.14 MJLight/0.2")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	b, err := io.ReadAll(io.LimitReader(resp.Body, 4*1024*1024))
-	if err != nil {
-		return nil, err
-	}
-	content := strings.TrimSpace(string(b))
-	if !strings.Contains(content, "://") {
-		if dec, err := b64decode(content); err == nil {
-			content = dec
-		}
-	}
-	var links []string
-	for _, line := range strings.Split(content, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.Contains(line, "://") {
-			links = append(links, line)
-		}
-	}
-	return links, nil
 }
 
 // ---------- sing-box core ----------
@@ -1579,6 +1525,7 @@ func startServicesOnce() {
 		startImmerse()
 		remoteInit()
 		sandboxInit()
+		nodeproInit()
 	})
 	servicesSetActive(true)
 }
@@ -1942,6 +1889,17 @@ func runServer(portFlag int, isDaemon bool) {
 	mux.HandleFunc("/api/core/log", coreLogHandler)
 	mux.HandleFunc("/api/proxytest", proxyTest)
 	mux.HandleFunc("/api/node", nodeControl)
+	mux.HandleFunc("/api/nodepro/status", npStatusHandler)
+	mux.HandleFunc("/api/nodepro/mode", npModeHandler)
+	mux.HandleFunc("/api/nodepro/select", npSelectHandler)
+	mux.HandleFunc("/api/nodepro/test", npTestHandler)
+	mux.HandleFunc("/api/nodepro/detour", npDetourHandler)
+	mux.HandleFunc("/api/nodepro/subs", npSubsHandler)
+	mux.HandleFunc("/api/nodepro/rules", npRulesHandler)
+	mux.HandleFunc("/api/nodepro/dns", npDNSHandler)
+	mux.HandleFunc("/api/nodepro/warp", npWarpHandler)
+	mux.HandleFunc("/api/nodepro/connections", npConnectionsHandler)
+	mux.HandleFunc("/api/nodepro/connections/close", npConnCloseHandler)
 	mux.HandleFunc("/api/browser", openBrowser)
 	mux.HandleFunc("/api/layout", layoutGetHandler)
 	mux.HandleFunc("/api/layout/save", layoutSaveHandler)

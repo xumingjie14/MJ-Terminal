@@ -494,7 +494,7 @@ async function api(p,opt){const r=await fetch(p,opt);let t=await r.text();try{re
    reports "fresh" (no settings file yet), the old local values are
    migrated up once and the local copies dropped. */
 let SETTINGS=null;
-const SETDEF={wallpaper:'tahoe',stageManager:false,idleExitMinutes:30,phoneMode:true,phoneTriggerWidth:1200,phoneWidth:400,chromeCacheMB:200,stageAutoClaimBrowser:true,filesOnDesktop:true,remoteEnabled:false,winPlaceOnClaim:true,winHideOnMinimize:true,winCloseToTray:true,immersiveMode:false,desktopFullscreen:false,dockPosition:'bottom',dockAutoHide:false,dockIconSize:52,cc_show_immersive:true,cc_show_stage:true,cc_show_fullscreen:true,cc_show_dockhide:true,cc_show_remote:true,cc_show_wallpaper:true,notify_allow_sandbox:true,notify_allow_update:true,notify_allow_servermon:true,notify_allow_node:true,notify_allow_remote:true,notify_allow_files:true,notify_banner_sandbox:true,notify_banner_update:true,notify_banner_servermon:true,notify_banner_node:true,notify_banner_remote:true,notify_banner_files:true,nc_widgets:'[{"id":"calendar","show":true},{"id":"server","show":true},{"id":"node","show":true}]',exitClosesApps:true};
+const SETDEF={wallpaper:'tahoe',stageManager:false,idleExitMinutes:30,phoneMode:true,phoneTriggerWidth:1200,phoneWidth:400,chromeCacheMB:200,stageAutoClaimBrowser:true,filesOnDesktop:true,remoteEnabled:false,winPlaceOnClaim:true,winHideOnMinimize:true,winCloseToTray:true,immersiveMode:false,desktopFullscreen:false,dockPosition:'bottom',dockAutoHide:false,dockIconSize:52,cc_show_immersive:true,cc_show_stage:true,cc_show_fullscreen:true,cc_show_dockhide:true,cc_show_remote:true,cc_show_wallpaper:true,notify_allow_sandbox:true,notify_allow_update:true,notify_allow_servermon:true,notify_allow_node:true,notify_allow_remote:true,notify_allow_files:true,notify_banner_sandbox:true,notify_banner_update:true,notify_banner_servermon:true,notify_banner_node:true,notify_banner_remote:true,notify_banner_files:true,nc_widgets:'[{"id":"calendar","show":true},{"id":"server","show":true},{"id":"node","show":true}]',exitClosesApps:true,nodeStartMode:'last',nodeSubAuto:true,nodeSubIntervalMin:360,nodeTestURL:'http://www.gstatic.com/generate_204',nodeTestTimeoutMs:5000,nodeClashAPI:true};
 function wallKey(){ if(SETTINGS) return SETTINGS.wallpaper||'tahoe'; return localStorage.getItem('mj-wall')||'tahoe' }
 /* v0.46 Dock basics: position + auto-hide are view-side behaviours
    over daemon settings (same pattern as the wallpaper). */
@@ -1924,7 +1924,53 @@ function render(id){
  if(id==='gridview') b.innerHTML=`<p class="mut" id="gv-note" style="margin-bottom:8px">读取中…</p><table class="gridtab" id="gv-tab"></table>`;
  if(id==='ziplist') b.innerHTML=`<h3 id="zl-name">文件夹</h3><div id="zl-list" class="mut" style="margin-top:10px">加载中…</div><p class="mut" style="margin-top:8px;font-size:12px">这是解压出来的文件夹（在 Data/files 里）。双击文件用系统内的方式打开；子文件夹暂不在这里展开。</p>`;
  if(id==='filepanel') b.innerHTML=`<h3 id="fp2-name">文件</h3><p class="mut" id="fp2-desc" style="margin-top:8px"></p><div class="row" style="margin-top:14px"><button class="btn" id="fp2-web">在网页版办公中打开（腾讯文档）</button><button class="btn gray" id="fp2-exp">导出到电脑（下载文件夹）</button></div>`;
- if(id==='core') b.innerHTML=`<h3>节点（sing-box）</h3><p class="mut" style="margin-top:8px">粘贴<b style="color:#fff">节点链接</b>或填<b style="color:#fff">订阅地址</b>导入，支持 vless / vmess / trojan / ss / hysteria2，自动生成 sing-box 配置、自动去重。sing-box.exe 在程序同目录的 core 文件夹（完整版已自带）。</p><textarea id="nlink" rows="3" style="width:100%;margin-top:12px" placeholder="粘贴节点链接，如 vless://... 或 ss://..."></textarea><div class="row" style="margin-top:8px"><button class="btn" id="nadd">添加这个节点</button></div><div class="row" style="margin-top:12px"><input class="txt" id="nsub" placeholder="或粘贴订阅地址 https://..."><button class="btn gray" id="nsubbtn">导入订阅</button></div><p style="margin:12px 0"><span class="tag" id="core-status">状态：读取中…</span> <span class="tag" id="ncount"></span></p><div class="row" style="margin-top:2px"><button class="btn gray" id="accel-toggle">软件内全局加速：…</button><span class="tag" id="accel-state">…</span></div><p class="mut" style="margin-top:8px">全局加速开着时：桌面窗口、从软件里点开的链接、终端里跑的命令都走节点；宿主电脑自己的浏览器和程序完全不受影响。桌面窗口在下次打开时按新设置生效（关掉桌面再双击 EXE 即可）。</p><div id="nlist" class="mut"></div><div class="row" style="margin-top:12px"><button class="btn" id="core-start">启动节点</button><button class="btn red" id="core-stop">停止节点</button><button class="btn gray" id="core-refresh">刷新状态</button><button class="btn gray" id="ptest">代理自检</button><button class="btn gray" id="nclear">清空节点</button></div><div class="row" style="margin-top:8px"><button class="btn gray" id="corelogbtn">看 sing-box 日志</button></div><pre class="term" id="corelog" style="min-height:90px;margin-top:10px;display:none"></pre>`;
+ if(id==='core') b.innerHTML=`<h3>节点</h3>
+<div class="sm-card" style="margin-top:10px">
+ <div class="sm-row"><span>模式</span><span class="seg" id="np-mode"><button data-m="rule">规则</button><button data-m="global">全局</button><button data-m="direct">直连</button></span></div>
+ <div class="sm-row"><span>核心状态</span><span class="row"><span class="tag" id="core-status">状态：读取中…</span><button class="btn" id="core-start">启动</button><button class="btn red" id="core-stop">停止</button><button class="btn gray" id="core-refresh">刷新</button></span></div>
+ <div class="sm-row"><span>当前出口</span><span id="np-exit" style="text-align:right">—</span></div>
+ <div class="sm-row"><span>实时流量</span><span class="set-val" id="np-rates">—</span></div>
+ <div style="position:relative;margin-top:6px"><canvas id="np-chart" style="width:100%;height:110px;display:block"></canvas></div>
+ <div class="sm-row"><span>本次会话累计</span><span class="set-val" id="np-sess">↓ 0 B · ↑ 0 B</span></div>
+ <p class="mut" style="margin-top:4px">规则 = 绕过大陆（国内直连、其余走代理）；全局 = 全部走当前出口；直连 = 全部直连。点任意节点即切换出口（核心在跑时优先热切换，不重启）。TUN 与系统代理接管不做——这是便携版的红线，宿主电脑的网络设置永远不动。</p>
+</div>
+<div id="np-groups"></div>
+<div class="set-sec" style="margin-top:14px">添加</div>
+<div class="sm-card">
+ <div class="sm-row" style="align-items:flex-start"><span style="padding-top:6px">节点链接</span><span style="flex:1;margin-left:12px"><textarea id="nlink" rows="2" style="width:100%" placeholder="粘贴节点链接，如 vless://... 或 ss://..."></textarea></span></div>
+ <div class="sm-row"><span></span><button class="btn" id="nadd">添加这个节点</button></div>
+ <div class="sm-row" style="align-items:flex-start"><span style="padding-top:6px">订阅</span><span style="flex:1;margin-left:12px"><input class="txt" id="nsubname" style="width:100%;margin-bottom:6px" placeholder="订阅名称（可空，默认用域名）"><input class="txt" id="nsub" style="width:100%" placeholder="订阅地址 https://...（支持分享链接 / base64 / Clash YAML）"></span></div>
+ <div class="sm-row"><span></span><span class="row"><button class="btn gray" id="nsubbtn">添加订阅</button><button class="btn gray" id="np-updall">更新全部订阅</button></span></div>
+</div>
+<div class="set-sec" style="margin-top:14px">WARP 中继</div>
+<div class="sm-card" id="np-warp"><div class="sm-row"><span>状态</span><span class="set-val">读取中…</span></div></div>
+<div class="set-sec" style="margin-top:14px">DNS</div>
+<div class="sm-card">
+ <div class="sm-row"><span>方案</span><span class="seg" id="np-dns"><button data-d="anti">防污染</button><button data-d="direct">直连</button><button data-d="custom">自定义</button></span></div>
+ <div class="sm-row" id="np-dnsrow" style="display:none"><span>DoH 地址</span><input class="txt" id="np-dnscustom" style="width:280px" placeholder="https://dns.google/dns-query"></div>
+ <div class="sm-row"><span></span><button class="btn gray" id="np-dnssave">保存 DNS 设置</button></div>
+ <p class="mut" style="margin-top:4px">防污染：远程 DoH 经代理查询，规则模式下国内域名走本地解析；直连：用系统 DNS；自定义：填一个 DoH 地址（经代理查询）。</p>
+</div>
+<div class="set-sec" style="margin-top:14px">规则</div>
+<div class="sm-card">
+ <div id="np-rules"></div>
+ <div class="sm-row"><span>新增</span><span class="row"><select id="np-rtype" class="txt" style="width:96px"><option value="domain">域名</option><option value="suffix">域名后缀</option><option value="ipcidr">IP 段</option></select><input class="txt" id="np-rvalue" style="width:190px" placeholder="example.com 或 203.0.113.0/24"><select id="np-raction" class="txt" style="width:84px"><option value="proxy">代理</option><option value="direct">直连</option><option value="block">拒绝</option></select><button class="btn gray" id="np-radd">添加规则</button></span></div>
+ <div class="sm-row"><span></span><button class="btn" id="np-rsave">保存规则</button></div>
+ <p class="mut" style="margin-top:4px">自定义规则优先级高于默认集，规则模式下生效。默认规则集（只读）：</p>
+ <div id="np-defrules" class="mut"></div>
+</div>
+<div class="set-sec" style="margin-top:14px">实时连接</div>
+<div class="sm-card">
+ <div class="sm-row"><span>连接</span><span class="row"><span class="set-val" id="np-conn-note">—</span><button class="btn gray" id="np-conn-refresh">刷新</button><button class="btn gray" id="np-conn-closeall">关闭全部</button></span></div>
+ <div style="overflow-x:auto"><div id="np-conns"></div></div>
+</div>
+<div class="set-sec" style="margin-top:14px">其他</div>
+<div class="sm-card">
+ <div class="sm-row"><span>软件内全局加速</span><span class="row"><span class="tag" id="accel-state">…</span><button class="btn gray" id="accel-toggle">切换</button></span></div>
+ <div class="sm-row"><span>维护</span><span class="row"><button class="btn gray" id="ptest">代理自检</button><button class="btn gray" id="corelogbtn">看 sing-box 日志</button><button class="btn red" id="nclear">清空全部节点与订阅</button></span></div>
+</div>
+<pre class="term" id="corelog" style="min-height:90px;margin-top:10px;display:none"></pre>
+<p class="mut" style="margin-top:8px">全局加速是终端内路由的总闸（桌面窗口、点开的链接、终端命令走不走节点）；模式管核心内部的分流。两者不冲突，浏览器始终经 127.0.0.1:2080。</p>`;
  if(id==='sys'){ b.style.padding='0'; b.style.display='flex'; b.style.flexDirection='column';
   b.innerHTML=`<div class="set-wrap"><div class="set-side"><input class="set-search" id="set-q" placeholder="搜索设置"><div class="set-mecard" id="set-mecard"><div class="set-meico g-sys">铭</div><div style="min-width:0"><div style="font-weight:650;font-size:14px">铭杰终端机</div><div style="font-size:11.5px;opacity:.65" id="set-me-ver">版本 …</div></div></div><div class="set-nav" id="set-nav"></div></div><div class="set-main" id="set-main"><p class="mut">加载中…</p></div></div>`;
  }
@@ -2038,10 +2084,18 @@ function bind(id){
    SRCS.forEach(([id])=>{ bindN('nt-allow-'+id,'notify_allow_'+id); bindN('nt-banner-'+id,'notify_banner_'+id); });
   };
   const paintNetwork=async()=>{
-   G('set-main').innerHTML=`<div class="set-page"><div class="set-sec">软件内全局加速</div><div class="set-desc">开着时：桌面窗口、从软件里点开的链接、终端里跑的命令都走节点；宿主电脑自己的浏览器和程序完全不受影响。</div><div class="sm-card"><div class="sm-row"><span>全局加速</span><label class="sm-sw"><input type="checkbox" id="nw-accel"><i></i></label></div><div class="sm-row"><span>当前状态</span><span class="set-val" id="nw-state">读取中…</span></div><div class="sm-row"><span>守护进程下载（更新、组件）</span><span class="set-val" id="nw-route">…</span></div></div><div class="set-sec">节点</div><div class="set-desc">节点链接、订阅导入和节点启停在「节点」应用里。</div><div class="row"><button class="btn gray" id="nw-open">打开节点页</button></div></div>`;
+   const s=SETTINGS||SETDEF;
+   G('set-main').innerHTML=`<div class="set-page"><div class="set-sec">软件内全局加速</div><div class="set-desc">开着时：桌面窗口、从软件里点开的链接、终端里跑的命令都走节点；宿主电脑自己的浏览器和程序完全不受影响。它是终端内路由的总闸；下面的「模式」管的是核心内部怎么分流（规则 / 全局 / 直连），两边不冲突。</div><div class="sm-card"><div class="sm-row"><span>全局加速</span><label class="sm-sw"><input type="checkbox" id="nw-accel"><i></i></label></div><div class="sm-row"><span>当前状态</span><span class="set-val" id="nw-state">读取中…</span></div><div class="sm-row"><span>守护进程下载（更新、组件）</span><span class="set-val" id="nw-route">…</span></div></div><div class="set-sec">节点专业化</div><div class="set-desc">耐久偏好放这里；日常操作（切换出口、测速、订阅更新、规则编辑）在「节点」应用里，两边读同一份数据。</div><div class="sm-card"><div class="sm-row"><span>核心启动时的模式</span><span class="seg" id="nw-startmode"><button data-m="last" class="${s.nodeStartMode==='last'?'on':''}">跟随上次</button><button data-m="rule" class="${s.nodeStartMode==='rule'?'on':''}">规则</button><button data-m="global" class="${s.nodeStartMode==='global'?'on':''}">全局</button><button data-m="direct" class="${s.nodeStartMode==='direct'?'on':''}">直连</button></span></div><div class="sm-row"><span>订阅自动更新</span><label class="sm-sw"><input type="checkbox" id="nw-subauto" ${s.nodeSubAuto!==false?'checked':''}><i></i></label></div><div class="sm-row"><span>订阅默认更新间隔（分钟）</span><input class="set-num" id="nw-subint" type="number" min="15" max="10080" step="15" value="${s.nodeSubIntervalMin}"></div><div class="sm-row"><span>测速目标</span><input class="txt" id="nw-testurl" style="width:280px;text-align:right" value="${esc(s.nodeTestURL||'')}"></div><div class="sm-row"><span>测速超时（毫秒）</span><input class="set-num" id="nw-testto" type="number" min="1000" max="15000" step="500" value="${s.nodeTestTimeoutMs}"></div><div class="sm-row"><span>Clash API（实时连接 / 流量图 / 热切换）</span><label class="sm-sw"><input type="checkbox" id="nw-clash" ${s.nodeClashAPI!==false?'checked':''}><i></i></label></div></div><p class="set-note">Clash API 只监听 127.0.0.1，密钥在本地随机生成、不进日志。关掉它，节点页的实时连接与流量图会如实显示不可用，切换出口改走重启核心。测速目标与超时改完后，节点页的下一次测速即生效。</p><div class="set-sec">节点</div><div class="set-desc">节点链接、订阅导入和节点启停在「节点」应用里。</div><div class="row"><button class="btn gray" id="nw-open">打开节点页</button></div></div>`;
    const paint=async()=>{ const r=await api('/api/accel'); const sw=G('nw-accel'); if(sw) sw.checked=!!r.enabled; const st=G('nw-state'); if(st) st.textContent=r.active?'生效中（节点运行中）':(r.enabled?'已开启，节点启动后生效':'已关闭'); const rt=G('nw-route'); if(rt) rt.textContent=r.active?'走节点':'直连（节点没在跑或加速已关）'; };
    G('nw-accel').onchange=async e=>{ await api('/api/accel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:e.target.checked})}); paint(); pollNode(); };
    G('nw-open').onclick=()=>openApp('core');
+   const bindSave=(elid,key,conv)=>{ const el=G(elid); if(el) el.onchange=async()=>{ const r=await saveSetting({[key]:conv?conv(el):el.value}); if(r&&r.error) alert('保存失败：'+r.error); }; };
+   G('nw-startmode').querySelectorAll('button').forEach(b=>b.onclick=async()=>{ const r=await saveSetting({nodeStartMode:b.dataset.m}); if(r&&r.error){ alert('保存失败：'+r.error); return; } G('nw-startmode').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); });
+   bindSave('nw-subauto','nodeSubAuto',el=>el.checked);
+   bindSave('nw-subint','nodeSubIntervalMin',el=>+el.value||360);
+   bindSave('nw-testurl','nodeTestURL',el=>el.value.trim());
+   bindSave('nw-testto','nodeTestTimeoutMs',el=>+el.value||5000);
+   bindSave('nw-clash','nodeClashAPI',el=>el.checked);
    paint();
   };
   const paintBrowser=async()=>{
@@ -2784,21 +2838,180 @@ function bind(id){
    };
  }
  if(id==='core'){
-   const loadNodes=async()=>{
-     const r=await api('/api/node');
-     const c=document.getElementById('ncount'); if(c) c.textContent=`已保存节点 ${r.count} 个 · 代理 ${r.proxy}`;
-     const l=document.getElementById('nlist'); if(l) l.innerHTML=r.nodes&&r.nodes.length?r.nodes.map(n=>`• ${esc(n.name)}（${esc(n.type)} ${esc(n.server)}:${n.port}）`).join('<br>'):'还没有节点，先在上面添加。';
+   /* v0.49 节点专业化：数据全部来自 /api/nodepro/status（分组、
+      选择、延迟、流量、规则同源）；写操作走 /api/nodepro/*。
+      /api/node 只剩旧读口（远程只读档与菜单栏点灯在用）。 */
+   const post=(path,body)=>api(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});
+   const fmtB=v=>{ v=+v||0; if(v>=1e9) return (v/1e9).toFixed(2)+' GB'; if(v>=1e6) return (v/1e6).toFixed(1)+' MB'; if(v>=1e3) return (v/1e3).toFixed(1)+' KB'; return v+' B'; };
+   const fmtRate=v=>fmtB(v)+'/s';
+   const fmtT=ts=>ts?new Date(ts*1000).toLocaleString():'从未';
+   let NP=null, rulesDraft=null; const trafPts=[];
+   const statusEl=()=>document.getElementById('core-status');
+   const busy=t=>{ const s=statusEl(); if(s) s.textContent='状态：'+t; };
+   const latHTML=n=>{
+     if(n.latencyErr) return '<span style="color:#ff453a" title="'+esc(n.latencyErr)+'">测速失败</span>';
+     if(!n.latencyAt) return '<span class="mut">未测</span>';
+     const ms=n.latencyMs, c=ms<150?'#30d158':(ms<400?'#ffd60a':'#ff9f0a');
+     return '<span style="color:'+c+'">'+ms+' ms</span>'+(n.latencyKind==='tcp'?'<span class="mut"> · TCP</span>':'');
    };
-   const nodePost=async(body)=>{
-     const s=document.getElementById('core-status'); s.textContent='状态：处理中…';
-     const r=await api('/api/node',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-     s.textContent='状态：'+(r.error||r.message||'完成'); loadNodes();
+   const allRealNodes=()=>{ const out=[]; (NP.groups||[]).forEach(g=>{ if(g.kind!=='virtual') (g.nodes||[]).forEach(n=>{ if(!n.isWarp) out.push(n); }); }); return out; };
+   const detourName=d=>{ if(!d) return ''; if(d==='warp') return 'WARP 中继'; const t=allRealNodes().find(n=>n.id===d); return t?t.name:d; };
+   const nodeRow=n=>{
+     const others=allRealNodes().filter(x=>x.id!==n.id);
+     const opts=['<option value="">前置：无</option>']
+       .concat(NP.warp&&NP.warp.registered?['<option value="warp"'+(n.detour==='warp'?' selected':'')+'>前置：WARP</option>']:[])
+       .concat(others.map(o=>'<option value="'+o.id+'"'+(n.detour===o.id?' selected':'')+'>前置：'+esc(o.name)+'</option>')).join('');
+     let h='<div class="sm-row" style="'+(n.selected?'background:rgba(48,209,88,.10);border-radius:8px':'')+'"><span style="min-width:0"><span class="sdot '+(n.selected?'on':'idle')+'" style="display:inline-block;vertical-align:1px;margin-right:7px"></span><b>'+esc(n.name)+'</b> <span class="tag">'+esc(n.type)+'</span>'+(n.unreachable6?' <span class="tag" style="color:#ff9f0a">不可直达 · IPv6</span>':'')+'<div class="mut" style="font-size:12px;margin-top:2px">'+esc(n.server)+':'+n.port+(n.detour?' · 经 '+esc(detourName(n.detour)):'')+'</div></span>'
+       +'<span class="row" style="flex:none">'+latHTML(n)
+       +'<select class="txt" data-detour="'+n.id+'" style="width:128px">'+opts+'</select>'
+       +'<button class="btn gray" data-test="'+n.id+'">测速</button>'
+       +(n.selected?'<span class="tag" style="color:#30d158">当前出口</span>':'<button class="btn" data-sel="'+n.id+'">切换</button>')
+       +'</span></div>';
+     if(n.unreachable6){
+       const cands=allRealNodes().filter(x=>x.id!==n.id&&!x.ipv6);
+       h+='<div class="sm-row"><span class="mut" style="font-size:12px">本地没有 IPv6 出口，这个节点的服务器是 IPv6 地址，直连到不了。给它套一个前置就能用：</span><span class="row"><select class="txt" id="v6fix-'+n.id+'" style="width:170px">'+(NP.warp&&NP.warp.registered?'<option value="warp">WARP 中继</option>':'')+cands.map(o=>'<option value="'+o.id+'">'+esc(o.name)+'</option>').join('')+'</select><button class="btn gray" data-v6fix="'+n.id+'">套前置</button></span></div>';
+     }
+     return h;
    };
-   coreAct('status'); loadNodes();
+   const groupHTML=g=>{
+     if(g.kind==='virtual'){
+       const rows=(g.nodes||[]).map(v=>{
+         const cur=v.id==='auto'?(v.currentTag?'':''):(v.currentId?(allRealNodes().find(n=>n.id===v.currentId)||{}).name||'':'');
+         const hit=v.id==='auto'?(v.currentTag?('当前命中 '+esc(v.currentTag.replace(/^node-/,'').slice(0,10)+'…')):'核心启动后显示当前命中'):('当前命中 '+(cur||'—'));
+         return '<div class="sm-row" style="'+(v.selected?'background:rgba(48,209,88,.10);border-radius:8px':'')+'"><span><b>'+esc(v.name)+'</b> <span class="tag">'+(v.id==='auto'?'urltest':'fallback')+'</span><div class="mut" style="font-size:12px;margin-top:2px">'+v.members+' 个成员 · '+hit+'</div></span><span class="row">'+(v.selected?'<span class="tag" style="color:#30d158">当前出口</span>':'<button class="btn" data-sel="'+v.id+'">选为出口</button>')+'<button class="btn gray" data-test="'+v.id+'">测速</button></span></div>';
+       }).join('');
+       return '<div class="set-sec" style="margin-top:14px">虚拟组</div><div class="sm-card">'+rows+'<p class="mut" style="margin-top:4px">自动选择：核心按间隔测速、自动用最快的（sing-box urltest）。故障转移：守护进程按成员顺序探活，当前出口挂了就顺次切到第一个活着的（sing-box 没有 fallback 出站类型，由守护进程看门狗实现）。</p></div>';
+     }
+     let head='';
+     if(g.kind==='sub'&&g.sub){
+       const s=g.sub, ui=s.userInfo;
+       let uiHTML='';
+       if(ui&&ui.total>0){ const used=(+ui.upload||0)+(+ui.download||0), pct=Math.min(100,used/ui.total*100);
+         uiHTML='<div class="sm-row"><span>流量</span><span>'+fmtB(used)+' / '+fmtB(ui.total)+'（'+pct.toFixed(0)+'%）'+(ui.expire?' · 到期 '+new Date(ui.expire*1000).toLocaleDateString():'')+'</span></div><div class="sm-bar"><i class="'+(pct>=90?'bad':(pct>=75?'warn':''))+'" style="width:'+pct+'%"></i></div>';
+       }
+       head='<div class="sm-row"><span><b>'+esc(s.name)+'</b><div class="mut" style="font-size:12px;margin-top:2px">'+esc(s.urlHost||'')+' · '+s.nodeCount+' 个节点 · 更新于 '+fmtT(s.updatedAt)+'</div></span><span class="row"><label class="sm-sw"><input type="checkbox" data-suben="'+s.id+'" '+(s.enabled?'checked':'')+'><i></i></label><button class="btn gray" data-subupd="'+s.id+'">更新</button><button class="btn gray" data-subren="'+s.id+'">改名</button><button class="btn gray" data-subdel="'+s.id+'">删除</button></span></div>'
+         +'<div class="sm-row"><span>自动更新间隔（分钟，0 = 用全局默认）</span><input class="set-num" type="number" min="0" max="10080" step="15" value="'+(s.autoMins||0)+'" data-submins="'+s.id+'"></div>'+uiHTML;
+     } else {
+       head='<div class="sm-row"><span class="mut">链接手动添加的节点（'+(g.nodes||[]).filter(n=>!n.isWarp).length+' 个）</span><span class="row"><button class="btn gray" data-test="group:manual">整组测速</button></span></div>';
+     }
+     if(g.kind==='sub') head+='<div class="sm-row"><span></span><button class="btn gray" data-test="group:'+g.id+'">整组测速</button></div>';
+     const rows=(g.nodes||[]).map(n=>{
+       if(n.isWarp) return '<div class="sm-row" style="'+(n.selected?'background:rgba(48,209,88,.10);border-radius:8px':'')+'"><span><b>WARP 中继</b> <span class="tag">wireguard</span><div class="mut" style="font-size:12px;margin-top:2px">'+esc(n.server||'')+'</div></span><span class="row"><span class="mut">未测</span>'+(n.selected?'<span class="tag" style="color:#30d158">当前出口</span>':'<button class="btn" data-sel="warp">选为出口</button>')+'</span></div>';
+       return nodeRow(n);
+     }).join('');
+     return '<div class="set-sec" style="margin-top:14px">'+esc(g.name)+'</div><div class="sm-card">'+head+(rows||'<p class="mut">这个组里还没有节点。</p>')+'</div>';
+   };
+   const drawNpChart=()=>{
+     const cv=document.getElementById('np-chart'); if(!cv) return;
+     const dpr=window.devicePixelRatio||1, W=cv.clientWidth, H=cv.clientHeight; if(!W) return;
+     if(cv.width!==Math.round(W*dpr)||cv.height!==Math.round(H*dpr)){ cv.width=W*dpr; cv.height=H*dpr; }
+     const ctx=cv.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,W,H);
+     const pad={l:4,r:4,t:8,b:6};
+     ctx.strokeStyle='rgba(255,255,255,.08)'; ctx.lineWidth=1;
+     for(let i=0;i<3;i++){ const y=pad.t+(H-pad.t-pad.b)*i/2; ctx.beginPath(); ctx.moveTo(pad.l,y); ctx.lineTo(W-pad.r,y); ctx.stroke(); }
+     const pts=trafPts; if(!pts||pts.length<2){ ctx.fillStyle='rgba(255,255,255,.45)'; ctx.font='11px system-ui'; ctx.fillText(NP&&NP.coreRunning?(NP.clashOK?'等待流量数据…':'Clash API 不可用，暂无流量数据'):'核心未运行',pad.l+2,H/2); return; }
+     let max=0; pts.forEach(p=>{ max=Math.max(max,p.rx,p.tx); }); if(max<=0) max=1; max*=1.15;
+     const X=i=>pad.l+(W-pad.l-pad.r)*i/(pts.length-1), Y=v=>pad.t+(H-pad.t-pad.b)*(1-v/max);
+     const line=(key,color,fill)=>{ ctx.beginPath(); pts.forEach((p,i)=>{ const x=X(i),y=Y(p[key]); i?ctx.lineTo(x,y):ctx.moveTo(x,y); }); ctx.strokeStyle=color; ctx.lineWidth=1.6; ctx.stroke(); if(fill){ ctx.lineTo(X(pts.length-1),H-pad.b); ctx.lineTo(X(0),H-pad.b); ctx.closePath(); const gr=ctx.createLinearGradient(0,pad.t,0,H-pad.b); gr.addColorStop(0,fill); gr.addColorStop(1,'rgba(0,0,0,0)'); ctx.fillStyle=gr; ctx.fill(); ctx.lineWidth=1; } };
+     line('rx','#30d158','rgba(48,209,88,.20)'); line('tx','#0a84ff',null);
+   };
+   const paintNP=()=>{
+     if(!NP) return;
+     document.querySelectorAll('#np-mode button').forEach(x=>x.classList.toggle('on',x.dataset.m===NP.mode));
+     document.querySelectorAll('#np-dns button').forEach(x=>x.classList.toggle('on',x.dataset.d===NP.dnsMode));
+     const dr=document.getElementById('np-dnsrow'); if(dr) dr.style.display=NP.dnsMode==='custom'?'':'none';
+     const dc=document.getElementById('np-dnscustom'); if(dc&&document.activeElement!==dc) dc.value=NP.dnsCustom||'';
+     const ex=NP.exit||{};
+     const exEl=document.getElementById('np-exit');
+     if(exEl) exEl.innerHTML='<b>'+esc(ex.name||'—')+'</b>'+(ex.currentName?' <span class="mut">→ '+esc(ex.currentName)+'</span>':'')+(ex.type?' <span class="tag">'+esc(ex.type)+'</span>':'');
+     const wEl=document.getElementById('np-warp');
+     if(wEl) wEl.innerHTML=NP.warp&&NP.warp.registered
+       ? '<div class="sm-row"><span>状态</span><span class="set-val">已注册 · 端点 '+esc(NP.warp.endpoint||'')+' · '+fmtT(NP.warp.registeredAt)+'</span></div><div class="sm-row"><span></span><span class="row"><button class="btn gray" id="np-warp-reg">重新注册</button><button class="btn red" id="np-warp-del">移除</button></span></div><p class="mut" style="margin-top:4px">可作任意节点的前置，也可在手动组里直接选为出口。</p>'
+       : '<div class="sm-row"><span>状态</span><span class="set-val">未注册</span></div><div class="sm-row"><span></span><button class="btn" id="np-warp-reg">注册 WARP 中继</button></div><p class="mut" style="margin-top:4px">用 Cloudflare 的公开注册在本机生成一套 WireGuard 身份存进 Data，可给 IPv6 节点或普通节点当「前置」（链式代理）。注册走当前网络，失败会具名报错。</p>';
+     const wr=document.getElementById('np-warp-reg'); if(wr) wr.onclick=async()=>{ busy('正在注册 WARP…'); const r=await post('/api/nodepro/warp',{action:'register'}); if(r.error){ alert('WARP 注册失败：'+r.error); busy('WARP 注册失败'); } else { NP=r; paintNP(); busy('WARP 已注册'); } };
+     const wd=document.getElementById('np-warp-del'); if(wd) wd.onclick=async()=>{ if(!confirm('移除 WARP 中继？注册信息会从 Data 删除，用它当前置的节点会回到无前置。')) return; const r=await post('/api/nodepro/warp',{action:'remove'}); if(r.error) alert(r.error); else { NP=r; paintNP(); } };
+     const gEl=document.getElementById('np-groups'); if(gEl) gEl.innerHTML=(NP.groups||[]).map(groupHTML).join('');
+     const dEl=document.getElementById('np-defrules'); if(dEl) dEl.innerHTML=(NP.defaultRules||[]).map(r0=>'• '+esc(r0.label)+' → '+esc(r0.action)).join('<br>');
+     if(!rulesDraft) rulesDraft=(NP.rules||[]).map(r0=>({...r0}));
+     paintRules();
+     const t=NP.traffic||{};
+     const sess=document.getElementById('np-sess'); if(sess) sess.textContent='↓ '+fmtB(t.sessDown)+' · ↑ '+fmtB(t.sessUp);
+     const rates=document.getElementById('np-rates');
+     if(rates) rates.textContent=t.available?('↓ '+fmtRate(t.down)+' · ↑ '+fmtRate(t.up)):((NP.coreRunning?'Clash API 不可用':'核心未运行'));
+   };
+   const paintRules=()=>{
+     const el=document.getElementById('np-rules'); if(!el) return;
+     const tn={domain:'域名',suffix:'后缀',ipcidr:'IP 段'}, an={proxy:'代理',direct:'直连',block:'拒绝'};
+     el.innerHTML=(rulesDraft&&rulesDraft.length)?rulesDraft.map((r0,i)=>'<div class="sm-row"><span><label class="sm-sw" style="vertical-align:-3px;margin-right:8px"><input type="checkbox" data-ren="'+i+'" '+(r0.enabled?'checked':'')+'><i></i></label>'+esc(tn[r0.type]||r0.type)+' · <b>'+esc(r0.value)+'</b> → '+esc(an[r0.action]||r0.action)+'</span><button class="btn gray" data-rdel="'+i+'">删除</button></div>').join(''):'<p class="mut">还没有自定义规则。</p>';
+     el.querySelectorAll('[data-rdel]').forEach(x=>x.onclick=()=>{ rulesDraft.splice(+x.dataset.rdel,1); paintRules(); });
+     el.querySelectorAll('[data-ren]').forEach(x=>x.onchange=()=>{ rulesDraft[+x.dataset.ren].enabled=x.checked; });
+   };
+   const loadNP=async()=>{ const r=await api('/api/nodepro/status'); if(r&&!r.error){ NP=r; paintNP(); } };
+   const act=async(fn,t)=>{ busy(t||'处理中…'); const r=await fn(); if(r&&r.error){ alert(r.error); busy('出错：'+r.error); return null; } if(r) { NP=r; paintNP(); } busy('就绪'); return r; };
+   // mode + dns segmented
+   document.querySelectorAll('#np-mode button').forEach(x=>x.onclick=()=>act(async()=>post('/api/nodepro/mode',{mode:x.dataset.m}),'切换模式中…'));
+   document.querySelectorAll('#np-dns button').forEach(x=>x.onclick=()=>{ const mode=x.dataset.d; if(mode==='custom'){ NP.dnsMode='custom'; paintNP(); const i=document.getElementById('np-dnscustom'); if(i) i.focus(); return; } act(async()=>post('/api/nodepro/dns',{mode}),'切换 DNS 中…'); });
+   document.getElementById('np-dnssave').onclick=()=>act(async()=>post('/api/nodepro/dns',{mode:'custom',custom:document.getElementById('np-dnscustom').value}),'保存 DNS 中…');
+   // groups: delegated actions
+   const gWrap=document.getElementById('np-groups');
+   gWrap.addEventListener('click',async e=>{
+     const sel=e.target.closest('[data-sel]'); const tst=e.target.closest('[data-test]');
+     const su=e.target.closest('[data-subupd]'), sr=e.target.closest('[data-subren]'), sd=e.target.closest('[data-subdel]');
+     const vf=e.target.closest('[data-v6fix]');
+     if(sel){ act(async()=>post('/api/nodepro/select',{target:sel.dataset.sel}),'切换出口中…'); return; }
+     if(tst){ busy('测速中（整组会逐个测）…'); const r=await post('/api/nodepro/test',{target:tst.dataset.test}); if(r.error){ alert('测速失败：'+r.error); busy('测速失败'); } else { await loadNP(); busy('测速完成'); } return; }
+     if(su){ busy('更新订阅中…'); const r=await post('/api/nodepro/subs',{action:'update',id:su.dataset.subupd}); if(r.error){ alert('更新失败：'+r.error); busy('订阅更新失败'); } else { NP=r; paintNP(); busy('订阅已更新'); } return; }
+     if(sr){ const name=prompt('订阅新名字：'); if(name) { const r=await post('/api/nodepro/subs',{action:'rename',id:sr.dataset.subren,name}); if(r.error) alert(r.error); else { NP=r; paintNP(); } } return; }
+     if(sd){ if(!confirm('删除这个订阅？它下面的节点会一并移除。')) return; const r=await post('/api/nodepro/subs',{action:'remove',id:sd.dataset.subdel}); if(r.error) alert(r.error); else { NP=r; paintNP(); } return; }
+     if(vf){ const s2=document.getElementById('v6fix-'+vf.dataset.v6fix); if(s2) act(async()=>post('/api/nodepro/detour',{node:vf.dataset.v6fix,detour:s2.value}),'设置前置中…'); return; }
+   });
+   gWrap.addEventListener('change',async e=>{
+     const dt=e.target.closest('[data-detour]');
+     if(dt){ act(async()=>post('/api/nodepro/detour',{node:dt.dataset.detour,detour:dt.value}),'设置前置中…'); return; }
+     const se=e.target.closest('[data-suben]');
+     if(se){ const r=await post('/api/nodepro/subs',{action:'enable',id:se.dataset.suben,enabled:se.checked}); if(r.error){ alert(r.error); se.checked=!se.checked; } else { NP=r; paintNP(); } return; }
+     const sm=e.target.closest('[data-submins]');
+     if(sm){ const r=await post('/api/nodepro/subs',{action:'automins',id:sm.dataset.submins,autoMins:+sm.value||0}); if(r.error) alert(r.error); else NP=r; return; }
+   });
+   // add forms
+   document.getElementById('nadd').onclick=async()=>{
+     const v=document.getElementById('nlink').value.trim(); if(!v) return;
+     busy('添加节点中…');
+     const r=await api('/api/node',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({link:v})});
+     if(r.error){ alert(r.error); busy('添加失败'); } else { document.getElementById('nlink').value=''; await loadNP(); busy(r.message||'已添加'); coreAct('status'); }
+   };
+   document.getElementById('nsubbtn').onclick=async()=>{
+     const u=document.getElementById('nsub').value.trim(); if(!u) return;
+     busy('拉取订阅中…');
+     const r=await post('/api/nodepro/subs',{action:'add',name:document.getElementById('nsubname').value.trim(),url:u});
+     if(r.error){ alert(r.error); busy('订阅添加失败'); if(r.groups){ NP=r; paintNP(); } }
+     else { document.getElementById('nsub').value=''; document.getElementById('nsubname').value=''; NP=r; paintNP(); busy('订阅已添加'); }
+   };
+   document.getElementById('np-updall').onclick=async()=>{ busy('更新全部订阅中…'); const r=await post('/api/nodepro/subs',{action:'updateAll'}); if(r.error) alert('部分订阅更新失败：'+r.error); if(r.groups){ NP=r; paintNP(); } busy('订阅更新完成'); };
+   // rules editor
+   document.getElementById('np-radd').onclick=()=>{
+     const v=document.getElementById('np-rvalue').value.trim(); if(!v) return;
+     rulesDraft=rulesDraft||[]; rulesDraft.push({id:'',type:document.getElementById('np-rtype').value,value:v,action:document.getElementById('np-raction').value,enabled:true});
+     document.getElementById('np-rvalue').value=''; paintRules();
+   };
+   document.getElementById('np-rsave').onclick=()=>act(async()=>post('/api/nodepro/rules',{rules:rulesDraft||[]}),'保存规则中…');
+   // connections
+   const paintConns=async()=>{
+     const box=document.getElementById('np-conns'); if(!box) return;
+     const r=await api('/api/nodepro/connections');
+     const note=document.getElementById('np-conn-note'); if(note) note.textContent=r.available?((r.connections||[]).length+' 条'):(r.reason||'不可用');
+     if(!r.available){ box.innerHTML='<p class="mut">'+(esc(r.reason||'Clash API 不可用'))+'——如实显示，不造数据。</p>'; return; }
+     const cc2=r.connections||[];
+     box.innerHTML=cc2.length?('<table style="width:100%;border-collapse:collapse;font-size:12.5px"><tr style="text-align:left;opacity:.6"><th style="padding:4px 6px">目标</th><th>网络</th><th>出站链</th><th>↓ / ↑</th><th>开始</th><th></th></tr>'+cc2.map(c=>'<tr style="border-top:1px solid rgba(255,255,255,.06)"><td style="padding:5px 6px;word-break:break-all">'+esc(c.host)+(c.port?':'+esc(c.port):'')+'</td><td>'+esc(c.network||'')+'</td><td>'+esc((c.chains||[]).join(' → '))+'</td><td style="white-space:nowrap">'+fmtB(c.download)+' / '+fmtB(c.upload)+'</td><td style="white-space:nowrap">'+(c.start?new Date(c.start*1000).toLocaleTimeString():'')+'</td><td><button class="btn gray" data-connclose="'+esc(c.id)+'">关闭</button></td></tr>').join('')+'</table>'):'<p class="mut">当前没有连接。</p>';
+     box.querySelectorAll('[data-connclose]').forEach(x=>x.onclick=async()=>{ await post('/api/nodepro/connections/close',{id:x.dataset.connclose}); paintConns(); });
+   };
+   document.getElementById('np-conn-refresh').onclick=paintConns;
+   document.getElementById('np-conn-closeall').onclick=async()=>{ const r=await post('/api/nodepro/connections/close',{all:true}); if(r.error) alert(r.error); paintConns(); };
+   // core buttons + accel + misc (ids kept from the old page)
+   coreAct('status'); loadNP(); paintConns();
    const loadAccel=async()=>{
      const r=await api('/api/accel');
-     const t=document.getElementById('accel-toggle'); if(t) t.textContent='软件内全局加速：'+(r.enabled?'开':'关');
-     const s=document.getElementById('accel-state'); if(s) s.textContent=r.enabled?(r.coreRunning?'生效中 · 节点运行中':'已开启 · 节点启动后生效'):'已关闭 · 软件内直连';
+     const s=document.getElementById('accel-state'); if(s) s.textContent=r.enabled?(r.coreRunning?'加速开 · 生效中':'加速开 · 节点启动后生效'):'加速关 · 软件内直连';
    };
    loadAccel();
    document.getElementById('accel-toggle').onclick=async()=>{
@@ -2806,21 +3019,35 @@ function bind(id){
      await api('/api/accel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:!cur.enabled})});
      loadAccel(); coreAct('status');
    };
-   document.getElementById('nadd').onclick=()=>nodePost({link:document.getElementById('nlink').value});
-   document.getElementById('nsubbtn').onclick=()=>nodePost({suburl:document.getElementById('nsub').value});
-   document.getElementById('nclear').onclick=()=>nodePost({action:'clear'});
-   document.getElementById('core-start').onclick=()=>coreAct('start');
-   document.getElementById('core-stop').onclick=()=>{coreAct('stop')};
-   document.getElementById('core-refresh').onclick=()=>coreAct('status');
+   document.getElementById('nclear').onclick=async()=>{ if(!confirm('清空全部节点与订阅？（WARP、规则、DNS 与模式保留）')) return; await api('/api/node',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'clear'})}); rulesDraft=null; await loadNP(); coreAct('status'); busy('已清空'); };
+   document.getElementById('core-start').onclick=async()=>{ await coreAct('start'); setTimeout(()=>{ loadNP(); paintConns(); },600); };
+   document.getElementById('core-stop').onclick=async()=>{ await coreAct('stop'); setTimeout(loadNP,600); };
+   document.getElementById('core-refresh').onclick=()=>{ coreAct('status'); loadNP(); paintConns(); };
    document.getElementById('ptest').onclick=async()=>{
-     const s=document.getElementById('core-status'); s.textContent='状态：自检中（经节点连接 Google，最多约 15 秒）…';
+     busy('自检中（经节点连接 Google，最多约 15 秒）…');
      const r=await api('/api/proxytest',{method:'POST'});
-     s.textContent=(r.ok?'✅ ':'❌ ')+(r.message||'');
+     busy((r.ok?'✅ ':'❌ ')+(r.message||''));
    };
    document.getElementById('corelogbtn').onclick=async()=>{
      const r=await api('/api/core/log');
      const el=document.getElementById('corelog'); el.style.display='block'; el.textContent=r.log||'(暂无日志)';
    };
+   // polling: traffic 1s (rates + chart only), connections
+   // 2.5s, full status 15s (skipped while the user is editing
+   // a control inside the page). Cleaned up on window close.
+   const ivT=setInterval(async()=>{
+     if(document.hidden||!document.getElementById('np-chart')) return;
+     const r=await api('/api/nodepro/status'); if(!r||r.error) return;
+     const t=r.traffic||{};
+     if(t.available){ trafPts.push({rx:t.down||0,tx:t.up||0}); if(trafPts.length>90) trafPts.splice(0,trafPts.length-90); }
+     const rates=document.getElementById('np-rates'); if(rates) rates.textContent=t.available?('↓ '+fmtRate(t.down)+' · ↑ '+fmtRate(t.up)):((r.coreRunning?'Clash API 不可用':'核心未运行'));
+     const sess=document.getElementById('np-sess'); if(sess) sess.textContent='↓ '+fmtB(t.sessDown)+' · ↑ '+fmtB(t.sessUp);
+     drawNpChart();
+   },1000);
+   const ivC=setInterval(()=>{ if(!document.hidden&&document.getElementById('np-conns')) paintConns(); },2500);
+   const ivS=setInterval(()=>{ if(document.hidden) return; const ae=document.activeElement; if(ae&&(ae.tagName==='SELECT'||ae.tagName==='INPUT'||ae.tagName==='TEXTAREA')&&ae.closest&&ae.closest('.win')) return; loadNP(); },15000);
+   const winEl=document.getElementById('win-core');
+   if(winEl){ const mo=new MutationObserver(()=>{ if(!document.body.contains(winEl)){ clearInterval(ivT); clearInterval(ivC); clearInterval(ivS); mo.disconnect(); } }); mo.observe(document.body,{childList:true,subtree:true}); }
  }
 }
 /* ----- control center + notification center (v0.47) -----
@@ -2917,19 +3144,25 @@ function ccTile(id,on,ico,name,sub,chev){
 async function paintCC(){
  if(!ccEl.innerHTML) ccEl.innerHTML='<div class="nc-empty">读取中…</div>';
  const s=SETTINGS||SETDEF;
- const [core,node,remote,pairing]=await Promise.all([
+ const [core,node,remote,pairing,npst]=await Promise.all([
   api('/api/core',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'status'})}).catch(()=>({})),
   api('/api/node').catch(()=>({nodes:[]})),
   api('/api/remote/state').catch(()=>({})),
-  api('/api/remote/pairing').catch(()=>({operators:[]}))
+  api('/api/remote/pairing').catch(()=>({operators:[]})),
+  api('/api/nodepro/status').catch(()=>null)
  ]);
  const running=!!core.running, nodes=node.nodes||[];
- const curNode=nodes.length?nodes[0]:null;
+ /* v0.49: the node tile reads the nodepro status -- the exit
+    shown is the REAL current exit, and the expanded list is a
+    real switcher (click = switch), repaying the v0.47 debt
+    where rows could only jump to the node page. */
+ const npExit=(npst&&npst.exit)||null;
+ const curNode=npExit?{name:npExit.currentName?((npExit.name)+' → '+npExit.currentName):npExit.name}:(nodes.length?nodes[0]:null);
  const rsum=remoteSummary(remote,pairing);
  const wallName=customWall?'自定义壁纸':((WALLPAPERS[wallKey()]||{}).n||wallKey());
  let h='<div class="cc-grid">';
  /* node big tile: always present (core control, not hideable) */
- h+=`<div class="cc-tile wide ${running?'on':''}" id="cc-node"><span class="cc-ico">🚀</span><span class="cc-tx"><div class="cc-name">节点 ${running?'已连接':'未连接'}</div><div class="cc-sub">${running?(curNode?esc(curNode.name):'—'):(nodes.length?('默认节点：'+esc(nodes[0].name)):'还没有节点')}</div></span><span class="cc-chev" id="cc-node-chev">${ccNodesOpen?'⌄':'›'}</span></div>`;
+ h+=`<div class="cc-tile wide ${running?'on':''}" id="cc-node"><span class="cc-ico">🚀</span><span class="cc-tx"><div class="cc-name">节点 ${running?'已连接':'未连接'}</div><div class="cc-sub">${running?(curNode?esc(curNode.name):'—'):(npExit?('当前选择：'+esc(npExit.name)):(nodes.length?('默认节点：'+esc(nodes[0].name)):'还没有节点'))}</div></span><span class="cc-chev" id="cc-node-chev">${ccNodesOpen?'⌄':'›'}</span></div>`;
  if(s.cc_show_immersive!==false) h+=ccTile('immersive',!!s.immersiveMode,'◑','沉浸模式',s.immersiveMode?'开':'关');
  if(s.cc_show_stage!==false) h+=ccTile('stage',stageOn(),'▦','台前调度',stageOn()?'开':'关');
  if(s.cc_show_fullscreen!==false) h+=ccTile('fullscreen',!!s.desktopFullscreen,'⛶','桌面全屏',s.desktopFullscreen?'开':'关');
@@ -2938,7 +3171,16 @@ async function paintCC(){
  if(s.cc_show_wallpaper!==false) h+=ccTile('wall',false,'🖼','壁纸',wallName,true);
  h+='</div>';
  if(ccNodesOpen){
-  h+='<div class="cc-list">'+(nodes.length?nodes.map((n,i)=>`<div class="cc-li" data-ccnode="${i}"><span class="cc-dot ${running&&i===0?'on':''}"></span><span>${esc(n.name)}<span style="opacity:.6"> · ${esc(n.type)} ${esc(n.server)}:${n.port}</span></span>${i===0?'<span class="cc-cur">默认</span>':''}</div>`).join(''):'<div class="cc-li">还没有节点</div>')+'<div style="font-size:12px;opacity:.6;padding:6px 8px 2px">连接时用默认（第一个）节点；节点的增删在「节点」页。</div></div>';
+  let ccRows=[];
+  if(npst&&npst.groups){
+   (npst.groups||[]).forEach(g=>{ (g.nodes||[]).forEach(n=>{
+     if(g.kind==='virtual') ccRows.push({target:n.id,label:n.name,sub:n.id==='auto'?'urltest 自动测速选最快':'按顺序探活顺次切换',cur:npst.selected===n.id});
+     else if(n.isWarp) ccRows.push({target:'warp',label:'WARP 中继',sub:'wireguard',cur:npst.selected==='warp'});
+     else ccRows.push({target:n.id,label:n.name,sub:n.type+' '+n.server+':'+n.port,cur:npst.selected===n.id});
+   }); });
+  }
+  if(!ccRows.length&&nodes.length) ccRows=nodes.map((n,i)=>({target:'',label:n.name,sub:n.type+' '+n.server+':'+n.port,cur:i===0}));
+  h+='<div class="cc-list">'+(ccRows.length?ccRows.map(r0=>`<div class="cc-li" data-ccnode="${esc(r0.target)}"><span class="cc-dot ${running&&r0.cur?'on':''}"></span><span>${esc(r0.label)}<span style="opacity:.6"> · ${esc(r0.sub)}</span></span>${r0.cur?'<span class="cc-cur">当前出口</span>':''}</div>`).join(''):'<div class="cc-li">还没有节点</div>')+'<div style="font-size:12px;opacity:.6;padding:6px 8px 2px">点节点即切换出口（核心在跑时热切换，不重启）；节点的增删在「节点」页。</div></div>';
  }
  if(ccRemoteOpen&&s.cc_show_remote!==false){
   const rows=[['off','关闭'],['read','只读诊断'],['assist','协助']];
@@ -2960,7 +3202,14 @@ async function paintCC(){
  };
  const chev=ccEl.querySelector('#cc-node-chev');
  if(chev) chev.onclick=e=>{ e.stopPropagation(); ccNodesOpen=!ccNodesOpen; paintCC(); };
- ccEl.querySelectorAll('[data-ccnode]').forEach(el=>el.onclick=()=>{ closeCC(); openApp('core'); });
+ ccEl.querySelectorAll('[data-ccnode]').forEach(el=>el.onclick=async()=>{
+  const target=el.dataset.ccnode;
+  if(!target){ closeCC(); openApp('core'); return; }
+  el.style.opacity='.55';
+  const r=await api('/api/nodepro/select',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({target})}).catch(()=>null);
+  if(r&&r.error){ el.style.opacity=''; alert('切换失败：'+r.error); return; }
+  pollNode(); paintCC();
+ });
  const tgl=(id,fn)=>{ const el=ccEl.querySelector('#cc-'+id); if(el) el.onclick=fn; };
  tgl('immersive',async()=>{ const r=await saveSetting({immersiveMode:!((SETTINGS||SETDEF).immersiveMode)}); if(r&&r.error) alert('保存失败：'+r.error); paintCC(); });
  tgl('stage',()=>{ toggleStage(!stageOn()); paintCC(); });
