@@ -1,0 +1,434 @@
+name: sandboxie-validate
+
+# Manual validation spike (NOT part of the product build):
+# proves whether Sandboxie Plus can serve as MJ Terminal's future
+# "App Isolation" component: silent install on a clean Windows machine,
+# a box whose root is pinned inside a staging Data folder, a real
+# installer (WeChat) fully contained in the box, a path-change
+# "new PC" simulation, and delete-the-box cleanup.
+# Notepad++ (standard NSIS) is the control group: it runs through the
+# exact same flow only if the WeChat run fails a hard metric.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Runner info
+        shell: pwsh
+        run: |
+          $res = Join-Path $env:GITHUB_WORKSPACE 'results'
+          New-Item -ItemType Directory -Force -Path $res | Out-Null
+          $ci = Get-ComputerInfo
+          $me = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
+          @(
+            "OsName=$($ci.OsName)"
+            "OsVersion=$($ci.OsVersion)"
+            "WindowsVersion=$($ci.WindowsVersion)"
+            "OsBuildNumber=$($ci.OsBuildNumber)"
+            "User=$(whoami)"
+            "IsAdmin=$($me.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))"
+            "Workspace=$env:GITHUB_WORKSPACE"
+          ) | Set-Content (Join-Path $res 'runner-info.txt') -Encoding UTF8
+          Get-Content (Join-Path $res 'runner-info.txt')
+
+      - name: Write validation script
+        shell: pwsh
+        run: |
+          $script = @'
+          param(
+            [Parameter(Mandatory=$true)][string]$AppLabel,
+            [Parameter(Mandatory=$true)][string]$InstallerUrl,
+            [Parameter(Mandatory=$true)][string]$InstallerFile,
+            [Parameter(Mandatory=$true)][long]$InstallerBytes,
+            [Parameter(Mandatory=$true)][string]$InstallerSha256,
+            [Parameter(Mandatory=$true)][string]$InstallArgs,
+            [Parameter(Mandatory=$true)][string]$ExeNamesCsv,
+            [Parameter(Mandatory=$true)][string]$HostHintDir,
+            [Parameter(Mandatory=$true)][string]$UninstallRegex
+          )
+          $ErrorActionPreference = 'Continue'
+          $ExeNames = $ExeNamesCsv -split ','
+          $ResDir = Join-Path $env:GITHUB_WORKSPACE ("results\" + $AppLabel)
+          New-Item -ItemType Directory -Force -Path $ResDir | Out-Null
+          $DlDir = Join-Path $env:GITHUB_WORKSPACE 'dl'
+          New-Item -ItemType Directory -Force -Path $DlDir | Out-Null
+          $LogFile = Join-Path $ResDir 'log.txt'
+          $script:Metrics = @()
+          function Log([string]$Msg) {
+            $line = "[{0}] {1}" -f (Get-Date -Format 'HH:mm:ss'), $Msg
+            Write-Host $line
+            Add-Content -Path $LogFile -Value $line -Encoding UTF8
+          }
+          function Metric([string]$Name, [bool]$Ok, [string]$Detail) {
+            $script:Metrics += [pscustomobject]@{ Name = $Name; Ok = $Ok; Detail = $Detail }
+            Log ("METRIC {0} = {1} :: {2}" -f $Name, $(if ($Ok) { 'PASS' } else { 'FAIL' }), $Detail)
+          }
+          function Save([string]$Name, [object]$Content) {
+            $Content | Out-String -Width 400 | Set-Content (Join-Path $ResDir $Name) -Encoding UTF8
+          }
+          # ---- pinned Sandboxie constants ----
+          $SbieVer  = '1.18.8'
+          $SbieFile = 'Sandboxie-Plus-x64-v1.18.8.exe'
+          $SbieUrl  = 'https://github.com/sandboxie-plus/Sandboxie/releases/download/v1.18.8/Sandboxie-Plus-x64-v1.18.8.exe'
+          $SbieBytes = 24930680
+          $SbieSha  = 'f27078ff74a07906fd51476079e1a7a8f5e20c8bb75a9d2ae86169d47179ae76'
+          $BoxName  = 'MJBox'
+          $IniPath  = 'C:\Windows\Sandboxie.ini'
+          function Find-StartExe {
+            $cands = @("$env:ProgramFiles\Sandboxie-Plus\Start.exe", "${env:ProgramFiles(x86)}\Sandboxie-Plus\Start.exe")
+            foreach ($c in $cands) { if ($c -and (Test-Path $c)) { return $c } }
+            return $null
+          }
+          function Get-PinnedFile([string]$Url, [string]$Dest, [long]$Bytes, [string]$Sha) {
+            if (-not (Test-Path $Dest)) {
+              Log "downloading $Url"
+              Invoke-WebRequest -Uri $Url -OutFile $Dest -UseBasicParsing
+            }
+            $f = Get-Item $Dest
+            $h = (Get-FileHash $Dest -Algorithm SHA256).Hash.ToLower()
+            Log "file $Dest bytes=$($f.Length) sha256=$h"
+            if ($f.Length -ne $Bytes) { throw "size mismatch for $Dest : got $($f.Length), want $Bytes" }
+            if ($h -ne $Sha) { throw "sha256 mismatch for $Dest" }
+          }
+          function Get-UninstallMatches {
+            $roots = @('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+                       'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*',
+                       'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*')
+            $items = foreach ($r in $roots) { Get-ItemProperty $r -ErrorAction SilentlyContinue }
+            $items | Where-Object { $_.DisplayName -and ($_.DisplayName -match $UninstallRegex) } |
+              ForEach-Object { "$($_.DisplayName) [$($_.DisplayVersion)]" } | Sort-Object -Unique
+          }
+          function Get-HostHintState {
+            $state = @()
+            foreach ($pf in @($env:ProgramFiles, ${env:ProgramFiles(x86)})) {
+              if (-not $pf) { continue }
+              $p = Join-Path $pf $HostHintDir
+              $state += "$p exists=$(Test-Path $p)"
+              if (Test-Path $p) { $state += (Get-ChildItem $p -ErrorAction SilentlyContinue | ForEach-Object { "  child: $($_.Name)" }) }
+            }
+            return $state
+          }
+          function Get-BoxPids([string]$StartExe) {
+            try {
+              $out = & $StartExe "/box:$BoxName" /listpids 2>$null | Out-String
+              return @([regex]::Matches($out, '\d{2,6}') | ForEach-Object { [int]$_.Value } | Sort-Object -Unique)
+            } catch { return @() }
+          }
+          function Stop-Box([string]$StartExe) {
+            try { & $StartExe "/box:$BoxName" /terminate 2>$null | Out-Null } catch {}
+            Start-Sleep -Seconds 3
+            foreach ($p in (Get-BoxPids $StartExe)) {
+              try { Stop-Process -Id $p -Force -ErrorAction SilentlyContinue } catch {}
+            }
+            Start-Sleep -Seconds 2
+          }
+          function Set-BoxIni([string]$BoxRoot) {
+            $text = ''
+            if (Test-Path $IniPath) { $text = Get-Content $IniPath -Raw }
+            $text = [regex]::Replace($text, '(?ms)^\[' + $BoxName + '\].*?(?=^\[|\z)', '')
+            $section = "`r`n[$BoxName]`r`nEnabled=y`r`nFileRootPath=$BoxRoot`r`nAutoRecover=n`r`n"
+            [IO.File]::WriteAllText($IniPath, ($text.TrimEnd() + $section), [Text.Encoding]::Unicode)
+            Copy-Item $IniPath (Join-Path $ResDir 'Sandboxie.ini.used') -Force
+            Log "Sandboxie.ini [$BoxName] FileRootPath=$BoxRoot"
+          }
+          function Reload-Sbie([string]$StartExe) {
+            for ($i = 0; $i -lt 3; $i++) {
+              try { & $StartExe /reload 2>$null | Out-Null } catch {}
+              Start-Sleep -Seconds 3
+              $svc = Get-Service SbieSvc -ErrorAction SilentlyContinue
+              if ($svc -and $svc.Status -eq 'Running') { return $true }
+            }
+            return $false
+          }
+          function Find-InBox([string]$BoxRoot) {
+            foreach ($n in $ExeNames) {
+              $hit = Get-ChildItem $BoxRoot -Recurse -Filter $n -ErrorAction SilentlyContinue | Select-Object -First 1
+              if ($hit) { return $hit }
+            }
+            return $null
+          }
+          function To-VirtualPath([string]$BoxRoot, [string]$Physical) {
+            $idx = $Physical.IndexOf('\drive\', [StringComparison]::OrdinalIgnoreCase)
+            if ($idx -lt 0) { return $null }
+            $rest = $Physical.Substring($idx + 7)   # e.g. C\Program Files\Tencent\Weixin\Weixin.exe
+            if ($rest.Length -lt 3) { return $null }
+            return $rest.Substring(0, 1) + ':' + $rest.Substring(1)
+          }
+          function Start-BoxedApp([string]$StartExe, [string]$VirtualPath) {
+            & $StartExe "/box:$BoxName" "$VirtualPath" | Out-Null
+            $names = $ExeNames | ForEach-Object { [IO.Path]::GetFileNameWithoutExtension($_) }
+            for ($i = 0; $i -lt 18; $i++) {
+              Start-Sleep -Seconds 5
+              $procs = Get-Process -ErrorAction SilentlyContinue | Where-Object { $names -contains $_.ProcessName }
+              if ($procs) { return @($procs) }
+            }
+            return @()
+          }
+          # ================= run =================
+          Log "=== validation for $AppLabel ==="
+          Save 'pins.txt' @(
+            "app=$AppLabel"
+            "installerUrl=$InstallerUrl"
+            "installerFile=$InstallerFile"
+            "installerBytes=$InstallerBytes"
+            "installerSha256=$InstallerSha256"
+            "installArgs=$InstallArgs"
+            "sandboxieVersion=$SbieVer"
+            "sandboxieBytes=$SbieBytes"
+            "sandboxieSha256=$SbieSha"
+          )
+          # ---------- baseline ----------
+          $baseDirs = Get-HostHintState
+          $baseUninst = @(Get-UninstallMatches)
+          Save 'baseline.txt' (@("--- host hint dirs ---") + $baseDirs + @("--- host uninstall matches ---") + $baseUninst)
+          # ---------- Sandboxie install ----------
+          $StartExe = Find-StartExe
+          if ($StartExe) {
+            Log "Sandboxie already present: $StartExe"
+            Metric 'sbie-install' $true 'already installed on this runner'
+          } else {
+            try {
+              $sbiePath = Join-Path $DlDir $SbieFile
+              Get-PinnedFile $SbieUrl $sbiePath $SbieBytes $SbieSha
+              $sw = [Diagnostics.Stopwatch]::StartNew()
+              $ip = Start-Process $sbiePath -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-' -PassThru -Wait
+              $sw.Stop()
+              Log "sandboxie installer exit=$($ip.ExitCode) elapsedSec=$([math]::Round($sw.Elapsed.TotalSeconds,1))"
+              Save 'sbie-install.txt' "exitCode=$($ip.ExitCode)`nelapsedSec=$([math]::Round($sw.Elapsed.TotalSeconds,1))"
+              $okSvc = $false
+              for ($i = 0; $i -lt 36; $i++) {
+                Start-Sleep -Seconds 5
+                $StartExe = Find-StartExe
+                $svc = Get-Service SbieSvc -ErrorAction SilentlyContinue
+                if ($StartExe -and $svc -and $svc.Status -eq 'Running') { $okSvc = $true; break }
+              }
+              if (-not $okSvc) {
+                try { Start-Service SbieSvc -ErrorAction SilentlyContinue } catch {}
+                try { & sc.exe start SbieDrv 2>$null | Out-Null } catch {}
+                Start-Sleep -Seconds 5
+                $StartExe = Find-StartExe
+                $svc = Get-Service SbieSvc -ErrorAction SilentlyContinue
+                $okSvc = ($StartExe -and $svc -and $svc.Status -eq 'Running')
+              }
+              Metric 'sbie-install' $okSvc "StartExe=$StartExe serviceRunning=$okSvc"
+            } catch {
+              Metric 'sbie-install' $false $_.Exception.Message
+            }
+          }
+          $drvOut = (& sc.exe query SbieDrv 2>&1 | Out-String)
+          $svcOut = (& sc.exe query SbieSvc 2>&1 | Out-String)
+          Save 'sbie-driver.txt' (@('--- sc query SbieDrv ---') + $drvOut + @('--- sc query SbieSvc ---') + $svcOut)
+          Metric 'sbie-driver-running' ($drvOut -match 'RUNNING') 'sc query SbieDrv'
+          if (-not $StartExe) { Log 'FATAL: no Start.exe, aborting app flow'; Save 'verdict-metrics.txt' $script:Metrics; 'FAIL' | Set-Content (Join-Path $ResDir 'overall.txt'); exit 1 }
+          Log "StartExe=$StartExe"
+          # ---------- staging + box ----------
+          $StageRoot = Join-Path $env:GITHUB_WORKSPACE ("stage-mj-" + $AppLabel)
+          if (Test-Path $StageRoot) { Remove-Item $StageRoot -Recurse -Force }
+          $BoxRoot = Join-Path $StageRoot 'Data\sandbox\MJBox'
+          New-Item -ItemType Directory -Force -Path $BoxRoot | Out-Null
+          Set-BoxIni $BoxRoot
+          $reloaded = Reload-Sbie $StartExe
+          Metric 'sbie-reload' $reloaded 'config reload + service running'
+          # smoke: a file written inside the box must land under the box root, never on host C:
+          $smokeHost = 'C:\mj-smoke.txt'
+          if (Test-Path $smokeHost) { Remove-Item $smokeHost -Force }
+          & $StartExe "/box:$BoxName" /wait "$env:SystemRoot\System32\cmd.exe" /c "echo MJBOXSMOKE > C:\mj-smoke.txt" | Out-Null
+          Start-Sleep -Seconds 2
+          $smokeInBox = Get-ChildItem $StageRoot -Recurse -Filter 'mj-smoke.txt' -ErrorAction SilentlyContinue | Select-Object -First 1
+          $smokeOnHost = Test-Path $smokeHost
+          Save 'box-smoke.txt' "inBox=$($smokeInBox.FullName)`nhostC=$smokeOnHost"
+          Metric 'box-root-pinned' ([bool]$smokeInBox -and -not $smokeOnHost) "marker in box: $($smokeInBox.FullName); host C: copy: $smokeOnHost"
+          Stop-Box $StartExe
+          # ---------- app installer ----------
+          $appInstaller = Join-Path $DlDir $InstallerFile
+          try {
+            Get-PinnedFile $InstallerUrl $appInstaller $InstallerBytes $InstallerSha256
+            Metric 'app-download' $true "$InstallerFile bytes/sha verified"
+          } catch {
+            Metric 'app-download' $false $_.Exception.Message
+            Save 'verdict-metrics.txt' $script:Metrics; 'FAIL' | Set-Content (Join-Path $ResDir 'overall.txt'); exit 1
+          }
+          # ---------- in-box install ----------
+          Log "starting in-box install: $appInstaller $InstallArgs"
+          $swI = [Diagnostics.Stopwatch]::StartNew()
+          $proc = Start-Process $StartExe -ArgumentList @("/box:$BoxName", '/wait', "`"$appInstaller`"", $InstallArgs) -PassThru
+          $deadline = (Get-Date).AddMinutes(12)
+          while (-not $proc.HasExited -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 10 }
+          if (-not $proc.HasExited) { Log 'WARN: starter process still alive after 12 min; continuing to pid poll' }
+          $deadline2 = (Get-Date).AddMinutes(5)
+          do {
+            Start-Sleep -Seconds 15
+            $pids = Get-BoxPids $StartExe
+            Log "box pids during install: $($pids -join ',')"
+          } while ($pids.Count -gt 0 -and (Get-Date) -lt $deadline2)
+          if ($pids.Count -gt 0) { Log "WARN: lingering box pids after install: $($pids -join ',') (will terminate)"; Stop-Box $StartExe }
+          $swI.Stop()
+          Log "install phase elapsedSec=$([math]::Round($swI.Elapsed.TotalSeconds,1))"
+          $found = Find-InBox $BoxRoot
+          if ($found) {
+            $virt = To-VirtualPath $BoxRoot $found.FullName
+            Save 'found-in-box.txt' "physical=$($found.FullName)`nvirtual=$virt"
+            Metric 'app-installed-in-box' $true $found.FullName
+          } else {
+            Metric 'app-installed-in-box' $false "none of [$ExeNamesCsv] found under $BoxRoot"
+            $virt = $null
+          }
+          $boxSize = (Get-ChildItem $BoxRoot -Recurse -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
+          $boxFiles = (Get-ChildItem $BoxRoot -Recurse -File -ErrorAction SilentlyContinue | Measure-Object).Count
+          Save 'box-size.txt' "boxRoot=$BoxRoot`nbytes=$boxSize`nfiles=$boxFiles`ninstallElapsedSec=$([math]::Round($swI.Elapsed.TotalSeconds,1))"
+          Log "box size bytes=$boxSize files=$boxFiles"
+          Get-ChildItem $BoxRoot -Recurse -ErrorAction SilentlyContinue | Select-Object -First 300 | ForEach-Object { $_.FullName } | Set-Content (Join-Path $ResDir 'box-listing.txt') -Encoding UTF8
+          # ---------- containment ----------
+          $nowDirs = Get-HostHintState
+          $nowUninst = @(Get-UninstallMatches)
+          $newUninst = @($nowUninst | Where-Object { $baseUninst -notcontains $_ })
+          Save 'after-install-host.txt' (@("--- host hint dirs after ---") + $nowDirs + @("--- host uninstall matches after ---") + $nowUninst + @("--- NEW host uninstall entries ---") + $newUninst)
+          $dirLeak = $false
+          for ($i = 0; $i -lt $baseDirs.Count; $i++) {
+            if ($baseDirs[$i] -match 'exists=False' -and $nowDirs[$i] -match 'exists=True') { $dirLeak = $true }
+          }
+          Metric 'host-dirs-clean' (-not $dirLeak) "hint dir '$HostHintDir' delta checked"
+          Metric 'host-uninstall-clean' ($newUninst.Count -eq 0) "new entries: $($newUninst -join '; ')"
+          # ---------- boxed launch ----------
+          $launchOk = $false; $sbiedll = 'not-checked'
+          if ($virt) {
+            $procs = Start-BoxedApp $StartExe $virt
+            if ($procs.Count -gt 0) {
+              $thePid = $procs[0].Id
+              Start-Sleep -Seconds 20
+              $alive = Get-Process -Id $thePid -ErrorAction SilentlyContinue
+              $boxPids = Get-BoxPids $StartExe
+              try {
+                $mods = (Get-Process -Id $thePid -ErrorAction Stop).Modules | ForEach-Object { $_.ModuleName }
+                if ($mods -contains 'SbieDll.dll') { $sbiedll = 'SbieDll.dll loaded' } else { $sbiedll = 'SbieDll.dll NOT in module list' }
+              } catch { $sbiedll = "module query failed: $($_.Exception.Message)" }
+              Save 'boxed-launch.txt' "pid=$thePid`naliveAfter20s=$([bool]$alive)`nboxPids=$($boxPids -join ',')`npidInBox=$($boxPids -contains $thePid)`nsbieDll=$sbiedll"
+              $launchOk = [bool]$alive -and ($boxPids -contains $thePid)
+            } else {
+              Save 'boxed-launch.txt' 'no process appeared within 90s'
+            }
+          }
+          Metric 'boxed-launch-alive' $launchOk "sbiedll: $sbiedll"
+          # ---------- path-change (new PC) simulation ----------
+          Stop-Box $StartExe
+          $StageRoot2 = Join-Path $env:GITHUB_WORKSPACE ("stage-mj-moved-" + $AppLabel)
+          if (Test-Path $StageRoot2) { Remove-Item $StageRoot2 -Recurse -Force }
+          & robocopy $StageRoot $StageRoot2 /E /NFL /NDL /NJH /NJS | Out-Null
+          Log "robocopy exit=$LASTEXITCODE (codes <8 mean success)"
+          $BoxRoot2 = Join-Path $StageRoot2 'Data\sandbox\MJBox'
+          Set-BoxIni $BoxRoot2
+          $rel2 = Reload-Sbie $StartExe
+          $found2 = Find-InBox $BoxRoot2
+          $moveOk = $false
+          if ($found2 -and $virt) {
+            $procs2 = Start-BoxedApp $StartExe $virt
+            if ($procs2.Count -gt 0) {
+              Start-Sleep -Seconds 15
+              $alive2 = Get-Process -Id $procs2[0].Id -ErrorAction SilentlyContinue
+              $moveOk = [bool]$alive2
+              Save 'moved-launch.txt' "newRoot=$BoxRoot2`npid=$($procs2[0].Id)`naliveAfter15s=$moveOk"
+            } else { Save 'moved-launch.txt' 'no process appeared after move' }
+          } else { Save 'moved-launch.txt' "foundAfterMove=$([bool]$found2) virt=$virt" }
+          Metric 'move-relaunch' ($rel2 -and $moveOk) "same-runner path change simulation (NOT a real machine change)"
+          Stop-Box $StartExe
+          # ---------- cleanup ----------
+          $cleanOk = $false
+          try {
+            Remove-Item $BoxRoot2 -Recurse -Force -ErrorAction Stop
+            $cleanOk = -not (Test-Path $BoxRoot2)
+          } catch {
+            Log "box delete failed once: $($_.Exception.Message); stopping service and retrying"
+            try { Stop-Service SbieSvc -Force -ErrorAction SilentlyContinue } catch {}
+            Start-Sleep -Seconds 3
+            try { Remove-Item $BoxRoot2 -Recurse -Force -ErrorAction Stop; $cleanOk = -not (Test-Path $BoxRoot2) } catch { Log "box delete failed twice: $($_.Exception.Message)" }
+            try { Start-Service SbieSvc -ErrorAction SilentlyContinue } catch {}
+          }
+          $endDirs = Get-HostHintState
+          $endUninst = @(Get-UninstallMatches)
+          $endNew = @($endUninst | Where-Object { $baseUninst -notcontains $_ })
+          $dirLeakEnd = $false
+          for ($i = 0; $i -lt $baseDirs.Count; $i++) {
+            if ($baseDirs[$i] -match 'exists=False' -and $endDirs[$i] -match 'exists=True') { $dirLeakEnd = $true }
+          }
+          Save 'cleanup.txt' "boxRootDeleted=$cleanOk`nhostDirsClean=$(-not $dirLeakEnd)`nnewUninstallEntries=$($endNew -join '; ')"
+          Metric 'cleanup' ($cleanOk -and -not $dirLeakEnd -and $endNew.Count -eq 0) "box wiped; host rechecked"
+          Remove-Item $StageRoot -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item $StageRoot2 -Recurse -Force -ErrorAction SilentlyContinue
+          # ---------- verdict ----------
+          Save 'verdict-metrics.txt' $script:Metrics
+          $hard = @('sbie-install', 'sbie-driver-running', 'box-root-pinned', 'app-installed-in-box', 'host-dirs-clean', 'host-uninstall-clean', 'boxed-launch-alive', 'move-relaunch', 'cleanup')
+          $failed = @($script:Metrics | Where-Object { $hard -contains $_.Name -and -not $_.Ok })
+          if ($failed.Count -eq 0) { 'PASS' | Set-Content (Join-Path $ResDir 'overall.txt'); Log 'OVERALL PASS'; exit 0 }
+          'FAIL' | Set-Content (Join-Path $ResDir 'overall.txt')
+          Log ("OVERALL FAIL: " + ($failed | ForEach-Object { $_.Name } | Join-String -Separator ','))
+          exit 1
+          '@
+          Set-Content -Path .\validate-app.ps1 -Value $script -Encoding UTF8
+          Write-Host "validate-app.ps1 written: $((Get-Item .\validate-app.ps1).Length) bytes"
+
+      - name: Validate WeChat (primary subject)
+        id: wechat
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          .\validate-app.ps1 -AppLabel 'WeChat' `
+            -InstallerUrl 'https://dldir1v6.qq.com/weixin/Universal/Windows/WeChatWin_4.2.0.exe' `
+            -InstallerFile 'WeChatWin_4.2.0.exe' `
+            -InstallerBytes 259938920 `
+            -InstallerSha256 'fc948730e854ae0e03e64ac57ffde0f61b530d7a571d16df411914bad30a1526' `
+            -InstallArgs '/S' `
+            -ExeNamesCsv 'Weixin.exe,WeChat.exe' `
+            -HostHintDir 'Tencent' `
+            -UninstallRegex '微信|WeChat|Weixin'
+
+      - name: Validate Notepad++ (control group, only if WeChat failed)
+        id: notepad
+        if: steps.wechat.outcome == 'failure'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          .\validate-app.ps1 -AppLabel 'NotepadPlusPlus' `
+            -InstallerUrl 'https://github.com/notepad-plus-plus/notepad-plus-plus/releases/download/v8.9.8.1/npp.8.9.8.1.Installer.x64.exe' `
+            -InstallerFile 'npp.8.9.8.1.Installer.x64.exe' `
+            -InstallerBytes 6963432 `
+            -InstallerSha256 '26f3bcced788fadbac4e7e577b430ea2ce6060cf3bcad993ef4612ecd7d743da' `
+            -InstallArgs '/S' `
+            -ExeNamesCsv 'notepad++.exe' `
+            -HostHintDir 'Notepad++' `
+            -UninstallRegex 'Notepad\+\+'
+
+      - name: Final gate and summary
+        if: always()
+        shell: pwsh
+        run: |
+          $wx = 'not-run'; $np = 'not-run'
+          $wxFile = Join-Path $env:GITHUB_WORKSPACE 'results\WeChat\overall.txt'
+          $npFile = Join-Path $env:GITHUB_WORKSPACE 'results\NotepadPlusPlus\overall.txt'
+          if (Test-Path $wxFile) { $wx = (Get-Content $wxFile -Raw).Trim() }
+          if (Test-Path $npFile) { $np = (Get-Content $npFile -Raw).Trim() }
+          $lines = @("# Sandboxie validation", "", "WeChat: **$wx**", "", "Notepad++ (control): **$np**", "")
+          foreach ($app in @('WeChat', 'NotepadPlusPlus')) {
+            $m = Join-Path $env:GITHUB_WORKSPACE "results\$app\verdict-metrics.txt"
+            if (Test-Path $m) { $lines += "## $app metrics"; $lines += '```'; $lines += (Get-Content $m); $lines += '```'; $lines += '' }
+          }
+          $lines -join "`n" | Out-File $env:GITHUB_STEP_SUMMARY -Encoding UTF8 -Append
+          Write-Host "WeChat=$wx NotepadPlusPlus=$np"
+          if ($wx -ne 'PASS' -and $np -ne 'PASS') { Write-Host 'GATE: both subjects failed'; exit 1 }
+          Write-Host 'GATE: at least one subject passed (see summary)'
+
+      - name: Upload validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sandboxie-validation-results
+          path: results
+          retention-days: 30
+          if-no-files-found: warn
