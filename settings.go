@@ -165,6 +165,12 @@ type mjSettings struct {
 	// program already owns leaves the daemon unregistered and the
 	// Settings page shows the conflict state (GET /api/hotkey/status).
 	SummonHotkey string `json:"summonHotkey"`
+	// v0.51: which office component suite opens office documents
+	// by default ("onlyoffice" / "libreoffice"). The file-open
+	// router (procomp.go) falls back to the other suite when the
+	// chosen one is not installed, and guides the user to the
+	// component download when neither is.
+	DefaultOfficeSuite string `json:"defaultOfficeSuite"`
 }
 
 func defaultSettings() mjSettings {
@@ -214,8 +220,11 @@ func defaultSettings() mjSettings {
 		NodeTestTimeoutMs:     5000,
 		NodeClashAPI:          true,
 		SummonHotkey:          "F8",
+		DefaultOfficeSuite:    "onlyoffice",
 	}
 }
+
+var officeSuites = map[string]bool{"onlyoffice": true, "libreoffice": true}
 
 var summonHotkeys = map[string]bool{"F8": true, "F9": true, "F7": true, "off": true}
 
@@ -414,6 +423,9 @@ func sanitizeSettings(s mjSettings) mjSettings {
 	if !summonHotkeys[s.SummonHotkey] {
 		s.SummonHotkey = d.SummonHotkey
 	}
+	if !officeSuites[s.DefaultOfficeSuite] {
+		s.DefaultOfficeSuite = d.DefaultOfficeSuite
+	}
 	return s
 }
 
@@ -507,6 +519,7 @@ func settingsMap() map[string]any {
 		"nodeTestTimeoutMs":       s.NodeTestTimeoutMs,
 		"nodeClashAPI":            s.NodeClashAPI,
 		"summonHotkey":            s.SummonHotkey,
+		"defaultOfficeSuite":      s.DefaultOfficeSuite,
 		"fresh":                   settingsFresh(),
 	}
 }
@@ -553,6 +566,8 @@ func settingNodeTestTimeoutMs() int { return settingsGet().NodeTestTimeoutMs }
 func settingNodeClashAPI() bool { return settingsGet().NodeClashAPI }
 
 func settingSummonHotkey() string { return settingsGet().SummonHotkey }
+
+func settingDefaultOfficeSuite() string { return settingsGet().DefaultOfficeSuite }
 
 // settingsSetRemoteEnabledInternal flips the remote-assistance
 // master switch from inside the daemon (the pairing page's
@@ -821,6 +836,14 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 				} else if v != next.SummonHotkey {
 					next.SummonHotkey = v
 					changed = append(changed, "summonHotkey = "+v)
+				}
+			case "defaultOfficeSuite":
+				var v string
+				if json.Unmarshal(val, &v) != nil || !officeSuites[v] {
+					fail = "defaultOfficeSuite 须为 onlyoffice / libreoffice"
+				} else if v != next.DefaultOfficeSuite {
+					next.DefaultOfficeSuite = v
+					changed = append(changed, "defaultOfficeSuite = "+v)
 				}
 			case "chromeCacheMB":
 				var v int

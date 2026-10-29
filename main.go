@@ -1936,6 +1936,15 @@ func runServer(portFlag int, isDaemon bool) {
 	mux.HandleFunc("/api/firefox", ffStatusHandler)
 	mux.HandleFunc("/api/firefox/download", ffDownloadHandler)
 	mux.HandleFunc("/api/firefox/open", ffOpenHandler)
+	// v0.51 productivity components (procomp.go): on-demand
+	// downloads of ONLYOFFICE / LibreOffice / ImageGlass /
+	// Krita / VSCodium, their file-open routing and real icons.
+	mux.HandleFunc("/api/components", compStatusList)
+	mux.HandleFunc("/api/components/install", compInstallHandler)
+	mux.HandleFunc("/api/components/uninstall", compUninstallHandler)
+	mux.HandleFunc("/api/components/launch", compLaunchHandler)
+	mux.HandleFunc("/api/components/openfile", compOpenFileHandler)
+	mux.HandleFunc("/api/components/icon", compIconHandler)
 	mux.HandleFunc("/api/update", updateStatusHandler)
 	mux.HandleFunc("/api/update/token", updateTokenHandler)
 	mux.HandleFunc("/api/update/check", updateCheckHandler)

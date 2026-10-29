@@ -406,6 +406,8 @@ a{color:#64d2ff}
 .set-val{font-variant-numeric:tabular-nums;opacity:.92}
 .set-note{font-size:12px;opacity:.6;line-height:1.6;margin-top:8px}
 /* ---------- imported files on the desktop (v0.32) ---------- */
+.appico.notin{filter:grayscale(.4) opacity(.72)}
+.appico .dlb{position:absolute;left:50%;bottom:-8px;transform:translateX(-50%);background:rgba(28,28,32,.94);color:#ffd60a;font-size:9.5px;font-weight:700;line-height:1;padding:2.5px 6px;border-radius:7px;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.45);z-index:2}
 .appico.fileico{position:relative;overflow:hidden}
 .appico.fileico .ext{font-size:12.5px;font-weight:800;letter-spacing:.03em;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.45);padding:0 3px;text-align:center;line-height:1.15;word-break:break-all}
 .appico.fileico img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
@@ -593,7 +595,7 @@ async function api(p,opt){const r=await fetch(p,opt);let t=await r.text();try{re
    reports "fresh" (no settings file yet), the old local values are
    migrated up once and the local copies dropped. */
 let SETTINGS=null;
-const SETDEF={wallpaper:'tahoe',stageManager:false,idleExitMinutes:30,phoneMode:true,phoneTriggerWidth:1200,phoneWidth:400,chromeCacheMB:200,stageAutoClaimBrowser:true,filesOnDesktop:true,remoteEnabled:false,winPlaceOnClaim:true,winHideOnMinimize:true,winCloseToTray:true,immersiveMode:false,desktopFullscreen:false,dockPosition:'bottom',dockAutoHide:false,dockIconSize:52,cc_show_immersive:true,cc_show_stage:true,cc_show_fullscreen:true,cc_show_dockhide:true,cc_show_remote:true,cc_show_wallpaper:true,notify_allow_sandbox:true,notify_allow_update:true,notify_allow_servermon:true,notify_allow_node:true,notify_allow_remote:true,notify_allow_files:true,notify_banner_sandbox:true,notify_banner_update:true,notify_banner_servermon:true,notify_banner_node:true,notify_banner_remote:true,notify_banner_files:true,nc_widgets:'[{"id":"calendar","show":true},{"id":"server","show":true},{"id":"node","show":true}]',exitClosesApps:true,nodeStartMode:'last',nodeSubAuto:true,nodeSubIntervalMin:360,nodeTestURL:'http://www.gstatic.com/generate_204',nodeTestTimeoutMs:5000,nodeClashAPI:true,summonHotkey:'F8'};
+const SETDEF={wallpaper:'tahoe',stageManager:false,idleExitMinutes:30,phoneMode:true,phoneTriggerWidth:1200,phoneWidth:400,chromeCacheMB:200,stageAutoClaimBrowser:true,filesOnDesktop:true,remoteEnabled:false,winPlaceOnClaim:true,winHideOnMinimize:true,winCloseToTray:true,immersiveMode:false,desktopFullscreen:false,dockPosition:'bottom',dockAutoHide:false,dockIconSize:52,cc_show_immersive:true,cc_show_stage:true,cc_show_fullscreen:true,cc_show_dockhide:true,cc_show_remote:true,cc_show_wallpaper:true,notify_allow_sandbox:true,notify_allow_update:true,notify_allow_servermon:true,notify_allow_node:true,notify_allow_remote:true,notify_allow_files:true,notify_banner_sandbox:true,notify_banner_update:true,notify_banner_servermon:true,notify_banner_node:true,notify_banner_remote:true,notify_banner_files:true,nc_widgets:'[{"id":"calendar","show":true},{"id":"server","show":true},{"id":"node","show":true}]',exitClosesApps:true,nodeStartMode:'last',nodeSubAuto:true,nodeSubIntervalMin:360,nodeTestURL:'http://www.gstatic.com/generate_204',nodeTestTimeoutMs:5000,nodeClashAPI:true,summonHotkey:'F8',defaultOfficeSuite:'onlyoffice'};
 function wallKey(){ if(SETTINGS) return SETTINGS.wallpaper||'tahoe'; return localStorage.getItem('mj-wall')||'tahoe' }
 /* v0.46 Dock basics: position + auto-hide are view-side behaviours
    over daemon settings (same pattern as the wallpaper). */
@@ -978,6 +980,7 @@ function collectDeskEntries(){
  LAYOUT.folders.forEach(f=>{ const el=mkDeskIcon('folder:'+f.id,'folder',folderIconHTML(f),f.name,()=>openFolderPop(f.id,el),f.id); entries.push({key:'folder:'+f.id,el}); });
  STOREAPPS.forEach(a=>{ entries.push({key:'store:'+a.id,el:mkDeskIcon('store:'+a.id,'native',storeIconHTML(a),a.name,()=>launchStoreApp(a.id))}); });
  BOXAPPS.forEach(a=>{ entries.push({key:'box:'+a.id,el:mkDeskIcon('box:'+a.id,'native',storeIconHTML(a),a.name,()=>launchBoxApp(a.id))}); });
+ PRODAPPS.forEach(c=>{ entries.push({key:'prod:'+c.id,el:mkDeskIcon('prod:'+c.id,'native',prodIconHTML(c),c.name,()=>launchProdApp(c.id))}); });
  if(!SETTINGS||SETTINGS.filesOnDesktop!==false){
   DESKFILES.forEach(f=>{
    const el=mkDeskIcon('file:'+f.name,'file',fileIconHTML(f),f.name,()=>openDeskFile(f.path,f.kind));
@@ -1620,6 +1623,36 @@ let BOXAPPS=[];
 async function loadBoxApps(){
  try{const r=await api('/api/sandbox/apps');BOXAPPS=r.apps||[]}catch(e){BOXAPPS=[]}
 }
+/* v0.51 productivity components (ONLYOFFICE / LibreOffice /
+   ImageGlass / Krita / VSCodium): on-demand downloads living in
+   Data/components/<id>, served by /api/components (procomp.go).
+   Icons are the apps' real ones, extracted from their exes by the
+   daemon; uninstalled ones render dimmed with a 「未下载」 badge
+   and a click starts the download (the Firefox/OpenClaw flow). */
+let PRODAPPS=[];
+function prodBusy(c){ return c&&(c.phase==='downloading'||c.phase==='extracting'); }
+function prodPct(c){ if(!c||!c.size) return 0; return Math.max(0,Math.min(100,Math.floor((c.progress||0)*100/c.size))); }
+function prodIconHTML(c){
+ const badge=!c.installed?`<span class="dlb">${prodBusy(c)?('下载 '+prodPct(c)+'%'):'未下载'}</span>`:'';
+ const img=c.installed?`<img alt="" src="/api/components/icon?id=${encodeURIComponent(c.id)}" onerror="this.remove()">`:'';
+ return `<div class="appico webapp${c.installed?'':' notin'}">${esc(c.name.replace(/[^A-Za-z]/g,'').slice(0,1)||c.name.slice(0,1))}${img}${badge}</div>`;
+}
+async function loadProdApps(){
+ try{const r=await api('/api/components');PRODAPPS=(r&&r.components)||[]}catch(e){PRODAPPS=[]}
+}
+async function launchProdApp(id){
+ const c=PRODAPPS.find(x=>x.id===id); if(!c) return;
+ if(!c.installed){
+   if(prodBusy(c)){ toast('正在下载 '+c.name+'（'+prodPct(c)+'%），下完点图标就能打开'); return; }
+   const r=await api('/api/components/install',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
+   if(r&&r.error){ alert(r.error); return; }
+   toast('开始下载 '+c.name+'，在「设置 → 组件」里看进度');
+   gotoSys('components');
+   return;
+ }
+ const r=await api('/api/components/launch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
+ if(r&&r.error) alert(r.error);
+}
 async function launchBoxApp(id){
  const r=await api('/api/sandbox/launch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})}).catch(()=>null);
  if(r&&r.error){
@@ -1742,6 +1775,23 @@ function setWinTitle(id,t){ const b=document.querySelector('#win-'+id+' .title b
 /* ----- open routing: everything resolves inside the system ----- */
 async function openDeskFile(p,kind){
  const name=p.split('/').pop();
+ /* v0.51: installed productivity components get first claim on
+    the kinds they own (office docs -> the office suite chosen
+    in 设置, images -> ImageGlass, text/code -> VSCodium). The
+    daemon decides from what is actually installed. "install"
+    means an office file with no suite yet: guide the user to
+    the component download, never fail silently; declining falls
+    through to the built-in viewers below. */
+ if(kind!=='pdf'&&kind!=='zip'&&kind!=='exe'&&kind!=='dir'){
+  const cr=await api('/api/components/openfile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:p})}).catch(()=>null);
+  if(cr&&cr.error){ alert(cr.error); return; }
+  if(cr&&cr.action==='launched') return;
+  if(cr&&cr.action==='install'){
+   if(confirm('打开「'+name+'」需要先装办公组件（'+cr.name+'）。\n现在去「设置 → 组件」下载吗？包不小，装好以后这类文件都用它打开。')){
+    gotoSys('components'); return;
+   }
+  }
+ }
  if(kind==='image') return openImageViewer(p);
  if(kind==='text'||kind==='docx') return openTextViewer(p);
  if(kind==='csv') return openGridViewer(p);
@@ -2028,7 +2078,7 @@ function render(id){
  if(id==='ssh') b.innerHTML=`<h3>SSH 远程终端</h3><p class="mut" style="margin-top:6px">连接、私钥、服务器指纹都存在 EXE 旁的 <b style="color:#fff">Data/ssh</b> 里，跟着文件夹走。密码和私钥口令只在连接时输入、<b style="color:#fff">不保存</b>。第一次连某台服务器会记下它的指纹，之后每次校验，对不上会拦住。</p><div class="row" style="margin-top:10px"><select id="sshconn" class="txt" style="max-width:250px"></select><button class="btn gray" id="sshnew">＋ 新建</button><button class="btn gray" id="sshedit">编辑</button><button class="btn gray" id="sshdel">删除</button></div><div id="sshform" style="display:none;margin-top:10px"><div class="row"><input class="txt" id="sf_name" placeholder="名字，如 新加坡服务器" style="max-width:170px"><input class="txt" id="sf_host" placeholder="主机 / IP"><input class="txt" id="sf_port" placeholder="端口" value="22" style="max-width:80px"><input class="txt" id="sf_user" placeholder="用户名" style="max-width:120px"></div><div class="row" style="margin-top:8px"><label class="mut">登录方式 <select id="sf_auth" class="txt"><option value="key">密钥</option><option value="password">密码</option></select></label><select id="sf_key" class="txt" style="max-width:170px"></select><label class="mut"><input type="checkbox" id="sf_proxy"> 走节点连接</label></div><div class="row" style="margin-top:8px"><input class="txt" id="sf_keyname" placeholder="新密钥名（导入时填，如 id_sg）" style="max-width:210px"></div><textarea id="sf_keydata" rows="3" style="width:100%;margin-top:6px" placeholder="粘贴私钥内容导入（可选，存进 Data/ssh/keys；已存的密钥在上面选）"></textarea><div class="row" style="margin-top:8px"><button class="btn" id="sfsave">保存连接</button><span class="tag" id="sfst"></span></div></div><div class="row" style="margin-top:12px"><input class="txt" id="sshpass" type="password" placeholder="密码 / 私钥口令（连接时输，不保存）" style="max-width:250px" autocomplete="off"><button class="btn" id="sshgo">连接</button><button class="btn gray" id="sshstop">断开</button><span class="tag" id="sshst">未连接</span></div><div id="sshterm" style="margin-top:10px;height:300px;background:#0b0e14;border-radius:10px;padding:6px;overflow:hidden"></div><hr style="border-color:rgba(255,255,255,.14);margin:16px 0"><h3>文件（SFTP）</h3><p class="mut" style="margin-top:4px">共用上面的终端连接传文件，不用再输一次密码。</p><div class="row" style="margin-top:8px"><span class="tag" id="sfpath">未连接</span><button class="btn gray" id="sfup">↑ 上级</button><button class="btn gray" id="sfrefresh">刷新</button><button class="btn gray" id="sfmkdir">新建文件夹</button><button class="btn gray" id="sfupload">上传文件</button><input type="file" id="sffile" style="display:none"></div><div id="sflist" class="mut" style="margin-top:8px">连上服务器后，这里能浏览、上传、下载、删除远程文件。</div>`;
  if(id==='servermon') b.innerHTML=`<div class="sm-wrap"><div class="sm-side"><div class="sm-hd">服务器</div><div id="sm-list"></div><p class="mut" style="font-size:11.5px;padding:10px 8px 0;line-height:1.6">监控走 SSH 通道读服务器数据，不用在服务器上装任何东西。密钥连接可自动采样；密码连接先在 SSH 里连上，或在详情里输一次密码手动采样。</p></div><div class="sm-main" id="sm-main"><p class="mut">加载中…</p></div></div>`;
  if(id==='console'){ b.style.padding='0'; b.style.background='#0b0e14'; b.style.display='flex'; b.style.flexDirection='column';
- b.innerHTML=`<div style="padding:12px 14px 10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-bottom:1px solid rgba(255,255,255,.08)"><span class="cschip">版本 <b id="cs-ver">…</b></span><span class="cschip"><span class="csdot" id="cs-core-dot"></span>核心 <span id="cs-core">…</span></span><span class="cschip"><span class="csdot" id="cs-node-dot"></span>节点 <span id="cs-node">…</span></span><span class="cschip">运行时长 <span id="cs-up">…</span></span><span class="cschip">日志 <span id="cs-cnt">…</span></span></div><div style="padding:8px 14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-bottom:1px solid rgba(255,255,255,.08)"><select id="cs-level" class="csin"><option value="">全部级别</option><option value="info">信息及以上</option><option value="warn">警告及以上</option><option value="error">只看错误</option></select><select id="cs-module" class="csin"><option value="">全部模块</option><option value="system">系统</option><option value="core">核心</option><option value="node">节点</option><option value="browser">浏览器</option><option value="winmgr">窗口管理</option><option value="ssh">SSH</option><option value="servermon">服务器监控</option><option value="update">更新</option><option value="firefox">Firefox</option><option value="apps">应用商店</option><option value="openclaw">小龙虾</option><option value="sandbox">应用隔离</option><option value="settings">设置</option><option value="storage">存储</option><option value="files">文件导入</option><option value="remote">远程协助</option><option value="diag">诊断</option><option value="api">接口</option></select><input id="cs-q" class="csin" placeholder="搜索日志…" style="flex:1;min-width:100px"><label style="font-size:12.5px;opacity:.9"><input type="checkbox" id="cs-auto" checked> 自动滚动</label><button class="btn gray" id="cs-copy">复制诊断摘要</button><button class="btn gray" id="cs-export">导出日志</button></div><div id="cs-log" style="flex:1;overflow:auto;padding:10px 14px;font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.7;color:#d6e2f0"></div><div style="padding:7px 14px;font-size:12px;opacity:.6;border-top:1px solid rgba(255,255,255,.08)">日志同时存在 EXE 旁 Data/logs/mj.log。出问题时先看这里的红色报错，或点「导出日志」把诊断包发出来定位。</div>`;
+ b.innerHTML=`<div style="padding:12px 14px 10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-bottom:1px solid rgba(255,255,255,.08)"><span class="cschip">版本 <b id="cs-ver">…</b></span><span class="cschip"><span class="csdot" id="cs-core-dot"></span>核心 <span id="cs-core">…</span></span><span class="cschip"><span class="csdot" id="cs-node-dot"></span>节点 <span id="cs-node">…</span></span><span class="cschip">运行时长 <span id="cs-up">…</span></span><span class="cschip">日志 <span id="cs-cnt">…</span></span></div><div style="padding:8px 14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-bottom:1px solid rgba(255,255,255,.08)"><select id="cs-level" class="csin"><option value="">全部级别</option><option value="info">信息及以上</option><option value="warn">警告及以上</option><option value="error">只看错误</option></select><select id="cs-module" class="csin"><option value="">全部模块</option><option value="system">系统</option><option value="core">核心</option><option value="node">节点</option><option value="browser">浏览器</option><option value="winmgr">窗口管理</option><option value="ssh">SSH</option><option value="servermon">服务器监控</option><option value="update">更新</option><option value="firefox">Firefox</option><option value="apps">应用商店</option><option value="openclaw">小龙虾</option><option value="onlyoffice">ONLYOFFICE</option><option value="libreoffice">LibreOffice</option><option value="imageglass">ImageGlass</option><option value="krita">Krita</option><option value="vscodium">VSCodium</option><option value="sandbox">应用隔离</option><option value="settings">设置</option><option value="storage">存储</option><option value="files">文件导入</option><option value="remote">远程协助</option><option value="diag">诊断</option><option value="api">接口</option></select><input id="cs-q" class="csin" placeholder="搜索日志…" style="flex:1;min-width:100px"><label style="font-size:12.5px;opacity:.9"><input type="checkbox" id="cs-auto" checked> 自动滚动</label><button class="btn gray" id="cs-copy">复制诊断摘要</button><button class="btn gray" id="cs-export">导出日志</button></div><div id="cs-log" style="flex:1;overflow:auto;padding:10px 14px;font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.7;color:#d6e2f0"></div><div style="padding:7px 14px;font-size:12px;opacity:.6;border-top:1px solid rgba(255,255,255,.08)">日志同时存在 EXE 旁 Data/logs/mj.log。出问题时先看这里的红色报错，或点「导出日志」把诊断包发出来定位。</div>`;
  }
  if(id==='appstore') b.innerHTML=`<h3>应用商店 · 便携应用</h3><p class="mut" style="margin-top:6px">这里的都是<b style="color:#fff">免安装的便携版</b>：从官方源直下、装进 EXE 旁的 <b style="color:#fff">Data/apps</b>，程序和数据都跟着文件夹走，宿主电脑不留东西。每个应用上架前都验过包，并钉死了校验和，下载对不上会自动拒绝。</p><div class="row" style="margin-top:10px"><input class="txt" id="st-q" placeholder="搜索应用…"><span class="tag" id="st-count"></span></div><div style="display:flex;gap:12px;margin-top:12px;align-items:flex-start"><div id="st-cats" style="width:102px;flex:none;display:flex;flex-direction:column;gap:4px"></div><div id="st-grid" style="flex:1;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;align-content:start"></div></div><p class="mut" id="st-foot" style="margin-top:12px"></p><hr style="border-color:rgba(255,255,255,.14);margin:18px 0"><h3>隔离安装 · 只有安装版的软件</h3><p class="mut" style="margin-top:6px">微信这种<b style="color:#fff">只有安装版</b>的软件，可以装进<b style="color:#fff">隔离盒子</b>：整个安装过程被隔离组件接住，程序和数据都落在 Data/sandbox 里，跟着文件夹走，宿主电脑不留东西。要先装好隔离组件（设置 → 应用隔离，过一次管理员确认）。</p><div id="st-box" style="margin-top:10px"></div>`;
  if(id==='openclaw') b.innerHTML=`<h3>小龙虾 OpenClaw</h3><div class="sm-card" style="margin-top:10px"><div class="sm-row"><span>状态</span><span id="oc-st-state">读取中…</span></div><div class="sm-row"><span>版本</span><span id="oc-st-ver">—</span></div><div class="sm-row"><span>运行时长</span><span id="oc-st-up">—</span></div><div class="sm-row"><span>内存占用（整个进程树）</span><span id="oc-st-rss">—</span></div><div class="sm-row"><span>组件占用磁盘</span><span id="oc-st-disk">—</span></div><div class="sm-row"><span>模型出口</span><span id="oc-st-route">—</span></div></div><div class="row" style="margin-top:10px"><button class="btn" id="oc-dl">下载组件</button><button class="btn gray" id="oc-check">检查更新</button><span class="tag" id="oc-prog"></span></div><div id="oc-main" style="display:none"><div class="row" style="margin-top:12px"><button class="btn" id="oc-start">启动</button><button class="btn red" id="oc-stop">停止</button><button class="btn gray" id="oc-console">打开控制台</button></div><p class="mut" style="margin-top:8px">网关令牌 <span class="tag" id="oc-token">…</span> <button class="btn gray" id="oc-tokcopy">复制令牌</button> <span style="font-size:12px">打开控制台要令牌时粘贴它；令牌存在组件自己的配置里，跟着文件夹走，不用记。</span></p><div class="sm-sec">设置</div><div class="sm-card"><div class="sm-row"><span>模型流量走本地节点</span><label class="sm-sw"><input type="checkbox" id="oc-p-vianode"><i></i></label></div><div class="sm-row"><span>打开终端机时自动启动</span><label class="sm-sw"><input type="checkbox" id="oc-p-autostart"><i></i></label></div><div class="sm-row"><span>崩溃后自动重启（10 分钟内最多 3 次）</span><label class="sm-sw"><input type="checkbox" id="oc-p-crash"><i></i></label></div></div><p class="mut" style="font-size:12px;margin-top:6px">走节点：节点在跑时模型请求经节点出去；节点起不来会明示本次直连，绝不假装走了节点。</p><div class="sm-sec">配置向导 · 模型</div><div class="sm-card"><div class="sm-row"><span>当前配置</span><span id="oc-wiz-cur">读取中…</span></div><div class="row" style="margin-top:8px" id="oc-wiz-provs"><button class="btn" data-p="openai">OpenAI</button><button class="btn gray" data-p="anthropic">Anthropic</button><button class="btn gray" data-p="deepseek">DeepSeek</button><button class="btn gray" data-p="custom">自定义接口</button></div><div class="row" style="margin-top:8px;display:none" id="oc-wiz-idrow"><input class="txt" id="oc-wiz-id" placeholder="厂商标识（小写字母开头，如 myapi）" style="max-width:240px"></div><div class="row" style="margin-top:8px"><input class="txt" id="oc-wiz-base" placeholder="接口地址（留空用官方地址）"></div><div class="row" style="margin-top:8px"><input class="txt" id="oc-wiz-key" type="password" placeholder="API Key（留空 = 不修改已保存的）" autocomplete="off"></div><div class="row" style="margin-top:8px"><input class="txt" id="oc-wiz-model" list="oc-wiz-models" placeholder="模型名，如 gpt-5.1"><datalist id="oc-wiz-models"></datalist></div><div class="row" style="margin-top:8px"><button class="btn" id="oc-wiz-save">保存配置</button><button class="btn gray" id="oc-wiz-test">测试连接</button><span class="tag" id="oc-wiz-msg"></span></div><p class="mut" style="font-size:12px;margin-top:6px">保存走小龙虾自己的配置命令：立即生效、不用重启网关，改前它会自动备份旧配置。Key 只写进组件配置，不进日志。自定义接口按 OpenAI 兼容协议。Telegram 等消息渠道去小龙虾控制台里配。</p></div><div class="sm-sec">运行日志</div><div class="sm-card"><pre id="oc-log" style="max-height:220px;overflow:auto;font-size:11.5px;line-height:1.55;white-space:pre-wrap;word-break:break-all;margin:0">（暂无日志）</pre><div class="row" style="margin-top:6px"><button class="btn gray" id="oc-log-refresh">刷新日志</button><span class="mut" style="font-size:12px">网关自己的输出；终端机的系统事件在「控制台」应用里看（模块：小龙虾）</span></div></div><div class="sm-sec">数据与组件</div><div class="sm-card"><div class="sm-row"><span>数据导出（配置 + 它记住的东西，换电脑用）</span><button class="btn gray" id="oc-export">导出</button></div><div class="sm-row"><span>数据导入（导入前自动备份现有数据）</span><span><input type="file" id="oc-import-file" accept=".zip" style="display:none"><button class="btn gray" id="oc-import">导入…</button></span></div><div class="sm-row"><span>卸载组件（程序、配置、数据全删）</span><button class="btn red" id="oc-uninst">卸载</button></div><p class="mut" style="font-size:12px;margin-top:6px" id="oc-dir"></p></div></div><details style="margin-top:14px"><summary class="mut" style="cursor:pointer;font-size:12.5px">安装须知（重型组件，先看一眼）</summary><p class="mut" style="margin-top:6px;line-height:1.7">小龙虾是一个能<b style="color:#fff">操作电脑、收发消息</b>的 AI 助手。它是<b style="color:#fff">按需下载的重型组件</b>：<br>· <b style="color:#fff">体积约 630 MB</b>，装在 EXE 旁的 Data/openclaw，跟着文件夹走；<br>· 运行时<b style="color:#fff">内存约 1 GB</b> 量级，老电脑会吃力（上面的状态卡能实时看）；<br>· 它权限很大（能跑命令、动文件、替你发消息），<b style="color:#fff">只建议装在自己的电脑上，不要装到公用电脑</b>；<br>· 模型 API Key 自备：在上面的配置向导里填，或去小龙虾自己的控制台里配。</p></details>`;
@@ -2141,7 +2191,7 @@ function bind(id){
    {id:'about',n:'关于',g:'linear-gradient(180deg,#64d2ff,#0a84ff)',glyph:'i',kw:'关于 版本 控制台 诊断 数据目录'},
    {id:'update',n:'软件更新',g:'linear-gradient(180deg,#8e8e93,#48484a)',glyph:'⬆',kw:'更新 升级 版本 令牌'}
   ];
-  let curPage='appearance', usageCache=null, updIv=null, secIv=null, sbxIv=null;
+  let curPage='appearance', usageCache=null, updIv=null, secIv=null, sbxIv=null, prodIv=null;
   const storageUsageOnce=async()=>{ if(!usageCache) usageCache=await api('/api/storage/usage'); return usageCache };
   const navPaint=()=>{ const q=(G('set-q').value||'').trim().toLowerCase();
    G('set-nav').innerHTML=PAGES.filter(p=>!q||(p.n+' '+p.kw).toLowerCase().includes(q)).map(p=>`<div class="set-it${p.id===curPage?' on':''}" data-page="${p.id}"><span class="set-ico" style="background:${p.g}">${p.glyph}</span><span>${p.n}</span></div>`).join('')||'<p class="mut" style="padding:8px">没有匹配的设置项</p>';
@@ -2209,12 +2259,34 @@ function bind(id){
    try{ const u=await storageUsageOnce(); const el=G('br-chrome-size'); if(el){ const g=(u.groups||[]).find(x=>x.key==='chrome'); el.textContent=g?fmtB(g.bytes):'—'; } }catch(e){}
   };
   const paintComponents=async()=>{
-   G('set-main').innerHTML=`<div class="set-page"><div class="set-sec">组件</div><div class="set-desc">按需下载的重型组件，装在 EXE 旁，跟着文件夹走。点「管理」去各自的应用页下载、启停或卸载。</div><div class="sm-card"><div class="sm-row"><span>🦊 Firefox</span><span class="row"><span class="set-val" id="cp-ff">读取中…</span><button class="btn gray" data-openapp="firefox">管理</button></span></div><div class="sm-row"><span>🦞 小龙虾 OpenClaw</span><span class="row"><span class="set-val" id="cp-oc">读取中…</span><button class="btn gray" data-openapp="openclaw">管理</button></span></div><div class="sm-row"><span>📦 应用隔离 Sandboxie</span><span class="row"><span class="set-val" id="cp-sbie">读取中…</span><button class="btn gray" id="cp-sbie-go">管理</button></span></div></div><p class="set-note">应用隔离的组件包已内置在程序里（装的时候不用联网），驱动装在当前这台电脑上；细节和诚实说明在「应用隔离」页。</p></div>`;
+   if(prodIv){ clearInterval(prodIv); prodIv=null; }
+   G('set-main').innerHTML=`<div class="set-page"><div class="set-sec">组件</div><div class="set-desc">按需下载的重型组件，装在 EXE 旁，跟着文件夹走。点「管理」去各自的应用页下载、启停或卸载。</div><div class="sm-card"><div class="sm-row"><span>🦊 Firefox</span><span class="row"><span class="set-val" id="cp-ff">读取中…</span><button class="btn gray" data-openapp="firefox">管理</button></span></div><div class="sm-row"><span>🦞 小龙虾 OpenClaw</span><span class="row"><span class="set-val" id="cp-oc">读取中…</span><button class="btn gray" data-openapp="openclaw">管理</button></span></div><div class="sm-row"><span>📦 应用隔离 Sandboxie</span><span class="row"><span class="set-val" id="cp-sbie">读取中…</span><button class="btn gray" id="cp-sbie-go">管理</button></span></div></div><p class="set-note">应用隔离的组件包已内置在程序里（装的时候不用联网），驱动装在当前这台电脑上；细节和诚实说明在「应用隔离」页。</p><div class="set-sec">生产力组件</div><div class="set-desc">五个开源软件做成的便携组件，按需逐个下载（合计约 1.3 GB），装进 EXE 旁的 <b style="color:#fff">Data/components</b>；每个组件的数据都收在自己的组件目录里，跟着文件夹走。没装的在桌面上是「未下载」图标，点它也会开始下载。</div><div class="sm-card" id="cp-prod"><div class="sm-row"><span>读取中…</span></div></div><div class="set-sec">打开方式</div><div class="sm-card"><div class="sm-row"><span>默认办公套件</span><span class="sm-seg" id="cp-office">${['onlyoffice','libreoffice'].map(v=>`<button data-v="${v}" class="${(SETTINGS.defaultOfficeSuite||'onlyoffice')===v?'on':''}">${v==='onlyoffice'?'ONLYOFFICE':'LibreOffice'}</button>`).join('')}</span></div></div><p class="set-note">打开文档 / 表格 / 演示文件时优先用哪个套件；只装了一个就用那个，都没装会先请你下载。图片装了 ImageGlass 就用它打开，代码和文本装了 VSCodium 就用它打开，没装走内置查看器。</p></div>`;
    G('set-main').querySelectorAll('[data-openapp]').forEach(b=>b.onclick=()=>openApp(b.dataset.openapp));
    G('cp-sbie-go').onclick=()=>goto('isolation');
    try{ const sb=await api('/api/sandbox/status'); const el=G('cp-sbie'); if(el) el.textContent=!sb.supported?'当前平台不支持':(sb.installed?('已安装 · v'+(sb.version||'?')+(sb.serviceState==='RUNNING'?' · 运行中':' · 服务异常')):'未安装'); }catch(e){}
    try{ const ff=await api('/api/firefox'); const el=G('cp-ff'); if(el) el.textContent=ff.installed?('已安装 · v'+(ff.version||'?')):'未安装'; }catch(e){}
    try{ const oc=await api('/api/openclaw/status'); const el=G('cp-oc'); if(el) el.textContent=oc.installed?('已安装 · v'+(oc.version||'?')+(oc.running?' · 运行中':'')+(oc.diskBytes?' · '+fmtB(oc.diskBytes):'')):'未安装'; }catch(e){}
+   /* v0.51 productivity components: full management rows live on
+      this page (these five have no app page of their own). */
+   const paintProd=()=>{
+    const card=G('cp-prod'); if(!card) return;
+    card.innerHTML=PRODAPPS.length?PRODAPPS.map(c=>{
+     let st,btns='';
+     if(c.installed){ st='已安装 · v'+(c.version||'?')+(c.diskBytes?' · '+fmtB(c.diskBytes):'')+(c.updateAvailable?' · 可更新到 v'+c.available:'');
+      btns=`<button class="btn blue" data-prod-open="${c.id}">打开</button>`+(c.updateAvailable?`<button class="btn gray" data-prod-in="${c.id}">更新</button>`:'')+`<button class="btn gray" data-prod-un="${c.id}">卸载</button>`;
+     } else if(prodBusy(c)){ const p=prodPct(c); st=c.phase==='extracting'?'正在释放…':('下载中 '+p+'%'+(c.size?' · '+fmtB(c.progress||0)+' / '+fmtB(c.size):'')); btns=`<span class="smProg"><i style="width:${p}%"></i></span>`; }
+     else if(c.phase==='error'){ st='⚠️ '+(c.message||'上次没装成'); btns=`<button class="btn blue" data-prod-in="${c.id}">重试下载</button>`; }
+     else { st='未下载'+(c.available?(' · v'+c.available+' · '+fmtB(c.availableSize||0)):''); btns=`<button class="btn blue" data-prod-in="${c.id}">下载</button>`; }
+     return `<div class="sm-row"><span>${esc(c.name)}<div style="color:#9a9aa2;font-size:11.5px">${esc(c.blurb||'')}</div></span><span class="row"><span class="set-val">${st}</span>${btns}</span></div>`;
+    }).join(''):'<div class="sm-row"><span>读取不到组件列表（守护进程没回应）</span></div>';
+    card.querySelectorAll('[data-prod-in]').forEach(b=>b.onclick=async()=>{ await api('/api/components/install',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:b.dataset.prodIn})}); kickProd(); });
+    card.querySelectorAll('[data-prod-open]').forEach(b=>b.onclick=async()=>{ const r=await api('/api/components/launch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:b.dataset.prodOpen})}); if(r&&r.error) alert(r.error); });
+    card.querySelectorAll('[data-prod-un]').forEach(b=>b.onclick=async()=>{ const c=PRODAPPS.find(x=>x.id===b.dataset.prodUn); if(!c) return; if(!confirm('卸载 '+c.name+'？\n程序和它在组件目录里的数据会一起删掉，不可恢复。')) return; const r=await api('/api/components/uninstall',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:c.id})}); if(r&&r.error){ alert(r.error); return; } await loadProdApps(); renderDesk(); paintProd(); });
+   };
+   const kickProd=()=>{ if(prodIv) return; prodIv=setInterval(async()=>{ if(curPage!=='components'||!G('cp-prod')){ clearInterval(prodIv); prodIv=null; return; } const wasBusy=PRODAPPS.some(prodBusy); await loadProdApps(); paintProd(); if(!PRODAPPS.some(prodBusy)){ clearInterval(prodIv); prodIv=null; if(wasBusy) renderDesk(); } },2000); };
+   await loadProdApps(); paintProd();
+   if(PRODAPPS.some(prodBusy)) kickProd();
+   const seg=G('cp-office'); if(seg) seg.querySelectorAll('button').forEach(b=>b.onclick=async()=>{ const r=await saveSetting({defaultOfficeSuite:b.dataset.v}); if(r&&r.error){ alert('保存失败：'+r.error); return; } seg.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); });
   };
   const paintIsolation=()=>{
    if(sbxIv){ clearInterval(sbxIv); sbxIv=null; }
@@ -3495,7 +3567,7 @@ function showBanner(ev){
 })();
 
 openApp('home');
-(async()=>{ await Promise.all([loadLayout(),loadWebApps(),loadStoreApps(),loadBoxApps(),loadDeskFiles(),settingsReady]); renderDesk(); restoreSession(); })();
+(async()=>{ await Promise.all([loadLayout(),loadWebApps(),loadStoreApps(),loadBoxApps(),loadProdApps(),loadDeskFiles(),settingsReady]); renderDesk(); restoreSession(); })();
 </script>
 <div id="lockscreen">
   <div class="lk-card" id="lk-card">
@@ -3674,6 +3746,7 @@ recWrap('openDeskFile',p=>'file:'+p);
 recWrap('openWebApp',u=>'web:'+u);
 recWrap('launchStoreApp',id=>'store:'+id);
 recWrap('launchBoxApp',id=>'box:'+id);
+recWrap('launchProdApp',id=>'prod:'+id);
 /* Reopening the Files app repaints the Finder (data may have
    changed while it sat hidden). */
 (function(){ const orig=window.openApp; window.openApp=function(id){ const r=orig.apply(this,arguments); if(id==='files'&&$50('fv-body')) paintFiles(); return r; }; })();
@@ -3851,6 +3924,7 @@ function lpEntries(){
  LAYOUT.folders.forEach(f=>push('folder:'+f.id,f.name,folderIconHTML(f),el=>openFolderPop(f.id,el)));
  STOREAPPS.forEach(a=>push('store:'+a.id,a.name,storeIconHTML(a),()=>launchStoreApp(a.id)));
  BOXAPPS.forEach(a=>push('box:'+a.id,a.name,storeIconHTML(a),()=>launchBoxApp(a.id)));
+ PRODAPPS.forEach(c=>push('prod:'+c.id,c.name,prodIconHTML(c),()=>launchProdApp(c.id)));
  DESKORDER.forEach(k=>{ if(byKey[k]) out.push(byKey[k]); });
  Object.keys(byKey).forEach(k=>{ if(!out.some(e=>e.key===k)) out.push(byKey[k]); });
  return out;
