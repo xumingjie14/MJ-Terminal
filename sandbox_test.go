@@ -1009,3 +1009,141 @@ func TestPendingInstallRoundTrip(t *testing.T) {
 		t.Fatal("the retired pending file must be removed")
 	}
 }
+
+// ---------- v0.44: empty-diff fallback ----------
+
+func TestInstallerAffinityTokens(t *testing.T) {
+	cases := []struct {
+		in   string
+		want []string
+	}{
+		// The field installer: only "td" names the product.
+		{"td-setup-win-x64-7.3.3 (6).exe", []string{"td"}},
+		// Embedded noise is stripped the way installerHint does.
+		{"WeChatWin_4.2.0.exe", []string{"wechat"}},
+		{"npp.8.9.8.1.Installer.x64.exe", []string{"npp"}},
+		{"TotallyOther-Setup-1.0.exe", []string{"totallyother"}},
+		// Nothing but noise and version numbers: no tokens,
+		// so the fallback must stay shut.
+		{"setup-win64-1.2.3.exe", nil},
+	}
+	for _, c := range cases {
+		got := installerAffinityTokens(c.in)
+		if len(got) != len(c.want) {
+			t.Errorf("%s: tokens %v, want %v", c.in, got, c.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != c.want[i] {
+				t.Errorf("%s: tokens %v, want %v", c.in, got, c.want)
+				break
+			}
+		}
+	}
+}
+
+func writeFakeExe(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("MZ-fake"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestExistingBoxCandidatesTelegramFixture(t *testing.T) {
+	// The 2026-10-29 14:09 field shape: Telegram has been
+	// lying in the box since a previous install (the reinstall
+	// wrote nothing, so the diff is empty by construction --
+	// this pool IS the whole box). An unrelated boxed program
+	// and the usual junk must stay out.
+	dir := t.TempDir()
+	boxRoot := filepath.Join(dir, "MJBox")
+	writeFakeExe(t, filepath.Join(boxRoot, "user", "ming", "AppData", "Roaming", "Telegram Desktop", "Telegram.exe"))
+	writeFakeExe(t, filepath.Join(boxRoot, "user", "ming", "AppData", "Roaming", "Telegram Desktop", "unins000.exe"))
+	writeFakeExe(t, filepath.Join(boxRoot, "drive", "C", "Program Files", "Tencent", "Weixin", "Weixin.exe"))
+	writeFakeExe(t, filepath.Join(boxRoot, "user", "ming", "AppData", "Roaming", "Tencent", "xwechat", "xplugin", "plugins", "CourgettePatch", "20", "extracted", "7z.exe"))
+
+	hits := existingBoxCandidates(boxRoot, "td-setup-win-x64-7.3.3 (6).exe")
+	if len(hits) != 1 {
+		t.Fatalf("exactly one existing candidate may surface, got %v", hits)
+	}
+	if !strings.HasSuffix(hits[0].Virtual, `\Telegram.exe`) {
+		t.Fatalf("the hit must be Telegram.exe, got %s", hits[0].Virtual)
+	}
+	if !hits[0].Existing {
+		t.Fatal("a fallback candidate must carry the Existing (盒内已有) mark")
+	}
+	// Affinity counter-case: an installer name unrelated to
+	// anything in the box must find NOTHING -- the honest
+	// failure conclusion is preserved.
+	if none := existingBoxCandidates(boxRoot, "TotallyOther-Setup-1.0.exe"); len(none) != 0 {
+		t.Fatalf("an unrelated installer must get no fallback candidates, got %v", none)
+	}
+}
+
+func TestPendingExistingRoundTripAndRestoreFallback(t *testing.T) {
+	dir := t.TempDir()
+	boxRoot := filepath.Join(dir, "MJBox")
+	tgPhys := filepath.Join(boxRoot, "user", "ming", "AppData", "Roaming", "Telegram Desktop", "Telegram.exe")
+	wxPhys := filepath.Join(boxRoot, "drive", "C", "Program Files", "Tencent", "Weixin", "Weixin.exe")
+	writeFakeExe(t, tgPhys)
+	writeFakeExe(t, wxPhys)
+
+	// A pending written by an already-in-box install: the
+	// before snapshot ALREADY contains the program, so the
+	// restore-time diff is empty by construction and only the
+	// v0.44 fallback can resurrect it.
+	pendPath := filepath.Join(dir, "pending-install.json")
+	savePendingInstallFile(pendPath, &sbiePendingInstall{
+		InstallerName: "td-setup-win-x64-7.3.3 (6).exe",
+		BeforeExes:    map[string]bool{strings.ToLower(tgPhys): true, strings.ToLower(wxPhys): true},
+		BeforeAppData: map[string]bool{},
+		FromExisting:  true,
+	})
+	// The source mark must round-trip through the disk form.
+	b, err := os.ReadFile(pendPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var disk sbiePendingDisk
+	if err := json.Unmarshal(b, &disk); err != nil {
+		t.Fatal(err)
+	}
+	if !disk.FromExisting {
+		t.Fatal("fromExisting must persist in the pending file")
+	}
+
+	sbieBoxOp.Lock()
+	savedPhase, savedPend, savedCands := sbieBoxOp.Phase, sbieBoxOp.Pending, sbieBoxOp.Candidates
+	sbieBoxOp.Unlock()
+	defer func() {
+		sbieBoxOp.Lock()
+		sbieBoxOp.Phase, sbieBoxOp.Pending, sbieBoxOp.Candidates = savedPhase, savedPend, savedCands
+		sbieBoxOp.Unlock()
+	}()
+
+	if !restorePendingFrom(pendPath, boxRoot) {
+		t.Fatal("an empty-diff pending with an affinity hit in the box must restore via the fallback")
+	}
+	sbieBoxOp.Lock()
+	phase, p2, cands := sbieBoxOp.Phase, sbieBoxOp.Pending, sbieBoxOp.Candidates
+	sbieBoxOp.Unlock()
+	if phase != "choosing" || p2 == nil || !p2.FromExisting {
+		t.Fatalf("restored state wrong: phase=%s pend=%+v", phase, p2)
+	}
+	if len(cands) != 1 || !strings.HasSuffix(cands[0].Virtual, `\Telegram.exe`) || !cands[0].Existing || !cands[0].Exists {
+		t.Fatalf("restored fallback candidates wrong: %+v", cands)
+	}
+	// Once the program itself leaves the box, the restore
+	// must retire the pending -- the fallback never resurrects
+	// strangers (Weixin.exe has no affinity to "td").
+	_ = os.Remove(tgPhys)
+	if restorePendingFrom(pendPath, boxRoot) {
+		t.Fatal("with the program gone and no affinity hit left, the pending must retire")
+	}
+	if _, err := os.Stat(pendPath); !os.IsNotExist(err) {
+		t.Fatal("the retired pending file must be removed")
+	}
+}

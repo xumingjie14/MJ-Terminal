@@ -785,6 +785,15 @@ type boxExeCand struct {
 	// installer's. The dialog flags it instead of hiding it --
 	// the user makes the final call.
 	Foreign bool `json:"foreign,omitempty"`
+	// Existing marks a candidate that did NOT appear during
+	// this install but was already lying in the box (v0.44):
+	// a same-version reinstall writes nothing at all (Inno
+	// skips files whose version already matches), so the diff
+	// comes back empty even though the program is right there.
+	// Such candidates come from the name-affinity fallback
+	// (existingBoxCandidates) and are labelled 「盒内已有」 in
+	// the registration dialog.
+	Existing bool `json:"existing,omitempty"`
 }
 
 // snapshotBoxExes walks the box and lists every .exe with its
@@ -1107,6 +1116,185 @@ func installerHint(fileName string) string {
 	return b.String()
 }
 
+// ---------- v0.44: empty-diff fallback (already-in-box) ----------
+//
+// Field, 2026-10-29 14:09: the user re-ran the very same
+// Telegram installer through the isolated-install flow. The
+// v0.43 machinery worked -- session exemption, heartbeats, the
+// composite completion rule closed in 37 s -- and still ended
+// in the named failure "no new program found": Telegram had
+// been lying in the box since the v0.42 install (it was in
+// that install's candidate list; the user had merely
+// registered the wrong entry). A same-version reinstall makes
+// Inno skip every identical file, so the installer ran
+// cleanly and wrote NOTHING. An empty diff is not a failed
+// install -- it is "already installed". The diff was the only
+// candidate source, so the user was stuck: installed, with no
+// way to register.
+//
+// The fallback below runs when the diff yields no registrable
+// candidate: scan the whole box, run the standard ranking
+// pipeline (uninstallers and junk shapes are stripped there),
+// then keep ONLY the exes with a real name affinity to THIS
+// installer. Below-threshold strangers are never offered --
+// failing honestly beats registering somebody else's program
+// under this install's name.
+
+// installerNoiseTokens are the words in an installer file name
+// that say nothing about the product.
+var installerNoiseTokens = map[string]bool{
+	"setup": true, "install": true, "installer": true,
+	"win": true, "win32": true, "win64": true, "windows": true,
+	"x64": true, "x86": true, "amd64": true, "arm64": true,
+	"universal": true, "portable": true, "full": true,
+	"free": true, "latest": true, "release": true, "final": true,
+}
+
+// splitAlphaNumParts cuts a segment at letter<->digit
+// boundaries ("win64" -> "win","64"; "mp3tag" -> "mp","3","tag").
+func splitAlphaNumParts(seg string) []string {
+	var out []string
+	start := 0
+	isDig := func(c byte) bool { return c >= '0' && c <= '9' }
+	for i := 1; i < len(seg); i++ {
+		if isDig(seg[i]) != isDig(seg[i-1]) {
+			out = append(out, seg[start:i])
+			start = i
+		}
+	}
+	return append(out, seg[start:])
+}
+
+// installerAffinityTokens extracts the product tokens from an
+// installer file name (pure): split on non-alphanumerics and
+// letter/digit boundaries, drop noise words (exact or embedded,
+// the way installerHint strips "win" out of "wechatwin"), pure
+// digit runs (version numbers) and one-letter scraps. What is
+// left names the product: "td-setup-win-x64-7.3.3" -> ["td"].
+func installerAffinityTokens(fileName string) []string {
+	base := strings.ToLower(virtualStem(fileName))
+	segs := strings.FieldsFunc(base, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9')
+	})
+	seen := map[string]bool{}
+	var out []string
+	for _, seg := range segs {
+		for _, part := range splitAlphaNumParts(seg) {
+			digits := true
+			for i := 0; i < len(part); i++ {
+				if part[i] < '0' || part[i] > '9' {
+					digits = false
+					break
+				}
+			}
+			if digits || installerNoiseTokens[part] {
+				continue
+			}
+			cleaned := part
+			for noise := range installerNoiseTokens {
+				cleaned = strings.ReplaceAll(cleaned, noise, "")
+			}
+			if len(cleaned) < 2 || seen[cleaned] {
+				continue
+			}
+			seen[cleaned] = true
+			out = append(out, cleaned)
+		}
+	}
+	return out
+}
+
+// virtualParentName is the immediate parent folder of a
+// virtual path ("Telegram Desktop" for
+// C:\Users\u\...\Telegram Desktop\Telegram.exe), lowercased.
+func virtualParentName(virtual string) string {
+	segs := strings.FieldsFunc(strings.ReplaceAll(virtual, "/", `\`), func(r rune) bool { return r == '\\' })
+	if len(segs) < 2 {
+		return ""
+	}
+	return strings.ToLower(segs[len(segs)-2])
+}
+
+func folderInitials(name string) string {
+	var b strings.Builder
+	for _, w := range strings.FieldsFunc(name, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9')
+	}) {
+		b.WriteString(w[:1])
+	}
+	return b.String()
+}
+
+// candAffinityScore scores how strongly one boxed exe is
+// likely the program an installer names (pure). Strong signals
+// only; anything weaker scores 0 and stays out:
+//
+//   - a product token (>=3 chars) appears in the exe stem, the
+//     parent folder or the app folder -- or contains one of
+//     them ("wechatwin" cleaned to "wechat" vs a "wechat" exe);
+//   - a 2+ char token IS the exe stem;
+//   - a token equals the initials of the app folder's words --
+//     installers love acronyms: "td" is Telegram Desktop.
+func candAffinityScore(tokens []string, c boxExeCand) int {
+	stem := strings.ToLower(virtualStem(c.Virtual))
+	idents := []string{stem, virtualParentName(c.Virtual), candidateAppFolder(c.Virtual)}
+	best := 0
+	for _, tok := range tokens {
+		s := 0
+		switch {
+		case len(tok) >= 3:
+			for _, id := range idents {
+				if id != "" && len(id) >= 3 && (strings.Contains(id, tok) || strings.Contains(tok, id)) {
+					s = 60
+					break
+				}
+			}
+		case len(tok) == 2 && stem == tok:
+			s = 55
+		}
+		if s == 0 {
+			for _, name := range []string{virtualParentName(c.Virtual), candidateAppFolder(c.Virtual)} {
+				if name != "" && folderInitials(name) == tok {
+					s = 50
+					break
+				}
+			}
+		}
+		if s > best {
+			best = s
+		}
+	}
+	return best
+}
+
+// existingBoxCandidates is the empty-diff fallback (v0.44):
+// the whole box through the standard ranking pipeline, then
+// the affinity gate. Survivors are marked Existing and ordered
+// by affinity first (pipeline order breaks ties).
+func existingBoxCandidates(boxRoot, installerName string) []boxExeCand {
+	tokens := installerAffinityTokens(installerName)
+	if len(tokens) == 0 {
+		return nil
+	}
+	type scored struct {
+		c boxExeCand
+		s int
+	}
+	var hits []scored
+	for _, c := range rankBoxCandidates(snapshotBoxExes(boxRoot), installerName) {
+		if s := candAffinityScore(tokens, c); s > 0 {
+			c.Existing = true
+			hits = append(hits, scored{c, s})
+		}
+	}
+	sort.SliceStable(hits, func(i, j int) bool { return hits[i].s > hits[j].s })
+	out := make([]boxExeCand, 0, len(hits))
+	for _, h := range hits {
+		out = append(out, h.c)
+	}
+	return out
+}
+
 // ---------- installer kind sniffing / silent args ----------
 
 // installerKind is "nsis", "inno", "msi" or "" (unknown). The kind
@@ -1335,6 +1523,10 @@ type sbiePendingInstall struct {
 	InstallerName string
 	BeforeExes    map[string]bool
 	BeforeAppData map[string]bool
+	// FromExisting records that the candidates came from the
+	// empty-diff fallback (v0.44): the program was already in
+	// the box, this install added nothing.
+	FromExisting bool
 }
 
 var sbieBoxOp = struct {
@@ -2169,6 +2361,10 @@ type sbiePendingDisk struct {
 	BeforeExes    []string `json:"beforeExes"`
 	BeforeAppData []string `json:"beforeAppData"`
 	At            string   `json:"at"`
+	// FromExisting: the persisted source mark (v0.44) -- this
+	// pending's candidates were the box's pre-existing programs
+	// matched by name affinity, not files the install added.
+	FromExisting bool `json:"fromExisting,omitempty"`
 }
 
 func pendingInstallPath() string { return filepath.Join(sandboxDir(), "pending-install.json") }
@@ -2177,7 +2373,7 @@ func savePendingInstallFile(path string, p *sbiePendingInstall) {
 	if p == nil {
 		return
 	}
-	d := sbiePendingDisk{Installer: p.InstallerName, At: time.Now().Format("2006-01-02 15:04:05")}
+	d := sbiePendingDisk{Installer: p.InstallerName, At: time.Now().Format("2006-01-02 15:04:05"), FromExisting: p.FromExisting}
 	for k := range p.BeforeExes {
 		d.BeforeExes = append(d.BeforeExes, k)
 	}
@@ -2247,6 +2443,20 @@ func restorePendingFrom(path, boxRoot string) bool {
 		}
 	}
 	ranked, dropped := finalizeCandidates(rankBoxCandidates(fresh, d.Installer), d.Installer)
+	fromExisting := false
+	if len(ranked) == 0 {
+		// v0.44: the restore shares the install flow's
+		// empty-diff fallback -- a pending saved by an
+		// already-in-box install has an empty diff BY
+		// CONSTRUCTION (its before snapshot already contains
+		// the program), so without this the restore would
+		// retire exactly the pendings the fallback created.
+		fb, fbDropped := finalizeCandidates(existingBoxCandidates(boxRoot, d.Installer), d.Installer)
+		dropped += fbDropped
+		if len(fb) > 0 {
+			ranked, fromExisting = fb, true
+		}
+	}
 	if len(ranked) == 0 {
 		_ = os.Remove(path)
 		logf("sandbox", "info", "待登记的隔离安装（%s）已无可登记的程序（候选复核剔除 %d 个），这条待办自动销掉", d.Installer, dropped)
@@ -2254,10 +2464,15 @@ func restorePendingFrom(path, boxRoot string) bool {
 	}
 	sbieBoxOp.Lock()
 	sbieBoxOp.Candidates = ranked
-	sbieBoxOp.Pending = &sbiePendingInstall{InstallerName: d.Installer, BeforeExes: before, BeforeAppData: beforeAD}
+	sbieBoxOp.Pending = &sbiePendingInstall{InstallerName: d.Installer, BeforeExes: before, BeforeAppData: beforeAD, FromExisting: fromExisting}
 	sbieBoxOp.Unlock()
-	sbieBoxSet("choosing", fmt.Sprintf("有个隔离安装（%s）还等着你确认主程序——选好登记，图标就上桌面。", d.Installer))
-	logf("sandbox", "info", "待登记的隔离安装已恢复：%s（%s 存盘，%d 个候选）——到 应用商店 → 隔离安装 选主程序完成登记，或在那里放弃它", d.Installer, d.At, len(ranked))
+	if fromExisting {
+		sbieBoxSet("choosing", fmt.Sprintf("有个隔离安装（%s）还等着你确认主程序——它应该是已经装在盒子里了，确认即可登记，图标就上桌面。", d.Installer))
+		logf("sandbox", "info", "待登记的隔离安装已恢复（已在盒内）：%s（%s 存盘，%d 个候选，来源：盒内已有）——到 应用商店 → 隔离安装 选主程序完成登记，或在那里放弃它", d.Installer, d.At, len(ranked))
+	} else {
+		sbieBoxSet("choosing", fmt.Sprintf("有个隔离安装（%s）还等着你确认主程序——选好登记，图标就上桌面。", d.Installer))
+		logf("sandbox", "info", "待登记的隔离安装已恢复：%s（%s 存盘，%d 个候选）——到 应用商店 → 隔离安装 选主程序完成登记，或在那里放弃它", d.Installer, d.At, len(ranked))
+	}
 	return true
 }
 
@@ -2436,23 +2651,44 @@ func runBoxInstall(url, sha256hex, file string) {
 	ranked, dropped := finalizeCandidates(rankBoxCandidates(fresh, installerName), installerName)
 	logf("sandbox", "info", "盒内安装结束：%s 用时 %s，盒内新增 exe %d 个，候选 %d 个（复核剔除 %d 个）",
 		installerName, time.Since(start).Round(time.Second), len(fresh), len(ranked), dropped)
+	fromExisting := false
 	if len(ranked) == 0 {
-		fail("%s", installEmptyScanSummary(installerName, obs.FreshFiles, len(fresh), dropped))
-		return
+		// v0.44: an empty diff is not automatically a failed
+		// install -- a same-version reinstall writes nothing
+		// (the installer skips identical files), and the
+		// program is already lying in the box. Fall back to
+		// the box's existing programs that match this
+		// installer's name before declaring failure.
+		fb, fbDropped := finalizeCandidates(existingBoxCandidates(boxRoot, installerName), installerName)
+		dropped += fbDropped
+		if len(fb) == 0 {
+			fail("%s", installEmptyScanSummary(installerName, obs.FreshFiles, len(fresh), dropped))
+			return
+		}
+		ranked, fromExisting = fb, true
+		logf("sandbox", "info", "隔离安装空差分回退：%s 本次安装没有新增能登记的程序（盒内新增文件 %d 个）——这个程序应该是已经装在盒子里了（同版本重装时安装器会跳过已存在的文件）。已按安装包名从盒内已有程序中找到 %d 个对得上的（标记「盒内已有」），进待登记：到 应用商店 → 隔离安装 确认主程序即可登记。",
+			installerName, obs.FreshFiles, len(ranked))
 	}
 	pend := &sbiePendingInstall{
 		InstallerName: installerName,
 		BeforeExes:    beforeExes,
 		BeforeAppData: beforeAppData,
+		FromExisting:  fromExisting,
 	}
 	sbieBoxOp.Lock()
 	sbieBoxOp.Candidates = ranked
 	sbieBoxOp.Pending = pend
 	sbieBoxOp.Unlock()
 	savePendingInstallFile(pendingInstallPath(), pend)
-	sbieBoxSet("choosing", "装完了。确认一下哪个是主程序、叫什么名字，登记后图标就上桌面。")
-	logf("sandbox", "info", "隔离安装待登记：%s 已装入盒子（%d 个候选）。请到 应用商店 → 隔离安装 选主程序完成登记——这一步已经存盘，关掉页面或重启终端都不会丢。",
-		installerName, len(ranked))
+	if fromExisting {
+		sbieBoxSet("choosing", "这个程序看起来已经装在盒子里了（本次安装没有新增文件，多半是同版本重装）。下面是从盒内找到的已有程序，确认主程序即可登记，图标就上桌面。")
+		logf("sandbox", "info", "隔离安装待登记（已在盒内）：%s（%d 个候选，来源：盒内已有）。请到 应用商店 → 隔离安装 选主程序完成登记——这一步已经存盘，关掉页面或重启终端都不会丢。",
+			installerName, len(ranked))
+	} else {
+		sbieBoxSet("choosing", "装完了。确认一下哪个是主程序、叫什么名字，登记后图标就上桌面。")
+		logf("sandbox", "info", "隔离安装待登记：%s 已装入盒子（%d 个候选）。请到 应用商店 → 隔离安装 选主程序完成登记——这一步已经存盘，关掉页面或重启终端都不会丢。",
+			installerName, len(ranked))
+	}
 }
 
 // registerBoxApp finalizes a boxed install into the registry.
