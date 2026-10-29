@@ -279,6 +279,12 @@ func remoteReconcileLoop() {
 // remoteReconcile drives the backend towards the master switch:
 // switch on + not running -> start; switch off + running -> stop.
 func remoteReconcile() {
+	if vaultLocked() {
+		// v0.48: the tsnet state lives inside the (sealed) Data
+		// tree -- the backend must stay down until unlock. The
+		// quiesce already stopped it; never restart it here.
+		return
+	}
 	want := settingRemoteEnabled()
 	rmt.Lock()
 	if want && !rmt.running && !rmt.starting {
@@ -652,6 +658,16 @@ func remoteMuxHandler() http.Handler {
 		if route.Tier == "assist" && op.Tier != "assist" {
 			logf("remote", "warn", "拒绝远程请求：操作者 %s 是只读档，不能执行写操作（%s %s）", op.Name, r.Method, r.URL.Path)
 			writeJSONStatus(w, http.StatusForbidden, map[string]any{"error": "你是只读档，这个动作需要终端主人把你升为协助档"})
+			return
+		}
+		if route.Tier == "assist" && vaultLocked() {
+			// v0.48 second line of defence (the listener is
+			// normally down while locked -- its state is sealed
+			// inside the vault): if a request still arrives, all
+			// write routes refuse cleanly while locked. Read
+			// routes keep their scrubbed behaviour.
+			logf("remote", "warn", "拒绝远程写请求：保险库锁定中（操作者 %s，%s %s）", op.Name, r.Method, r.URL.Path)
+			writeJSONStatus(w, http.StatusForbidden, map[string]any{"error": "终端机已锁定（保险库），解锁后才能执行写操作"})
 			return
 		}
 		remoteLastActivity.Store(time.Now().Unix())

@@ -41,6 +41,30 @@ body{font-family:-apple-system,"SF Pro Display","PingFang SC","Microsoft YaHei",
 #mb-priv{width:9px;height:9px;border-radius:50%;background:#ff9f0a;box-shadow:0 0 7px rgba(255,159,10,.9);display:none;margin-left:-9px}
 .glasspanel{background:rgba(28,28,36,.55);backdrop-filter:blur(26px) saturate(180%);-webkit-backdrop-filter:blur(26px) saturate(180%);border:1px solid rgba(255,255,255,.22);box-shadow:0 18px 50px rgba(0,0,0,.45);color:#fff}
 #ccpanel{position:fixed;top:46px;right:10px;width:356px;border-radius:20px;padding:14px;z-index:1500;transition:opacity .28s ease,transform .28s ease}
+/* v0.48: the 铭杰 (Apple-position) menu + the vault lock screen */
+#mbmenu{position:fixed;top:46px;left:10px;width:264px;border-radius:14px;padding:6px;z-index:1600}
+#mbmenu .mbm-it{padding:6px 12px;border-radius:8px;font-size:13.5px;cursor:pointer;color:#fff;white-space:nowrap}
+#mbmenu .mbm-it:hover{background:rgba(10,132,255,.85)}
+#mbmenu .mbm-sep{height:1px;background:rgba(255,255,255,.18);margin:5px 10px}
+#lockscreen{position:fixed;inset:0;z-index:3000;display:none;background:rgba(16,16,22,.42);backdrop-filter:blur(28px) saturate(150%);-webkit-backdrop-filter:blur(28px) saturate(150%)}
+#lockscreen.show{display:flex;align-items:center;justify-content:center}
+.lk-card{text-align:center;color:#fff;width:min(340px,86vw)}
+.lk-avatar{width:88px;height:88px;border-radius:50%;margin:0 auto 14px;background:linear-gradient(180deg,#64d2ff,#0a62d6);display:flex;align-items:center;justify-content:center;font-size:38px;font-weight:700;box-shadow:0 10px 34px rgba(0,0,0,.45)}
+.lk-name{font-size:21px;font-weight:650;margin-bottom:4px;text-shadow:0 1px 6px rgba(0,0,0,.4)}
+.lk-sub{font-size:13px;opacity:.75;margin-bottom:18px}
+.lk-form{display:flex;gap:8px;justify-content:center}
+.lk-form input{width:200px;padding:8px 14px;border-radius:999px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.16);color:#fff;font-size:14px;outline:none;text-align:center}
+.lk-form input::placeholder{color:rgba(255,255,255,.55)}
+.lk-form button{padding:8px 16px;border-radius:999px;border:none;background:rgba(255,255,255,.85);color:#111;font-size:14px;cursor:pointer}
+.lk-err{color:#ffb4ae;font-size:13px;min-height:20px;margin-top:10px}
+.lk-prog{margin-top:16px}
+.lk-bar{height:6px;border-radius:3px;background:rgba(255,255,255,.22);overflow:hidden}
+.lk-bar i{display:block;height:100%;width:0;background:#fff;border-radius:3px;transition:width .3s ease}
+.lk-progtxt{font-size:12px;opacity:.75;margin-top:6px}
+.lk-off{margin-top:26px;font-size:13px;opacity:.7;cursor:pointer}
+.lk-off:hover{opacity:1}
+@keyframes lkshake{0%,100%{transform:translateX(0)}20%{transform:translateX(-9px)}40%{transform:translateX(9px)}60%{transform:translateX(-6px)}80%{transform:translateX(6px)}}
+.lk-shake{animation:lkshake .45s ease}
 #ccpanel.hidden{display:none}
 #ccpanel.pop{opacity:0;transform:scale(.97) translateY(-6px)}
 .cc-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
@@ -408,6 +432,7 @@ table.gridtab td,table.gridtab th{white-space:nowrap;max-width:280px;overflow:hi
   </span>
 </div>
 
+<div id="mbmenu" class="glasspanel hidden"></div>
 <div id="icons"></div>
 <div id="wins"></div>
 <div id="extstrip" class="hidden"></div>
@@ -469,7 +494,7 @@ async function api(p,opt){const r=await fetch(p,opt);let t=await r.text();try{re
    reports "fresh" (no settings file yet), the old local values are
    migrated up once and the local copies dropped. */
 let SETTINGS=null;
-const SETDEF={wallpaper:'tahoe',stageManager:false,idleExitMinutes:30,phoneMode:true,phoneTriggerWidth:1200,phoneWidth:400,chromeCacheMB:200,stageAutoClaimBrowser:true,filesOnDesktop:true,remoteEnabled:false,winPlaceOnClaim:true,winHideOnMinimize:true,winCloseToTray:true,immersiveMode:false,desktopFullscreen:false,dockPosition:'bottom',dockAutoHide:false,dockIconSize:52,cc_show_immersive:true,cc_show_stage:true,cc_show_fullscreen:true,cc_show_dockhide:true,cc_show_remote:true,cc_show_wallpaper:true,notify_allow_sandbox:true,notify_allow_update:true,notify_allow_servermon:true,notify_allow_node:true,notify_allow_remote:true,notify_allow_files:true,notify_banner_sandbox:true,notify_banner_update:true,notify_banner_servermon:true,notify_banner_node:true,notify_banner_remote:true,notify_banner_files:true,nc_widgets:'[{"id":"calendar","show":true},{"id":"server","show":true},{"id":"node","show":true}]'};
+const SETDEF={wallpaper:'tahoe',stageManager:false,idleExitMinutes:30,phoneMode:true,phoneTriggerWidth:1200,phoneWidth:400,chromeCacheMB:200,stageAutoClaimBrowser:true,filesOnDesktop:true,remoteEnabled:false,winPlaceOnClaim:true,winHideOnMinimize:true,winCloseToTray:true,immersiveMode:false,desktopFullscreen:false,dockPosition:'bottom',dockAutoHide:false,dockIconSize:52,cc_show_immersive:true,cc_show_stage:true,cc_show_fullscreen:true,cc_show_dockhide:true,cc_show_remote:true,cc_show_wallpaper:true,notify_allow_sandbox:true,notify_allow_update:true,notify_allow_servermon:true,notify_allow_node:true,notify_allow_remote:true,notify_allow_files:true,notify_banner_sandbox:true,notify_banner_update:true,notify_banner_servermon:true,notify_banner_node:true,notify_banner_remote:true,notify_banner_files:true,nc_widgets:'[{"id":"calendar","show":true},{"id":"server","show":true},{"id":"node","show":true}]',exitClosesApps:true};
 function wallKey(){ if(SETTINGS) return SETTINGS.wallpaper||'tahoe'; return localStorage.getItem('mj-wall')||'tahoe' }
 /* v0.46 Dock basics: position + auto-hide are view-side behaviours
    over daemon settings (same pattern as the wallpaper). */
@@ -549,7 +574,7 @@ async function pollRemote(){
 }
 pollRemote();setInterval(pollRemote,10000);
 document.getElementById('mb-remote').onclick=()=>openApp('sys');
-document.getElementById('mb-logo').onclick=()=>openApp('home');
+/* mb-logo's click is owned by the v0.48 铭杰 menu (last script). */
 /* v0.38: the red light hides this view instead of letting it be
    destroyed (daemon-side SW_HIDE; the tray brings the SAME window
    back). See shellHideHandler in shellview.go. */
@@ -1964,8 +1989,8 @@ function bind(id){
    {id:'components',n:'组件',g:'linear-gradient(180deg,#ffb340,#ff7139)',glyph:'🧩',kw:'firefox 小龙虾 openclaw 组件'},
    {id:'isolation',n:'应用隔离',g:'linear-gradient(180deg,#64d2ff,#5856d6)',glyph:'📦',kw:'隔离 沙盒 sandboxie 驱动 管理员 微信 安装 盒子'},
    {id:'storage',n:'存储空间',g:'linear-gradient(180deg,#a7b0be,#5b6470)',glyph:'▤',kw:'存储 空间 清理 缓存 瘦身 占用 磁盘'},
-   {id:'security',n:'安全与隐私',g:'linear-gradient(180deg,#ffd60a,#ff9f0a)',glyph:'🔒',kw:'远程 协助 安全 隐私 配对 接管 tailscale 操作者'},
-   {id:'general',n:'通用',g:'linear-gradient(180deg,#d1d1d6,#636366)',glyph:'⚙',kw:'退出 自动 时长 通用'},
+   {id:'security',n:'安全与隐私',g:'linear-gradient(180deg,#ffd60a,#ff9f0a)',glyph:'🔒',kw:'远程 协助 安全 隐私 配对 接管 tailscale 操作者 保险库 加密 密码 锁屏 vault lock'},
+   {id:'general',n:'通用',g:'linear-gradient(180deg,#d1d1d6,#636366)',glyph:'⚙',kw:'退出 自动 时长 通用 关机 关闭 应用'},
    {id:'about',n:'关于',g:'linear-gradient(180deg,#64d2ff,#0a84ff)',glyph:'i',kw:'关于 版本 控制台 诊断 数据目录'},
    {id:'update',n:'软件更新',g:'linear-gradient(180deg,#8e8e93,#48484a)',glyph:'⬆',kw:'更新 升级 版本 令牌'}
   ];
@@ -2091,7 +2116,7 @@ function bind(id){
   const paintSecurity=()=>{
    if(secIv){ clearInterval(secIv); secIv=null; }
    const s=SETTINGS||SETDEF;
-   G('set-main').innerHTML=`<div class="set-page"><div class="set-sec">远程协助</div><div class="set-desc">让被你配对的操作者（比如你的 AI 助手）通过你自己的私有加密网络连进来，远程看状态、查日志，替你定位问题。通道是内嵌在守护进程里的 Tailscale 组网：不装任何软件、不动系统，节点身份存在 Data 里跟着文件夹走。对方发出的<b style="color:#fff">每一个请求都会记入控制台</b>（模块「远程协助」），配对、改档、撤销只能在这一页操作。</div><div class="sm-card"><div class="sm-row"><span>远程协助</span><label class="sm-sw"><input type="checkbox" id="sec-remote" ${s.remoteEnabled?'checked':''}><i></i></label></div><div class="sm-row"><span>组网状态</span><span class="set-val" id="sec-state">读取中…</span></div><div id="sec-netrows"></div></div><div id="sec-pendwrap"></div><div class="set-sec">操作者</div><div class="set-desc">只有名单里的人能连进来，按人单独授权、单独撤销。新批准的默认是<b style="color:#fff">只读档</b>：只能看状态和日志；升到<b style="color:#fff">协助档</b>后，还能改设置（白名单内）、启停节点与小龙虾、下载并应用更新。</div><div class="sm-card" id="sec-ops"><div class="sm-row"><span>读取中…</span></div></div><div class="set-sec">安全边界</div><div class="set-desc">任何档位都<b style="color:#fff">不会</b>对远程提供：你的文件内容、SSH 私钥与密码、节点分享链接与订阅地址、小龙虾令牌原文、更新令牌。退出系统、安装/卸载应用、配对管理也不对远程开放——这些入口在远程侧根本不存在。</div><div class="row"><button class="btn red" id="sec-clear">断开并清除全部配对</button></div></div>`;
+   G('set-main').innerHTML=`<div class="set-page"><div class="set-sec">远程协助</div><div class="set-desc">让被你配对的操作者（比如你的 AI 助手）通过你自己的私有加密网络连进来，远程看状态、查日志，替你定位问题。通道是内嵌在守护进程里的 Tailscale 组网：不装任何软件、不动系统，节点身份存在 Data 里跟着文件夹走。对方发出的<b style="color:#fff">每一个请求都会记入控制台</b>（模块「远程协助」），配对、改档、撤销只能在这一页操作。</div><div class="sm-card"><div class="sm-row"><span>远程协助</span><label class="sm-sw"><input type="checkbox" id="sec-remote" ${s.remoteEnabled?'checked':''}><i></i></label></div><div class="sm-row"><span>组网状态</span><span class="set-val" id="sec-state">读取中…</span></div><div id="sec-netrows"></div></div><div id="sec-pendwrap"></div><div class="set-sec">操作者</div><div class="set-desc">只有名单里的人能连进来，按人单独授权、单独撤销。新批准的默认是<b style="color:#fff">只读档</b>：只能看状态和日志；升到<b style="color:#fff">协助档</b>后，还能改设置（白名单内）、启停节点与小龙虾、下载并应用更新。</div><div class="sm-card" id="sec-ops"><div class="sm-row"><span>读取中…</span></div></div><div class="set-sec">安全边界</div><div class="set-desc">任何档位都<b style="color:#fff">不会</b>对远程提供：你的文件内容、SSH 私钥与密码、节点分享链接与订阅地址、小龙虾令牌原文、更新令牌。退出系统、安装/卸载应用、配对管理也不对远程开放——这些入口在远程侧根本不存在。</div><div class="row"><button class="btn red" id="sec-clear">断开并清除全部配对</button></div><div class="set-sec">保险库</div><div class="set-desc">把<b style="color:#fff">整个 Data 目录</b>加密：终端机退出或锁屏时，导入的文件、浏览器资料、节点与订阅、SSH 密钥、商店应用本体、盒子里的一切都变成密文，拷走也只是乱码；下次打开终端机，输对密码才解锁。锁屏会先关闭终端机内打开的应用再上锁（和 Mac 不一样——免驱动方案保不住活应用，如实说明）。还有一句实话：<b style="color:#fff">解锁运行期间，数据在磁盘上是明文</b>，这是免安装、免驱动方案的边界；密码<b style="color:#fff">忘记无法找回，没有后门</b>。</div><div class="sm-card" id="sec-vault"><div class="sm-row"><span>读取中…</span></div></div></div>`;
    const NETTXT={off:'已关闭',starting:'组网启动中…',needslogin:'等待登录（见下方）',online:'已组网，可被配对的操作者访问',error:'组网出错',unsupported:'当前平台不支持（需要 64 位构建）'};
    const paint=async()=>{
     let st, pr;
@@ -2120,6 +2145,38 @@ function bind(id){
      oc.querySelectorAll('[data-revoke]').forEach(b=>b.onclick=async()=>{ if(!confirm('撤销这位操作者的远程资格？对方立刻就连不进来了，之后想再给要重新配对。')) return; await api('/api/remote/pairing',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'revoke',id:b.dataset.revoke})}); paint(); });
     }
    };
+   const paintVault=async()=>{
+    const box=G('sec-vault'); if(!box) return;
+    let st; try{ st=await api('/api/vault/status'); }catch(e){ box.innerHTML='<div class="sm-row"><span>读取失败</span></div>'; return; }
+    if(!G('sec-vault')) return;
+    if(!st.enabled){
+     box.innerHTML=`<div class="sm-row"><span>保险库</span><span class="set-val">未启用</span></div><div class="sm-row"><span>启用后，退出 / 锁屏即全量加密整个 Data</span><button class="btn" id="vlt-enable-btn">启用保险库…</button></div><div id="vlt-form"></div>`;
+     G('vlt-enable-btn').onclick=()=>{
+      G('vlt-form').innerHTML=`<div class="sm-row"><span>设置密码（至少 6 位）</span><input class="txt" type="password" id="vlt-pw1" style="min-width:170px;flex:none" autocomplete="new-password"></div><div class="sm-row"><span>再输一遍</span><input class="txt" type="password" id="vlt-pw2" style="min-width:170px;flex:none" autocomplete="new-password"></div><div class="sm-row"><span style="opacity:.75;font-size:12.5px">建议用一句好记又长的口令。忘记密码 = 数据无法找回，没有后门。启用后数据先保持明文，第一次退出或点「立即上锁」时才加密。</span><button class="btn red" id="vlt-enable-go">确认启用</button></div><div class="sm-row" id="vlt-msg"></div>`;
+      G('vlt-enable-go').onclick=async()=>{
+       const p1=G('vlt-pw1').value, p2=G('vlt-pw2').value, msg=G('vlt-msg');
+       if(p1.length<6){ msg.innerHTML='<span style="color:#ff9f0a">密码至少 6 位</span>'; return; }
+       if(p1!==p2){ msg.innerHTML='<span style="color:#ff9f0a">两次输入不一致</span>'; return; }
+       const r=await api('/api/vault/enable',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:p1})});
+       if(r&&r.error){ msg.innerHTML='<span style="color:#ff453a">'+esc(r.error)+'</span>'; return; }
+       paintVault();
+      };
+     };
+     return;
+    }
+    box.innerHTML=`<div class="sm-row"><span>保险库</span><span class="set-val">已启用</span></div><div class="sm-row"><span>立即上锁（关闭打开的应用并加密全部数据）</span><button class="btn" id="vlt-lock">立即上锁</button></div><div class="sm-row"><span>修改密码（只重包裹主密钥，秒级完成，不重加密数据）</span><button class="btn gray" id="vlt-chpw-btn">修改密码…</button></div><div id="vlt-form"></div><div class="sm-row"><span>停用保险库（需输密码；之后退出不再加密）</span><span class="row"><input class="txt" type="password" id="vlt-dis-pw" placeholder="当前密码" style="min-width:140px;flex:none" autocomplete="off"><button class="btn gray" id="vlt-disable">停用</button></span></div><div class="sm-row" id="vlt-msg"></div>`;
+    G('vlt-lock').onclick=async()=>{ const r=await api('/api/vault/lock',{method:'POST'}); if(r&&r.error){ alert(r.error); return; } if(window.__vaultShowLock) window.__vaultShowLock(); };
+    G('vlt-chpw-btn').onclick=()=>{
+     G('vlt-form').innerHTML=`<div class="sm-row"><span>旧密码</span><input class="txt" type="password" id="vlt-old" style="min-width:150px;flex:none" autocomplete="off"></div><div class="sm-row"><span>新密码（至少 6 位）</span><input class="txt" type="password" id="vlt-new" style="min-width:150px;flex:none" autocomplete="new-password"></div><div class="sm-row"><span></span><button class="btn" id="vlt-chpw-go">确认修改</button></div>`;
+     G('vlt-chpw-go').onclick=async()=>{
+      const r=await api('/api/vault/changepw',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({old:G('vlt-old').value,new:G('vlt-new').value})});
+      const msg=G('vlt-msg'); if(msg) msg.innerHTML=r&&r.error?('<span style="color:#ff453a">'+esc(r.error)+'</span>'):'<span style="color:#30d158">密码已修改</span>';
+      if(!(r&&r.error)) G('vlt-form').innerHTML='';
+     };
+    };
+    G('vlt-disable').onclick=async()=>{ if(!confirm('停用保险库？当前数据保持明文，之后的退出 / 锁屏不再加密。')) return; const r=await api('/api/vault/disable',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:G('vlt-dis-pw').value})}); if(r&&r.error){ alert(r.error); return; } paintVault(); };
+   };
+   paintVault();
    G('sec-remote').onchange=async e=>{ const r=await saveSetting({remoteEnabled:e.target.checked}); if(r&&r.error){ alert('保存失败：'+r.error); e.target.checked=!e.target.checked; return; } setTimeout(paint,700); };
    G('sec-clear').onclick=async()=>{ if(!confirm('断开并清除全部配对？所有操作者立刻失去资格，远程协助同时关闭。')) return; await api('/api/remote/pairing',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'clear'})}); await loadSettings(); const sw=G('sec-remote'); if(sw) sw.checked=false; paint(); };
    paint();
@@ -2128,9 +2185,10 @@ function bind(id){
   const paintGeneral=()=>{
    const s=SETTINGS||SETDEF;
    const opts=[[0,'不自动'],[15,'15 分钟'],[30,'30 分钟'],[60,'60 分钟']];
-   G('set-main').innerHTML=`<div class="set-page"><div class="set-sec">守护进程</div><div class="set-desc">节点没在运行、也没人操作时，守护进程多久后自动退出。节点或小龙虾在跑时不会自动退出。改完立刻生效。</div><div class="sm-card"><div class="sm-row"><span>空闲自动退出</span><span class="sm-seg" id="gn-idle">${opts.map(([v,n])=>`<button data-v="${v}" class="${s.idleExitMinutes===v?'on':''}">${n}</button>`).join('')}</span></div></div><div class="set-sec">退出</div><div class="set-desc">关掉桌面窗口只是隐藏，后台和节点继续跑；再双击 MJ-System.exe 回来。真正断开只有点这个「退出系统」。个人数据都在 EXE 旁的 Data 文件夹，用完带走或删掉即可。</div><div class="row"><button class="btn red" id="gn-quit">退出系统（停节点 + 关后台）</button></div></div>`;
+   G('set-main').innerHTML=`<div class="set-page"><div class="set-sec">守护进程</div><div class="set-desc">节点没在运行、也没人操作时，守护进程多久后自动退出。节点或小龙虾在跑时不会自动退出。改完立刻生效。</div><div class="sm-card"><div class="sm-row"><span>空闲自动退出</span><span class="sm-seg" id="gn-idle">${opts.map(([v,n])=>`<button data-v="${v}" class="${s.idleExitMinutes===v?'on':''}">${n}</button>`).join('')}</span></div></div><div class="set-sec">退出</div><div class="set-desc">关掉桌面窗口只是隐藏，后台和节点继续跑；再双击 MJ-System.exe 回来。真正断开只有点这个「退出系统」。个人数据都在 EXE 旁的 Data 文件夹，用完带走或删掉即可。</div><div class="sm-card"><div class="sm-row"><span>退出时关闭打开的应用</span><label class="sm-sw"><input type="checkbox" id="gn-closeapps" ${s.exitClosesApps!==false?'checked':''}><i></i></label></div></div><p class="set-note">开启时，从设置退出、托盘退出或顶栏「关机」，会先请终端机打开的应用（隔离浏览器、商店应用、盒内应用）自己关，等几秒还不退的才结束进程，不留后台。更新交接不关应用；空闲自动退出也不关——除非启用了保险库（上锁前必须先关应用）。</p><div class="row"><button class="btn red" id="gn-quit">退出系统（停节点 + 关后台）</button></div></div>`;
    G('gn-idle').querySelectorAll('button').forEach(b=>b.onclick=async()=>{ const r=await saveSetting({idleExitMinutes:+b.dataset.v}); if(r&&r.error){ alert('保存失败：'+r.error); return; } G('gn-idle').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); });
    G('gn-quit').onclick=async()=>{ await api('/api/shutdown',{method:'POST'}); document.body.innerHTML='<div style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;font-size:20px;color:#fff;text-shadow:0 2px 10px #000">已退出，节点和后台都停了</div>'; };
+   G('gn-closeapps').onchange=async e=>{ const r=await saveSetting({exitClosesApps:e.target.checked}); if(r&&r.error){ alert('保存失败：'+r.error); e.target.checked=!e.target.checked; } };
   };
   const paintAbout=async()=>{
    G('set-main').innerHTML=`<div class="set-page"><div class="set-sec">关于</div><div class="sm-card" id="ab-card"><div class="sm-row"><span>读取中…</span></div></div><div class="set-sec">出问题了？</div><div class="set-desc">先去「控制台」看红色报错，或导出诊断包发出来定位。</div><div class="row"><button class="btn gray" id="ab-console">打开控制台</button><a class="btn gray" href="/api/diag/export" style="text-decoration:none">导出诊断包</a></div></div>`;
@@ -3081,6 +3139,111 @@ function showBanner(ev){
 
 openApp('home');
 (async()=>{ await Promise.all([loadLayout(),loadWebApps(),loadStoreApps(),loadBoxApps(),loadDeskFiles(),settingsReady]); renderDesk(); restoreSession(); })();
+</script>
+<div id="lockscreen">
+  <div class="lk-card" id="lk-card">
+    <div class="lk-avatar">铭</div>
+    <div class="lk-name">铭杰终端机</div>
+    <div class="lk-sub" id="lk-sub">输入密码解锁</div>
+    <form class="lk-form" id="lk-form"><input type="password" id="lk-pw" placeholder="密码" autocomplete="off"><button type="submit" id="lk-btn">解锁</button></form>
+    <div class="lk-err" id="lk-err"></div>
+    <div class="lk-prog" id="lk-prog" style="display:none"><div class="lk-bar"><i id="lk-bar-i"></i></div><div class="lk-progtxt" id="lk-progtxt"></div></div>
+    <div class="lk-off" id="lk-off">关机</div>
+  </div>
+</div>
+<script>
+/* v0.48: the 铭杰 menu (top-left, macOS Apple-menu position) and the
+   vault lock screen. Self-contained: it talks only to the vault and
+   shutdown endpoints and shares `api`/`SETTINGS` with the desktop
+   script. */
+(function(){
+ var LK={shown:false,busy:false};
+ function $(id){ return document.getElementById(id); }
+ function vapi(path,opts){ return api(path,opts).catch(function(){ return null; }); }
+ function phaseText(st){
+   if(st.phase==='sealing') return '正在上锁：加密整个 Data 目录…';
+   if(st.phase==='unlocking') return '正在解锁：逐片解密还原…';
+   if(st.partial) return '上次上锁被中断，输入密码恢复全部数据';
+   return '输入密码解锁';
+ }
+ function paintLock(st){
+   var sub=$('lk-sub'), form=$('lk-form'), prog=$('lk-prog');
+   sub.textContent=phaseText(st);
+   var working=(st.phase==='sealing'||st.phase==='unlocking');
+   form.style.display=working?'none':'';
+   prog.style.display=working?'':'none';
+   if(working&&st.progressTotal>0){
+     var pct=Math.min(100,Math.round((st.progress||0)*100/st.progressTotal));
+     $('lk-bar-i').style.width=pct+'%';
+     $('lk-progtxt').textContent=pct+'%（'+((st.progress||0)/1048576).toFixed(0)+' / '+(st.progressTotal/1048576).toFixed(0)+' MB）';
+   }
+ }
+ function showLock(st){ LK.shown=true; $('lockscreen').classList.add('show'); if(st) paintLock(st); var pw=$('lk-pw'); if(pw&&st&&st.phase!=='sealing'&&st.phase!=='unlocking') setTimeout(function(){ pw.focus(); },60); }
+ function hideLock(){ LK.shown=false; $('lockscreen').classList.remove('show'); }
+ window.__vaultShowLock=function(){ vapi('/api/vault/status').then(function(st){ if(st) showLock(st); }); };
+ async function vaultSync(){
+   var st=await vapi('/api/vault/status'); if(!st) return;
+   window.__vault=st;
+   if(st.locked){ if(!LK.shown) showLock(st); else paintLock(st); }
+   else if(LK.shown){ hideLock(); location.reload(); }
+ }
+ $('lk-form').addEventListener('submit',async function(ev){
+   ev.preventDefault(); if(LK.busy) return;
+   var pw=$('lk-pw').value; if(!pw) return;
+   LK.busy=true; $('lk-err').textContent='';
+   var r=await vapi('/api/vault/unlock',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pw})});
+   LK.busy=false;
+   if(!r||r.error){
+     var card=$('lk-card'); card.classList.remove('lk-shake'); void card.offsetWidth; card.classList.add('lk-shake');
+     $('lk-err').textContent=(r&&r.error)?r.error:'解锁失败';
+     $('lk-pw').value=''; $('lk-pw').focus();
+     return;
+   }
+   $('lk-pw').value='';
+   vaultSync();
+ });
+ $('lk-off').onclick=async function(){
+   if(!confirm('关机将退出终端机。继续？')) return;
+   await vapi('/api/shutdown',{method:'POST'});
+   $('lk-sub').textContent='已关机';
+   $('lk-form').style.display='none';
+ };
+ /* --- the 铭杰 menu --- */
+ var menu=$('mbmenu'), logo=$('mb-logo');
+ function closeMenu(){ menu.classList.add('hidden'); }
+ async function openMenu(){
+   var st=await vapi('/api/vault/status'); if(st) window.__vault=st;
+   var vaultOn=!!(window.__vault&&window.__vault.enabled);
+   var html='<div class="mbm-it" id="mbm-about">关于铭杰终端机</div><div class="mbm-sep"></div>';
+   if(vaultOn) html+='<div class="mbm-it" id="mbm-lock">锁定屏幕</div><div class="mbm-sep"></div>';
+   html+='<div class="mbm-it" id="mbm-off">关机…</div>';
+   menu.innerHTML=html;
+   menu.classList.remove('hidden');
+   $('mbm-about').onclick=function(){ closeMenu(); openApp('home'); };
+   $('mbm-off').onclick=async function(){
+     closeMenu();
+     var closeApps=!(window.SETTINGS&&SETTINGS.exitClosesApps===false);
+     var msg=closeApps?'关机将退出终端机，并关闭它打开的应用。继续？':'关机将退出终端机（打开的应用会留在宿主上继续运行）。继续？';
+     if(window.__vault&&window.__vault.enabled) msg='关机将退出终端机，并把整个 Data 目录加密上锁。继续？';
+     if(!confirm(msg)) return;
+     await vapi('/api/shutdown',{method:'POST'});
+     document.body.innerHTML='<div style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;font-size:20px;color:#fff;text-shadow:0 2px 10px #000">已关机</div>';
+   };
+   var lk=$('mbm-lock');
+   if(lk) lk.onclick=async function(){
+     closeMenu();
+     if(!confirm('锁定屏幕会关闭终端机内打开的应用，并把全部数据加密上锁。继续？')) return;
+     var r=await vapi('/api/vault/lock',{method:'POST'});
+     if(r&&r.error){ alert(r.error); return; }
+     window.__vaultShowLock();
+   };
+ }
+ logo.onclick=function(ev){ ev.stopPropagation(); if(menu.classList.contains('hidden')) openMenu(); else closeMenu(); };
+ document.addEventListener('mousedown',function(ev){ if(!menu.classList.contains('hidden')&&!menu.contains(ev.target)&&ev.target!==logo) closeMenu(); });
+ document.addEventListener('keydown',function(ev){ if(ev.key==='Escape') closeMenu(); });
+ vaultSync();
+ setInterval(vaultSync,3000);
+})();
 </script>
 </body>
 </html>

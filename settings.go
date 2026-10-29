@@ -122,6 +122,14 @@ type mjSettings struct {
 	// NCWidgets is a JSON array [{"id":"calendar","show":true},...]
 	// in display order; ids are calendar/server/node.
 	NCWidgets string `json:"nc_widgets"`
+	// v0.48: a USER-initiated full exit （设置退出 / 托盘退出 /
+	// 顶栏关机） also closes the apps the terminal opened
+	// (polite WM_CLOSE first, then termination for stragglers).
+	// Never applies to the update handover, and to the idle
+	// auto-exit only via the vault (a seal needs the apps shut;
+	// without the vault the idle exit leaves them alone).
+	// Default ON.
+	ExitClosesApps bool `json:"exitClosesApps"`
 }
 
 func defaultSettings() mjSettings {
@@ -163,6 +171,7 @@ func defaultSettings() mjSettings {
 		NotifyBannerRemote:    true,
 		NotifyBannerFiles:     true,
 		NCWidgets:             defaultNCWidgets,
+		ExitClosesApps:        true,
 	}
 }
 
@@ -420,6 +429,7 @@ func settingsMap() map[string]any {
 		"notify_banner_remote":    s.NotifyBannerRemote,
 		"notify_banner_files":     s.NotifyBannerFiles,
 		"nc_widgets":              s.NCWidgets,
+		"exitClosesApps":          s.ExitClosesApps,
 		"fresh":                   settingsFresh(),
 	}
 }
@@ -450,6 +460,8 @@ func settingWinCloseToTray() bool { return settingsGet().WinCloseToTray }
 func settingImmersiveMode() bool { return settingsGet().ImmersiveMode }
 
 func settingDesktopFullscreen() bool { return settingsGet().DesktopFullscreen }
+
+func settingExitClosesApps() bool { return settingsGet().ExitClosesApps }
 
 // settingsSetRemoteEnabledInternal flips the remote-assistance
 // master switch from inside the daemon (the pairing page's
@@ -646,6 +658,14 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 				} else if v != *p {
 					*p = v
 					changed = append(changed, boolLog(key, v))
+				}
+			case "exitClosesApps":
+				var v bool
+				if json.Unmarshal(val, &v) != nil {
+					fail = "exitClosesApps 必须是 true/false"
+				} else if v != next.ExitClosesApps {
+					next.ExitClosesApps = v
+					changed = append(changed, boolLog("exitClosesApps", v))
 				}
 			case "remoteEnabled":
 				var v bool

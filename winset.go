@@ -46,6 +46,9 @@ package main
 
 import (
 	"net/http"
+	"os"
+	"path/filepath"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -448,6 +451,152 @@ func prepareWindowsForDaemonExit() {
 	}
 }
 
+// ---------- v0.48: exit closes the terminal's apps ----------
+//
+// A user-initiated full exit （设置退出 / 托盘退出 / 顶栏关机） --
+// and a vault seal, which needs the files closed -- takes the
+// apps the terminal opened DOWN with it instead of leaving them
+// running on the host. Choreography: polite WM_CLOSE to every
+// registered window first (an app gets its chance to save and
+// quit on its own), a ~5 s grace poll, then termination for
+// whatever of OURS is still alive.
+//
+// The red line is the v0.36 ownership discipline: the kill set
+// is built ONLY from (a) registered windows' PIDs, (b) the spawn
+// ledger's live roots, (c) Sandboxie's in-box PID list, expanded
+// DOWNWARD through parent->child links. A host program the
+// terminal never launched or claimed can never be in the set,
+// whatever it is named.
+
+// computeKillSet expands roots downward over the process facts
+// (children, grandchildren, ...). The daemon itself and the
+// kernel PIDs are excluded even if listed as roots. Pure: the
+// tests pin the tree behaviour.
+func computeKillSet(procs []procFact, roots map[uint32]bool, selfPID uint32) map[uint32]bool {
+	children := map[uint32][]uint32{}
+	alive := map[uint32]bool{}
+	for _, p := range procs {
+		alive[p.PID] = true
+		if p.PPID != 0 && p.PPID != p.PID {
+			children[p.PPID] = append(children[p.PPID], p.PID)
+		}
+	}
+	out := map[uint32]bool{}
+	queue := []uint32{}
+	for pid := range roots {
+		if pid == selfPID || pid <= 4 || !alive[pid] {
+			continue
+		}
+		if !out[pid] {
+			out[pid] = true
+			queue = append(queue, pid)
+		}
+	}
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		for _, ch := range children[cur] {
+			if ch == selfPID || ch <= 4 || out[ch] {
+				continue
+			}
+			out[ch] = true
+			queue = append(queue, ch)
+		}
+	}
+	return out
+}
+
+// closeAppsForExit performs the polite-close + terminate
+// sequence over the registered set and the daemon's own process
+// trees. Best effort throughout: every step logs what it did
+// (module system) and nothing here may block the exit for long.
+func closeAppsForExit() {
+	// 1) Polite close for every registered window.
+	extMu.Lock()
+	wins := make([]*extWindow, 0, len(extWins))
+	for _, e := range extWins {
+		wins = append(wins, e)
+	}
+	extMu.Unlock()
+	closed := 0
+	for _, e := range wins {
+		if platformCloseWindow(e.HWND) {
+			closed++
+		}
+	}
+	if closed > 0 {
+		logf("system", "info", "退出关应用：已向 %d 个在册窗口发出关闭请求，等它们自己收尾", closed)
+	}
+	// 2) Grace poll, up to ~5 s: done when every registered
+	// window is gone.
+	for i := 0; i < 10 && len(wins) > 0; i++ {
+		alive := 0
+		for _, e := range wins {
+			if platformWindowExists(e.HWND) {
+				alive++
+			}
+		}
+		if alive == 0 {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	// 3) Terminate what is still ours. Roots: live spawn-ledger
+	// entries + registered window PIDs + the box PID list.
+	procs := platformProcessSnapshot()
+	aliveSet := map[uint32]bool{}
+	imageByPID := map[uint32]string{}
+	for _, p := range procs {
+		aliveSet[p.PID] = true
+		imageByPID[p.PID] = p.ImagePath
+	}
+	roots := spawnSeedPIDs(aliveSet)
+	for _, e := range wins {
+		if e.pid != 0 {
+			roots[e.pid] = true
+		}
+	}
+	for _, pid := range sbieBoxPids() {
+		roots[uint32(pid)] = true
+	}
+	kill := computeKillSet(procs, roots, uint32(os.Getpid()))
+	// Sandboxie's own terminate-all is the authoritative box
+	// cleanup on top of the per-PID pass below.
+	sbieTerminateBox()
+	// 4) Re-verify before killing: a PID recycled by the host in
+	// the meantime shows a different image path -- skip those.
+	procs2 := platformProcessSnapshot()
+	image2 := map[uint32]string{}
+	for _, p := range procs2 {
+		image2[p.PID] = p.ImagePath
+	}
+	var killed []string
+	for pid := range kill {
+		if img, ok := image2[pid]; !ok || img != imageByPID[pid] {
+			continue
+		}
+		proc, err := os.FindProcess(int(pid))
+		if err != nil {
+			continue
+		}
+		if err := proc.Kill(); err == nil {
+			name := filepath.Base(imageByPID[pid])
+			if name == "" || name == "." {
+				name = "未知程序"
+			}
+			killed = append(killed, name)
+		}
+	}
+	sort.Strings(killed)
+	for _, n := range killed {
+		logf("system", "info", "退出关应用：已终止 %s", n)
+	}
+	if len(killed) > 0 {
+		waitBoxEmpty(2 * time.Second)
+		logf("system", "info", "退出关应用：共终止 %d 个由终端机启动的进程", len(killed))
+	}
+}
+
 // ---------- shell watcher ----------
 
 // startShellWatcher drives components 3 and 4: it watches the
@@ -464,6 +613,9 @@ func startShellWatcher() {
 }
 
 func shellWatchTick() {
+	if !servicesActive() {
+		return // v0.48: vault locked (or sealing) -- hands off
+	}
 	grpMu.Lock()
 	exiting := grpExiting
 	vis := grpVis

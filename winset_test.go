@@ -123,3 +123,35 @@ func TestStepSetVis(t *testing.T) {
 		}
 	}
 }
+
+// v0.48: the exit kill set -- downward expansion from OUR roots
+// only, self and kernel PIDs excluded even when offered as roots,
+// dead roots ignored, unrelated host processes never included.
+func TestComputeKillSet(t *testing.T) {
+	procs := []procFact{
+		{PID: 1, PPID: 0},
+		{PID: 100, PPID: 1, ImagePath: `C:\apps\Telegram.exe`}, // root: a tracked launch
+		{PID: 101, PPID: 100, ImagePath: `C:\apps\helper.exe`}, // child
+		{PID: 102, PPID: 101, ImagePath: `C:\apps\gc.exe`},     // grandchild
+		{PID: 2, PPID: 100}, // kernel-ish PID: excluded even as a child
+		{PID: 200, PPID: 1, ImagePath: `C:\host\notepad.exe`}, // unrelated host app
+		{PID: 201, PPID: 200, ImagePath: `C:\host\child.exe`}, // its child: also not ours
+		{PID: 999, PPID: 1, ImagePath: `C:\MJ\MJ-System.exe`}, // the daemon itself
+	}
+	roots := map[uint32]bool{100: true, 999: true, 4242: true} // self offered; 4242 is dead
+	got := computeKillSet(procs, roots, 999)
+	want := map[uint32]bool{100: true, 101: true, 102: true}
+	if len(got) != len(want) {
+		t.Fatalf("kill set = %v, want %v", got, want)
+	}
+	for pid := range want {
+		if !got[pid] {
+			t.Errorf("pid %d missing from kill set", pid)
+		}
+	}
+	for _, pid := range []uint32{2, 200, 201, 999, 4242} {
+		if got[pid] {
+			t.Errorf("pid %d must never be in the kill set", pid)
+		}
+	}
+}

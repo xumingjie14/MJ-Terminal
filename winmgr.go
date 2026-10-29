@@ -1076,6 +1076,9 @@ func startExtPatrol() {
 }
 
 func patrolTick() {
+	if !servicesActive() {
+		return // v0.48: vault locked (or sealing) -- hands off
+	}
 	// Prune + housekeeping first (same as the list handler does on
 	// poll): dead registrations disappear even when the desktop
 	// view is closed.

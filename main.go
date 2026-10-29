@@ -1532,6 +1532,164 @@ const daemonPortSpan = 10
 
 var lastActivity atomic.Int64 // unix seconds, updated on any API/UI request
 
+// ---------- v0.48: services lifecycle + unified daemon exit ----------
+//
+// The data-reading subsystems (servermon, OpenClaw autostart,
+// window patrol, shell watcher, immersion, remote assist,
+// sandbox) start exactly once via startServicesOnce, and their
+// periodic work is gated on servicesOn: a daemon that booted
+// into a locked vault starts NOTHING until the password unlocks
+// it, and a lock-screen seal suspends them again in place.
+//
+// All daemon exits funnel through requestDaemonExit so the
+// choreography (restore hidden windows -> maybe close apps ->
+// stop subsystems -> maybe seal the vault -> exit) can never
+// drift apart between the Settings button, the tray, the idle
+// timer and the update handover again.
+
+type exitKind int
+
+const (
+	exitUser     exitKind = iota // 设置退出 / 托盘退出 / 顶栏关机
+	exitIdle                     // idle auto-exit
+	exitHandover                 // OTA handover: never closes apps, never seals
+)
+
+var (
+	servicesOnce   sync.Once
+	servicesOn     atomic.Bool
+	bootExtrasOnce sync.Once
+	linksLoaded    atomic.Bool
+	daemonSrv      *http.Server
+	daemonMode     bool // runServer's isDaemon, for post-unlock extras
+)
+
+func servicesSetActive(v bool) { servicesOn.Store(v) }
+func servicesActive() bool     { return servicesOn.Load() }
+
+func startServicesOnce() {
+	servicesOnce.Do(func() {
+		monInit()
+		ocAutoStartInit()
+		startExtPatrol()
+		startShellWatcher()
+		// v0.45: the immersion startup sweep runs before any
+		// view can be (re)claimed by this incarnation: marks
+		// found now can only be a crashed daemon's leftovers.
+		startImmerse()
+		remoteInit()
+		sandboxInit()
+	})
+	servicesSetActive(true)
+}
+
+func loadLinksOnce() {
+	if linksLoaded.CompareAndSwap(false, true) {
+		loadPersistedLinks()
+	}
+}
+
+// autostartCore brings the node up when saved nodes exist --
+// the behaviour a normal boot has had since v0.4, reused after
+// a vault unlock.
+func autostartCore() {
+	if len(nodes) == 0 {
+		return
+	}
+	go func() {
+		coreMu.Lock()
+		err := startCoreLocked()
+		coreMu.Unlock()
+		if err != nil {
+			logf("core", "error", "启动时自动拉起核心失败：%v", err)
+			// v0.47 hook (notify): same connect-failure event
+			// (dedupe shares the key with the manual path).
+			postNotify(notifySrcNode, "connect-fail", "节点连接失败", "开机自动连接失败："+err.Error(), "core")
+		}
+	}()
+}
+
+// runBootExtras: OTA leftover cleanup + the silent
+// check-and-predownload, exactly once per daemon lifetime
+// (at an unlocked boot, or right after the first unlock).
+func runBootExtras() {
+	bootExtrasOnce.Do(func() {
+		go func() {
+			time.Sleep(8 * time.Second)
+			if self, err := os.Executable(); err == nil {
+				_ = os.Remove(self + ".old")
+			}
+		}()
+		if daemonMode {
+			go func() {
+				time.Sleep(20 * time.Second)
+				checkUpdate()
+				upd.mu.Lock()
+				avail := upd.Phase == "available"
+				upd.mu.Unlock()
+				if avail {
+					downloadUpdate()
+				}
+			}()
+		}
+	})
+}
+
+// onVaultUnlocked is vault.go's callback once the password has
+// opened the vault (data restored / gate passed): everything a
+// normal boot does, in the same order.
+func onVaultUnlocked() {
+	monHold.Store(false)
+	loadLinksOnce()
+	startServicesOnce()
+	autostartCore()
+	runBootExtras()
+}
+
+// requestDaemonExit is THE exit sequence for every daemon exit
+// path. kind decides the two v0.48 behaviours:
+//   - app closing: user exits honour exitClosesApps; a vault
+//     seal forces it (the apps' files must be closed); idle and
+//     handover exits never close apps on their own.
+//   - vault sealing: with the vault enabled, EVERY exit seals
+//     except the update handover (not a real exit, and it runs
+//     inside an unlocked session by construction). A failed seal
+//     never traps the user in a daemon they asked to quit: the
+//     exit proceeds, the failure is logged, and the next boot
+//     gates on the password before anything runs.
+func requestDaemonExit(kind exitKind) {
+	// v0.37 safety line, first on every path (winset.go):
+	// restore every group-hidden / immersed window.
+	prepareWindowsForDaemonExit()
+	seal := vaultEnabled() && kind != exitHandover
+	closeApps := kind == exitUser && settingExitClosesApps()
+	if seal {
+		closeApps = true
+	}
+	if vaultPhase() == vaultPhaseSealed {
+		// Locked-mode exit: data is already in shards and no
+		// app was ever started.
+		seal, closeApps = false, false
+	}
+	if closeApps {
+		closeAppsForExit()
+	}
+	remoteShutdown()
+	ocStopForShutdown()
+	coreMu.Lock()
+	stopCoreLocked()
+	coreMu.Unlock()
+	if seal {
+		if err := vaultSealAtExit(); err != nil {
+			logf("vault", "warn", "退出前上锁未完成：%v；本次退出数据保持明文，下次启动先过密码屏", err)
+		}
+	}
+	if daemonSrv != nil {
+		_ = daemonSrv.Shutdown(context.Background())
+	}
+	os.Exit(0)
+}
+
 func touchActivity() { lastActivity.Store(time.Now().Unix()) }
 
 func daemonURLForPort(p int) string { return fmt.Sprintf("http://127.0.0.1:%d/", p) }
@@ -1558,9 +1716,31 @@ func findDaemon() string {
 // claiming anything. Claiming is a separate step (openShellWindow
 // / ensureShellView) because v0.38's singleton decides BEFORE
 // spawning whether a view may be created at all.
+// lockProfileDir is the throwaway browser profile for the
+// locked-mode desktop view. It lives OUTSIDE Data (whose real
+// ShellProfile is sealed inside the vault) and is deleted at
+// every unlocked boot.
+func lockProfileDir() string {
+	return filepath.Join(filepath.Dir(dataDir()), "mj-lock-profile")
+}
+
+// shellProfileDir picks the desktop view's browser profile:
+// the real one normally; while the vault is locked, the
+// throwaway lock profile -- the lock screen must not mint
+// plaintext profile files into a sealed tree, where they would
+// collide with the restored ShellProfile on unlock. The shell
+// page keeps its durable state server-side, so after unlock +
+// reload the swap is invisible.
+func shellProfileDir() string {
+	if vaultLocked() {
+		return lockProfileDir()
+	}
+	return filepath.Join(dataDir(), "ShellProfile")
+}
+
 func spawnShellWindow(url string, proxy bool) (browser string, before map[uint64]bool, err error) {
 	browser = findShellBrowser()
-	profile := filepath.Join(dataDir(), "ShellProfile")
+	profile := shellProfileDir()
 	_ = os.MkdirAll(profile, 0o755)
 	if browser == "" {
 		return "", nil, exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
@@ -1689,9 +1869,22 @@ func activityMiddleware(next http.Handler) http.Handler {
 
 func runServer(portFlag int, isDaemon bool) {
 	termCwd = homeDir()
+	daemonMode = isDaemon
+	// v0.48: classify the vault BEFORE anything reads or writes
+	// Data (and before the first logf can open Data/logs): a
+	// sealed Data means this daemon boots into locked mode --
+	// password screen only, every data-reading subsystem waits
+	// for onVaultUnlocked.
+	vaultDetect()
+	lockedBoot := vaultLocked()
 	_ = os.MkdirAll(filepath.Join(exeDir(), "core"), 0o755)
-	extractEmbeddedCore() // single-file EXE provisions its own sing-box
-	loadPersistedLinks()
+	if !lockedBoot {
+		extractEmbeddedCore() // single-file EXE provisions its own sing-box
+		loadLinksOnce()
+		// The throwaway lock-screen browser profile (outside
+		// Data) has no reason to survive an unlocked boot.
+		_ = os.RemoveAll(lockProfileDir())
+	}
 	touchActivity()
 
 	var ln net.Listener
@@ -1730,6 +1923,12 @@ func runServer(portFlag int, isDaemon bool) {
 		_, _ = w.Write(indexHTML)
 	})
 	mux.HandleFunc("/api/system", sysInfo)
+	mux.HandleFunc("/api/vault/status", vaultStatusHandler)
+	mux.HandleFunc("/api/vault/enable", vaultEnableHandler)
+	mux.HandleFunc("/api/vault/unlock", vaultUnlockHandler)
+	mux.HandleFunc("/api/vault/lock", vaultLockHandler)
+	mux.HandleFunc("/api/vault/changepw", vaultChangePwHandler)
+	mux.HandleFunc("/api/vault/disable", vaultDisableHandler)
 	mux.HandleFunc("/api/notify", notifyHandler)
 	mux.HandleFunc("/api/notify/dismiss", notifyDismissHandler)
 	mux.HandleFunc("/api/notify/clear-source", notifyClearSourceHandler)
@@ -1834,81 +2033,51 @@ func runServer(portFlag int, isDaemon bool) {
 	mux.HandleFunc("/api/sandbox/launch", sandboxLaunchHandler)
 	mux.HandleFunc("/api/sandbox/remove", sandboxRemoveHandler)
 	mux.HandleFunc("/api/sandbox/clear", sandboxClearHandler)
-	srv := &http.Server{Handler: activityMiddleware(diagMiddleware(mux))}
+	srv := &http.Server{Handler: activityMiddleware(diagMiddleware(vaultGateMiddleware(mux)))}
+	daemonSrv = srv
 	mux.HandleFunc("/api/shutdown", func(w http.ResponseWriter, r *http.Request) {
+		// The OTA updater binary also lands here (it asks the old
+		// daemon to shut down for the handover): it marks itself
+		// with ?handover=1, because a handover is NOT a user exit
+		// -- it must neither close the user's apps nor seal the
+		// vault. Every unmarked call is a user-initiated exit
+		// （设置退出 / 托盘退出 / 顶栏关机 all funnel through here).
+		handover := r.URL.Query().Get("handover") == "1"
 		writeJSON(w, map[string]any{"ok": true, "message": "后台和节点一起退出"})
-		logf("system", "info", "用户从设置退出系统，守护进程关闭")
+		if handover {
+			logf("system", "info", "更新交接，守护进程退出（不关应用、不上锁）")
+			go func() {
+				time.Sleep(300 * time.Millisecond)
+				requestDaemonExit(exitHandover)
+			}()
+			return
+		}
+		logf("system", "info", "用户退出系统，守护进程关闭")
 		go func() {
 			time.Sleep(300 * time.Millisecond)
-			// v0.37 safety line: never leave group-hidden
-			// windows behind (winset.go).
-			prepareWindowsForDaemonExit()
-			remoteShutdown()
-			ocStopForShutdown()
-			coreMu.Lock()
-			stopCoreLocked()
-			coreMu.Unlock()
-			_ = srv.Shutdown(context.Background())
-			os.Exit(0)
+			requestDaemonExit(exitUser)
 		}()
 	})
 
-	monInit()
-	ocAutoStartInit()
-	startExtPatrol()
-	startShellWatcher()
-	// v0.45: the immersion startup sweep runs before any view
-	// can be (re)claimed by this incarnation: MJImmersed marks
-	// found now can only be a crashed daemon's leftovers.
-	startImmerse()
-	remoteInit()
-	sandboxInit()
+	if !lockedBoot {
+		startServicesOnce()
+	}
 
 	fmt.Println("MJ Light System daemon:", url)
 	daemonPort = actualPort
-	logf("system", "info", "守护进程启动：版本 v%s · %s/%s · 监听 %s", AppVersion, runtime.GOOS, runtime.GOARCH, url)
+	if lockedBoot {
+		logf("system", "info", "守护进程启动（保险库锁定中）：版本 v%s · 监听 %s，等密码解锁", AppVersion, url)
+	} else {
+		logf("system", "info", "守护进程启动：版本 v%s · %s/%s · 监听 %s", AppVersion, runtime.GOOS, runtime.GOARCH, url)
+	}
 	go func() { _ = srv.Serve(ln) }()
 
-	// Coming up in the background: if nodes are already saved, bring the
-	// core up right away so the proxy is ready without opening anything.
-	if len(nodes) > 0 {
-		go func() {
-			coreMu.Lock()
-			err := startCoreLocked()
-			coreMu.Unlock()
-			if err != nil {
-				logf("core", "error", "启动时自动拉起核心失败：%v", err)
-				// v0.47 hook (notify): same connect-failure event
-				// (dedupe shares the key with the manual path).
-				postNotify(notifySrcNode, "connect-fail", "节点连接失败", "开机自动连接失败："+err.Error(), "core")
-			}
-		}()
-	}
-
-	// OTA leftovers: an MJ-System.exe.old next to us means a previous
-	// update already succeeded (we are the new binary and we are up),
-	// so it can go.
-	go func() {
-		time.Sleep(8 * time.Second)
-		if self, err := os.Executable(); err == nil {
-			_ = os.Remove(self + ".old")
-		}
-	}()
-
-	// OTA: silently check on daemon start and pre-download a newer
-	// release; applying still waits for the user to click in
-	// 设置 -> 软件更新. The repo is public, so no token is needed.
-	if isDaemon {
-		go func() {
-			time.Sleep(20 * time.Second)
-			checkUpdate()
-			upd.mu.Lock()
-			avail := upd.Phase == "available"
-			upd.mu.Unlock()
-			if avail {
-				downloadUpdate()
-			}
-		}()
+	if !lockedBoot {
+		// Coming up in the background: if nodes are already
+		// saved, bring the core up right away so the proxy is
+		// ready without opening anything; then the OTA extras.
+		autostartCore()
+		runBootExtras()
 	}
 
 	if isDaemon {
@@ -1919,7 +2088,10 @@ func runServer(portFlag int, isDaemon bool) {
 		// The idle limit is a user preference since v0.30
 		// (Data/settings.json, 设置 -> 通用； default 30 minutes,
 		// 0 = never auto-exit), re-read every tick so a change in
-		// the Settings app applies without a restart.
+		// the Settings app applies without a restart. With the
+		// vault enabled this exit seals first (see
+		// requestDaemonExit): someone walking away is exactly
+		// what the vault is for.
 		go func() {
 			for range time.Tick(time.Minute) {
 				coreMu.Lock()
@@ -1928,15 +2100,7 @@ func runServer(portFlag int, isDaemon bool) {
 				mins := settingIdleExitMinutes()
 				if mins > 0 && !running && !ocRunning() && time.Now().Unix()-lastActivity.Load() > int64(mins)*60 {
 					logf("system", "info", "空闲超过 %d 分钟且节点未运行，守护进程自动退出", mins)
-					// v0.37 safety line (winset.go).
-					prepareWindowsForDaemonExit()
-					remoteShutdown()
-					ocStopForShutdown()
-					coreMu.Lock()
-					stopCoreLocked()
-					coreMu.Unlock()
-					_ = srv.Shutdown(context.Background())
-					os.Exit(0)
+					requestDaemonExit(exitIdle)
 				}
 			}
 		}()

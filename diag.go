@@ -57,13 +57,19 @@ type diagEntry struct {
 }
 
 var (
-	diagMu          sync.Mutex
-	diagBuf         []diagEntry
-	diagSeq         int64
-	diagFile        *os.File
-	diagFileLen     int64
-	diagOnce        sync.Once
-	diagBootOnce    sync.Once
+	diagMu       sync.Mutex
+	diagBuf      []diagEntry
+	diagSeq      int64
+	diagFile     *os.File
+	diagFileLen  int64
+	diagOnce     sync.Once
+	diagBootOnce sync.Once
+	// v0.48: while the vault is sealed (or sealing), the on-disk
+	// log inside Data must NOT be opened or created -- logging is
+	// memory-only until unlock. vaultDetect sets this before the
+	// first logf can run; vault unlock clears it and logf lazily
+	// reopens the (restored) file.
+	diagHoldFile    atomic.Bool
 	diagPendingNote atomic.Int64 // backfilled history count, announced by the next logf
 
 	daemonStart = time.Now()
@@ -84,15 +90,39 @@ func diagLogPath() string { return filepath.Join(diagLogsDir(), "mj.log") }
 // daemon down.
 func diagInitFile() {
 	diagOnce.Do(func() {
-		p := diagLogPath()
-		if st, err := os.Stat(p); err == nil {
-			diagFileLen = st.Size()
+		if diagHoldFile.Load() {
+			return // vault sealed: do not even create Data/logs
 		}
-		f, err := os.OpenFile(p, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-		if err == nil {
-			diagFile = f
-		}
+		diagReopenFileLocked()
 	})
+}
+
+// diagReopenFileLocked (re)opens mj.log for appending and adopts
+// its current length. Used at boot and lazily by logf after a
+// vault unlock (the file was restored by then). Not internally
+// locked: boot calls it before concurrency matters, logf calls
+// it while holding diagMu.
+func diagReopenFileLocked() {
+	p := diagLogPath()
+	if st, err := os.Stat(p); err == nil {
+		diagFileLen = st.Size()
+	}
+	f, err := os.OpenFile(p, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err == nil {
+		diagFile = f
+	}
+}
+
+// diagCloseFileForVault closes the on-disk log before Data is
+// sealed (vault quiesce sets diagHoldFile first, so logf will
+// not reopen it until the vault unlocks again).
+func diagCloseFileForVault() {
+	diagMu.Lock()
+	if diagFile != nil {
+		_ = diagFile.Close()
+		diagFile = nil
+	}
+	diagMu.Unlock()
 }
 
 // diagBoot runs once, on the first logf of the process: open the
@@ -219,6 +249,11 @@ func logf(module, level, format string, args ...any) {
 	diagBuf = append(diagBuf, e)
 	if len(diagBuf) > diagBufMax {
 		diagBuf = append([]diagEntry{}, diagBuf[len(diagBuf)-diagBufMax:]...)
+	}
+	if diagFile == nil && !diagHoldFile.Load() {
+		// After a vault unlock the restored mj.log is picked up
+		// again here (while sealed, diagHoldFile keeps us out).
+		diagReopenFileLocked()
 	}
 	if diagFile != nil {
 		line := fmt.Sprintf("%s [%-5s] [%s] %s\n", e.Time, strings.ToUpper(level), module, msg)

@@ -45,7 +45,7 @@ import (
 // AppVersion is the single source of truth for the running version.
 // The CI workflow must publish the Release with the matching tag
 // (v + AppVersion) and update.json.
-const AppVersion = "0.47"
+const AppVersion = "0.48"
 
 const updateRepo = "xumingjie14/MJ-Terminal"
 const updateZipName = "MJ-System-64bit.zip"
@@ -158,6 +158,10 @@ func compareVersions(a, b string) int {
 // ---------- GitHub helpers ----------
 
 func ghRequest(ctx context.Context, url, accept string, useToken bool) (*http.Response, error) {
+	return ghRequestH(ctx, url, accept, useToken, nil)
+}
+
+func ghRequestH(ctx context.Context, url, accept string, useToken bool, headers map[string]string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -165,6 +169,9 @@ func ghRequest(ctx context.Context, url, accept string, useToken bool) (*http.Re
 	req.Header.Set("Accept", accept)
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	req.Header.Set("User-Agent", "MJ-Terminal-Updater/"+AppVersion)
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
 	if useToken {
 		if tok := readUpdateToken(); tok != "" {
 			req.Header.Set("Authorization", "Bearer "+tok)
@@ -181,13 +188,17 @@ func ghRequest(ctx context.Context, url, accept string, useToken bool) (*http.Re
 // (stale or wrong token), it retries once anonymously: the repo is
 // public, so a bad token must never be able to block updates.
 func ghSend(ctx context.Context, url, accept string) (*http.Response, error) {
+	return ghSendH(ctx, url, accept, nil)
+}
+
+func ghSendH(ctx context.Context, url, accept string, headers map[string]string) (*http.Response, error) {
 	withToken := readUpdateToken() != ""
-	resp, err := ghRequest(ctx, url, accept, withToken)
+	resp, err := ghRequestH(ctx, url, accept, withToken, headers)
 	if err != nil || !withToken || resp.StatusCode != http.StatusUnauthorized {
 		return resp, err
 	}
 	_ = resp.Body.Close()
-	return ghRequest(ctx, url, accept, false)
+	return ghRequestH(ctx, url, accept, false, headers)
 }
 
 func ghGetJSON(ctx context.Context, url string, limit int64) ([]byte, int, error) {
@@ -281,47 +292,196 @@ func checkUpdate() {
 
 // ---------- download ----------
 
-// downloadUpdate fetches the zip asset, verifies size + SHA-256
-// against the manifest, then stages MJ-System.exe in Data/update/.
-func downloadUpdate() {
-	upd.mu.Lock()
-	zipURL, wantSize, wantSHA := upd.zipAssetURL, upd.Size, upd.sha256
-	upd.Progress = 0
-	upd.mu.Unlock()
-	if zipURL == "" {
-		upd.set("error", "还没有检查到可下载的更新")
-		return
+// renameRetrySleep is indirected so tests can compress the
+// backoff schedule.
+var renameRetrySleep = time.Sleep
+
+// renameWithRetry runs renameFn until it succeeds, with a
+// growing backoff (~50 s across 12 attempts). The v0.47 field
+// failure being fixed here: the 58.8 MB package downloaded
+// completely, then the final one-shot rename of pkg.zip.part
+// died with "The process cannot access the file because it is
+// being used by another process" -- four attempts in one evening,
+// all dead at the same step. A transient lock (the prime suspect
+// is the host antivirus scanning the fresh ~62 MB zip; an
+// unclosed handle of our own is the other, audited below) needs
+// a window to let go, not a single try.
+func renameWithRetry(renameFn func() error, logAttempt func(attempt int, err error)) error {
+	delays := []time.Duration{
+		0, time.Second, 1500 * time.Millisecond, 2 * time.Second,
+		2500 * time.Millisecond, 3 * time.Second, 4 * time.Second,
+		5 * time.Second, 6 * time.Second, 7 * time.Second,
+		8 * time.Second, 10 * time.Second,
 	}
-	ensureCoreForDownload()
-	upd.set("downloading", "正在下载更新包（"+downloadRoute()+"）…")
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
-	defer cancel()
-	resp, err := ghSend(ctx, zipURL, "application/octet-stream")
-	if err != nil {
-		upd.set("error", "下载失败："+err.Error())
-		return
+	var err error
+	for i, d := range delays {
+		if d > 0 {
+			renameRetrySleep(d)
+		}
+		if err = renameFn(); err == nil {
+			return nil
+		}
+		if logAttempt != nil {
+			logAttempt(i+1, err)
+		}
+	}
+	return err
+}
+
+// finalizePartFile moves a completed .part download to its
+// final name: backoff rename first; if the lock still will not
+// let go, a copy with a fresh handle (size-verified, then the
+// part is removed).
+func finalizePartFile(part, dest string) error {
+	err := renameWithRetry(func() error { return os.Rename(part, dest) }, func(attempt int, err error) {
+		logf("update", "warn", "更新包改名被占用（第 %d 次）：%v", attempt, err)
+	})
+	if err == nil {
+		return nil
+	}
+	logf("update", "warn", "更新包改名多次仍失败，改走复制兜底：%v", err)
+	in, ierr := os.Open(part)
+	if ierr != nil {
+		return ierr
+	}
+	defer in.Close()
+	st, serr := in.Stat()
+	if serr != nil {
+		return serr
+	}
+	out, oerr := os.OpenFile(dest, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	if oerr != nil {
+		return oerr
+	}
+	_, cerr := io.Copy(out, in)
+	if cerr == nil {
+		cerr = out.Sync()
+	}
+	clerr := out.Close()
+	if cerr != nil {
+		return cerr
+	}
+	if clerr != nil {
+		return clerr
+	}
+	dst, derr := os.Stat(dest)
+	if derr != nil {
+		return derr
+	}
+	if dst.Size() != st.Size() {
+		return fmt.Errorf("复制出的更新包大小对不上（%d / %d 字节）", dst.Size(), st.Size())
+	}
+	_ = os.Remove(part)
+	return nil
+}
+
+// partFileStatus inspects an existing .part file against the
+// manifest. complete=true means the file IS the package (size
+// matches AND, when the manifest carries one, SHA-256 matches)
+// and the download can be skipped outright. Otherwise
+// resumeFrom is the byte count usable as a Range prefix -- size
+// only; the whole-file SHA-256 verdict after the transfer is
+// the arbiter, so a lying prefix costs a failed check, never a
+// bad install.
+func partFileStatus(part string, wantSize int64, wantSHA string) (complete bool, resumeFrom int64) {
+	st, err := os.Stat(part)
+	if err != nil || wantSize <= 0 {
+		return false, 0
+	}
+	switch {
+	case st.Size() == wantSize:
+		if wantSHA == "" {
+			return true, st.Size()
+		}
+		if sum, herr := vaultHashFile(part); herr == nil && strings.EqualFold(sum, wantSHA) {
+			return true, st.Size()
+		}
+		return false, 0 // full size, wrong content: start over
+	case st.Size() < wantSize:
+		return false, st.Size()
+	default:
+		return false, 0 // oversized: corrupt, start over
+	}
+}
+
+// fetchUpdateZip transfers the release zip into part, resuming
+// from resumeFrom bytes when >0 (a server answering 200 instead
+// of 206 restarts the transfer cleanly). Size + SHA-256 are
+// verified over the WHOLE assembled file before it returns
+// true; every failure sets the upd error state itself.
+//
+// Handle discipline (audited for v0.48): the .part handle is
+// closed EXPLICITLY at the end of the write loop -- before the
+// verdict and long before any rename -- never carried across
+// them by a defer.
+func fetchUpdateZip(ctx context.Context, zipURL, part string, resumeFrom, wantSize int64, wantSHA string) bool {
+	var resp *http.Response
+	var err error
+	for attempt := 0; attempt < 2; attempt++ {
+		var headers map[string]string
+		if resumeFrom > 0 {
+			headers = map[string]string{"Range": fmt.Sprintf("bytes=%d-", resumeFrom)}
+		}
+		resp, err = ghSendH(ctx, zipURL, "application/octet-stream", headers)
+		if err != nil {
+			upd.set("error", "下载失败："+err.Error())
+			return false
+		}
+		if resumeFrom > 0 && resp.StatusCode == http.StatusPartialContent {
+			var start int64 = -1
+			if _, serr := fmt.Sscanf(resp.Header.Get("Content-Range"), "bytes %d-", &start); serr == nil && start == resumeFrom {
+				break
+			}
+			_ = resp.Body.Close()
+			resumeFrom = 0 // a range reply that starts elsewhere: restart plainly
+			continue
+		}
+		if resp.StatusCode == http.StatusOK {
+			resumeFrom = 0 // Range ignored (or never sent): the full body follows
+			break
+		}
+		_ = resp.Body.Close()
+		upd.set("error", fmt.Sprintf("下载失败：GitHub 返回 %d", resp.StatusCode))
+		return false
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		upd.set("error", fmt.Sprintf("下载失败：GitHub 返回 %d", resp.StatusCode))
-		return
+
+	h := sha256.New()
+	var f *os.File
+	if resumeFrom > 0 {
+		// Hash the held prefix first, so the final verdict
+		// covers the whole file.
+		pf, perr := os.Open(part)
+		if perr != nil {
+			upd.set("error", "下载失败："+perr.Error())
+			return false
+		}
+		_, herr := io.Copy(h, pf)
+		_ = pf.Close()
+		if herr != nil {
+			upd.set("error", "下载失败："+herr.Error())
+			return false
+		}
+		f, err = os.OpenFile(part, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	} else {
+		f, err = os.Create(part)
 	}
-	part := filepath.Join(updateDir(), "pkg.zip.part")
-	f, err := os.Create(part)
 	if err != nil {
 		upd.set("error", "下载失败："+err.Error())
-		return
+		return false
 	}
-	h := sha256.New()
+	written := resumeFrom
+	upd.mu.Lock()
+	upd.Progress = written
+	upd.mu.Unlock()
 	buf := make([]byte, 256*1024)
-	var written int64
 	for {
 		n, rerr := resp.Body.Read(buf)
 		if n > 0 {
 			if _, werr := f.Write(buf[:n]); werr != nil {
 				_ = f.Close()
 				upd.set("error", "下载失败（写入）："+werr.Error())
-				return
+				return false
 			}
 			_, _ = h.Write(buf[:n])
 			written += int64(n)
@@ -335,22 +495,62 @@ func downloadUpdate() {
 		if rerr != nil {
 			_ = f.Close()
 			upd.set("error", "下载中断："+rerr.Error())
-			return
+			return false
 		}
 	}
-	_ = f.Close()
+	if cerr := f.Close(); cerr != nil {
+		upd.set("error", "下载失败（关闭文件）："+cerr.Error())
+		return false
+	}
 	if wantSize > 0 && written != wantSize {
 		upd.set("error", fmt.Sprintf("下载不完整：大小对不上（%d / %d 字节）", written, wantSize))
-		return
+		return false
 	}
 	gotSHA := hex.EncodeToString(h.Sum(nil))
 	if wantSHA != "" && !strings.EqualFold(gotSHA, wantSHA) {
 		upd.set("error", "校验失败：SHA-256 对不上，已放弃这次更新")
+		return false
+	}
+	return true
+}
+
+// downloadUpdate fetches the zip asset (or reuses / resumes a
+// previous attempt's .part), verifies size + SHA-256 against
+// the manifest, then stages MJ-System.exe in Data/update/.
+func downloadUpdate() {
+	upd.mu.Lock()
+	zipURL, wantSize, wantSHA := upd.zipAssetURL, upd.Size, upd.sha256
+	upd.Progress = 0
+	upd.mu.Unlock()
+	if zipURL == "" {
+		upd.set("error", "还没有检查到可下载的更新")
 		return
 	}
+	ensureCoreForDownload()
+	part := filepath.Join(updateDir(), "pkg.zip.part")
 	zipPath := filepath.Join(updateDir(), "pkg.zip")
+	complete, resumeFrom := partFileStatus(part, wantSize, wantSHA)
+	if complete {
+		logf("update", "info", "软件更新：上次已下载完整的更新包（大小与 SHA-256 均与清单一致），跳过下载")
+		upd.mu.Lock()
+		upd.Progress = wantSize
+		upd.mu.Unlock()
+	} else {
+		if resumeFrom == 0 {
+			_ = os.Remove(part) // wrong-size/corrupt leftover: start clean
+		} else {
+			logf("update", "info", "软件更新：断点续传（已有 %s / %s）", fmtBytes(resumeFrom), fmtBytes(wantSize))
+		}
+		upd.set("downloading", "正在下载更新包（"+downloadRoute()+"）…")
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+		ok := fetchUpdateZip(ctx, zipURL, part, resumeFrom, wantSize, wantSHA)
+		cancel()
+		if !ok {
+			return
+		}
+	}
 	_ = os.Remove(zipPath)
-	if err := os.Rename(part, zipPath); err != nil {
+	if err := finalizePartFile(part, zipPath); err != nil {
 		upd.set("error", "下载失败："+err.Error())
 		return
 	}
@@ -379,7 +579,7 @@ func downloadUpdate() {
 		tmp := stagedExePath() + ".tmp"
 		if err := os.WriteFile(tmp, data, 0o755); err == nil {
 			_ = os.Remove(stagedExePath())
-			if err := os.Rename(tmp, stagedExePath()); err == nil {
+			if err := renameWithRetry(func() error { return os.Rename(tmp, stagedExePath()) }, nil); err == nil {
 				staged = true
 			}
 		}
@@ -472,18 +672,11 @@ func updateApplyHandler(w http.ResponseWriter, r *http.Request) {
 	logf("update", "info", "开始应用更新（v%s → v%s），守护进程交接退出", AppVersion, latest)
 	writeJSON(w, map[string]any{"ok": true, "message": "正在更新，桌面会自动重开"})
 	// The updater also asks us to shut down over HTTP; exiting here as
-	// well makes the handover robust if that call races.
+	// well makes the handover robust if that call races. Either way
+	// it is a HANDOVER exit: no app closing, no vault sealing.
 	go func() {
 		time.Sleep(800 * time.Millisecond)
-		// v0.37 safety line: the hand-over is an exit too -- never
-		// leave group-hidden windows behind (winset.go).
-		prepareWindowsForDaemonExit()
-		remoteShutdown()
-		ocStopForShutdown()
-		coreMu.Lock()
-		stopCoreLocked()
-		coreMu.Unlock()
-		os.Exit(0)
+		requestDaemonExit(exitHandover)
 	}()
 }
 
@@ -545,9 +738,11 @@ func runApplyUpdate(target string) {
 	}
 	applyLog("apply-update: self=%s target=%s version=%s", self, target, AppVersion)
 	// 1) Ask the old daemon to shut down (stops core + daemon).
+	//    The handover marker keeps the old daemon from treating
+	//    this as a user exit (v0.48: no app closing, no sealing).
 	if url := findDaemon(); url != "" {
 		client := &http.Client{Timeout: 2 * time.Second}
-		req, _ := http.NewRequest(http.MethodPost, url+"api/shutdown", nil)
+		req, _ := http.NewRequest(http.MethodPost, url+"api/shutdown?handover=1", nil)
 		if req != nil {
 			resp, err := client.Do(req)
 			if err == nil {

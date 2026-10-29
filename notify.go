@@ -145,6 +145,11 @@ func (st *notifyStore) loadLocked() {
 }
 
 func (st *notifyStore) saveLocked() {
+	if vaultDataInaccessible() {
+		// v0.48: Data is sealed (or moving) -- persistence is
+		// suspended; events stay in memory until unlock.
+		return
+	}
 	f := notifyFile{Version: notifyFileVer, Events: st.events, Dedupe: st.dedupe}
 	for k := range st.once {
 		f.Once = append(f.Once, k)

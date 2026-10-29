@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -507,6 +508,9 @@ type monPoint struct {
 }
 
 func monAppendHistory(id string, s *monSample) {
+	if monHold.Load() {
+		return // v0.48: vault sealing -- Data is off limits
+	}
 	p := monPoint{Ts: s.Ts, CPU: s.CPUPct, Mem: s.MemPct, Rx: s.RxRate, Tx: s.TxRate, Disk: s.DiskPct}
 	b, _ := json.Marshal(p)
 	f, err := os.OpenFile(filepath.Join(monDir(), "hist-"+id+".jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
@@ -675,6 +679,15 @@ func monWidgetSummary() (name string, online bool, hasSnap bool, cpuPct, memPct 
 	return conns[0].Name, false, false, 0, 0
 }
 
+// v0.48: vault quiesce gates sampling -- while monHold is set
+// the engines idle (their history/agent writes land in Data,
+// which is being sealed), and monInFlight lets the quiesce wait
+// for a sample already in flight to finish writing.
+var (
+	monHold     atomic.Bool
+	monInFlight atomic.Int64
+)
+
 func monEngineLoop(st *monServerState, c sshConn) {
 	defer func() {
 		st.mu.Lock()
@@ -683,6 +696,10 @@ func monEngineLoop(st *monServerState, c sshConn) {
 	}()
 	var lastHist time.Time
 	for {
+		if monHold.Load() {
+			time.Sleep(5 * time.Second)
+			continue
+		}
 		cfg := monGetCfg(c.ID)
 		st.mu.Lock()
 		live := time.Now().Before(st.liveUntil)
@@ -690,7 +707,9 @@ func monEngineLoop(st *monServerState, c sshConn) {
 		if !cfg.BG && !live {
 			return
 		}
+		monInFlight.Add(1)
 		s := monTakeSample(st, c)
+		monInFlight.Add(-1)
 		st.mu.Lock()
 		wasOnline := st.online
 		st.snap = s
