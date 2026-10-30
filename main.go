@@ -1259,7 +1259,13 @@ func launchIsolatedBrowser(proxy bool, target string, appMode bool) error {
 	// Unified window management (v0.18 乙+丙): register this external
 	// window with the daemon so the Stage Manager can switch to it and
 	// the taskbar groups it with the rest. No-op off Windows.
-	trackBrowserLaunch(appNameForURL(target), target, browser, before, false)
+	// v0.56: an app-mode window belongs to its site for geometry
+	// memory, and the webapp's 调整窗口 mode rides along.
+	if appMode {
+		trackBrowserLaunchAs(appNameForURL(target), target, browser, before, false, siteGeomKey(target), webAppWinMode(target))
+	} else {
+		trackBrowserLaunch(appNameForURL(target), target, browser, before, false)
+	}
 	return nil
 }
 
@@ -1297,6 +1303,26 @@ func openBrowser(w http.ResponseWriter, r *http.Request) {
 type webApp struct {
 	Name string `json:"name"`
 	URL  string `json:"url"`
+	// v0.56: the 调整窗口 mode from the desktop right-click menu
+	// ("" / "memory" = window geometry memory governs; "phone" /
+	// "desktop" / "fullscreen" force that landing). Persisted as
+	// an optional third field of the apps.txt line, so old files
+	// (two fields) load unchanged and untouched entries keep the
+	// exact old file format.
+	WinMode string `json:"winmode,omitempty"`
+}
+
+var webWinModes = map[string]bool{"memory": true, "phone": true, "desktop": true, "fullscreen": true}
+
+// webAppWinMode resolves a web app's landing mode by URL (""
+// when the entry has none -- geometry memory governs).
+func webAppWinMode(rawURL string) string {
+	for _, a := range loadWebApps() {
+		if a.URL == rawURL {
+			return a.WinMode
+		}
+	}
+	return ""
 }
 
 // bundledWebApps are the defaults shipped with the app. They are
@@ -1305,21 +1331,21 @@ type webApp struct {
 // which is remembered in Data/apps-deleted.txt (tombstones), so a
 // deletion never comes back.
 var bundledWebApps = []webApp{
-	{"X", "https://x.com"},
-	{"YouTube", "https://www.youtube.com"},
-	{"铭杰工作站", "https://fed-liquidity-mingjieofficial-7844s-projects.vercel.app/#/macro"},
-	{"TradingView", "https://www.tradingview.com/chart/"},
-	{"ETF 资金流", "https://farside.co.uk/eth"},
-	{"Coinglass", "https://www.coinglass.com"},
-	{"Gmail", "https://mail.google.com"},
-	{"谷歌翻译", "https://translate.google.com"},
-	{"哔哩哔哩", "https://www.bilibili.com"},
-	{"GitHub", "https://github.com"},
-	{"Vercel", "https://vercel.com/dashboard"},
-	{"ChatGPT", "https://chatgpt.com"},
-	{"Gemini", "https://gemini.google.com"},
-	{"Muse", "https://claude.ai"},
-	{"TikTok", "https://www.tiktok.com"},
+	{"X", "https://x.com", ""},
+	{"YouTube", "https://www.youtube.com", ""},
+	{"铭杰工作站", "https://fed-liquidity-mingjieofficial-7844s-projects.vercel.app/#/macro", ""},
+	{"TradingView", "https://www.tradingview.com/chart/", ""},
+	{"ETF 资金流", "https://farside.co.uk/eth", ""},
+	{"Coinglass", "https://www.coinglass.com", ""},
+	{"Gmail", "https://mail.google.com", ""},
+	{"谷歌翻译", "https://translate.google.com", ""},
+	{"哔哩哔哩", "https://www.bilibili.com", ""},
+	{"GitHub", "https://github.com", ""},
+	{"Vercel", "https://vercel.com/dashboard", ""},
+	{"ChatGPT", "https://chatgpt.com", ""},
+	{"Gemini", "https://gemini.google.com", ""},
+	{"Muse", "https://claude.ai", ""},
+	{"TikTok", "https://www.tiktok.com", ""},
 }
 
 // webAppRenames migrates a bundled entry's display name when the user
@@ -1376,15 +1402,21 @@ func loadWebApps() []webApp {
 		if line == "" {
 			continue
 		}
-		parts := strings.SplitN(line, "\t", 2)
-		if len(parts) != 2 {
+		parts := strings.SplitN(line, "\t", 3)
+		if len(parts) < 2 {
 			continue
 		}
 		name, u := strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
 		if name == "" || u == "" {
 			continue
 		}
-		out = append(out, webApp{name, u})
+		wa := webApp{Name: name, URL: u}
+		if len(parts) == 3 {
+			if m := strings.TrimSpace(parts[2]); webWinModes[m] {
+				wa.WinMode = m
+			}
+		}
+		out = append(out, wa)
 	}
 	changed := false
 	for i, a := range out {
@@ -1413,7 +1445,11 @@ func loadWebApps() []webApp {
 func saveWebApps(list []webApp) {
 	var sb strings.Builder
 	for _, a := range list {
-		sb.WriteString(a.Name + "\t" + a.URL + "\n")
+		line := a.Name + "\t" + a.URL
+		if a.WinMode != "" {
+			line += "\t" + a.WinMode
+		}
+		sb.WriteString(line + "\n")
 	}
 	_ = os.MkdirAll(dataDir(), 0o755)
 	_ = os.WriteFile(appsPath(), []byte(sb.String()), 0o644)
@@ -1425,9 +1461,10 @@ func webAppsHandler(w http.ResponseWriter, r *http.Request) {
 
 func webAppSaveHandler(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Name   string `json:"name"`
-		URL    string `json:"url"`
-		Delete bool   `json:"delete"`
+		Name    string `json:"name"`
+		URL     string `json:"url"`
+		Delete  bool   `json:"delete"`
+		WinMode string `json:"winmode"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	u := strings.TrimSpace(body.URL)
@@ -1439,6 +1476,30 @@ func webAppSaveHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	list := loadWebApps()
+	// v0.56: a winmode-only update from the desktop right-click
+	// menu's 调整窗口 submenu. "memory" is stored as the empty
+	// mode (the default), so untouched entries keep the old
+	// two-field file format.
+	if body.WinMode != "" {
+		if !webWinModes[body.WinMode] {
+			writeJSON(w, map[string]any{"error": "窗口模式不对"})
+			return
+		}
+		for i, a := range list {
+			if a.URL == u {
+				list[i].WinMode = body.WinMode
+				if list[i].WinMode == "memory" {
+					list[i].WinMode = ""
+				}
+				saveWebApps(list)
+				logf("browser", "info", "网站应用 %s 的窗口模式设为 %s", a.Name, body.WinMode)
+				writeJSON(w, map[string]any{"ok": true, "apps": list})
+				return
+			}
+		}
+		writeJSON(w, map[string]any{"error": "没找到这个网站应用"})
+		return
+	}
 	if body.Delete {
 		out := list[:0]
 		for _, a := range list {
@@ -1476,7 +1537,7 @@ func webAppSaveHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	list = append(list, webApp{name, u})
+	list = append(list, webApp{Name: name, URL: u})
 	saveWebApps(list)
 	writeJSON(w, map[string]any{"ok": true, "apps": list})
 }
@@ -2066,6 +2127,12 @@ func runServer(portFlag int, isDaemon bool) {
 	mux.HandleFunc("/api/firefox/icon", ffIconHandler)
 	mux.HandleFunc("/api/firefox/download", ffDownloadHandler)
 	mux.HandleFunc("/api/firefox/open", ffOpenHandler)
+	mux.HandleFunc("/api/firefox/restart", ffRestartHandler)
+	mux.HandleFunc("/api/firefox/uninstall", ffUninstallHandler)
+	mux.HandleFunc("/api/extwin/thumb", extWinThumbHandler)
+	mux.HandleFunc("/api/wingeom/clear", winGeomClearHandler)
+	mux.HandleFunc("/api/chrome/icon", chromeIconHandler)
+	mux.HandleFunc("/api/appicon/", appIconHandler)
 	// v0.51 productivity components (procomp.go): on-demand
 	// downloads of ONLYOFFICE / LibreOffice / ImageGlass /
 	// Krita / VSCodium, their file-open routing and real icons.

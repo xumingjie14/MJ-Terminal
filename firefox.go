@@ -132,6 +132,19 @@ func ffStatusHandler(w http.ResponseWriter, r *http.Request) {
 		"size":      size,
 		"message":   msg,
 	}
+	// v0.56: the live process truth for the Firefox page (the
+	// conflict banner reads these): whether a process holds the
+	// profile, and the mode it was born in ("" when none,
+	// "未知" when a process predates the birth-mode record).
+	alive, birthApp, known := ffReconcileProc()
+	out["procAlive"] = alive
+	out["procMode"] = ""
+	if alive {
+		out["procMode"] = "未知"
+		if known {
+			out["procMode"] = ffModeName(birthApp)
+		}
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
 	defer cancel()
 	if m, err := fetchFFManifest(ctx); err == nil {
@@ -328,6 +341,14 @@ func extractZipTo(zipPath, dir string) error {
 // seedFFProfile (re)writes the launch-time prefs: proxy choice and,
 // for app mode, the chrome-hiding stylesheet. user.js is reapplied
 // by Firefox at every start, so the last launch's choices win.
+//
+// v0.56: every seed write is logged -- the console used to have a
+// blind spot here (neither the seed nor the process's birth/death
+// was recorded), which made the app-mode field failure a guessing
+// game. Callers must only seed when a FRESH process will read the
+// files (see decideFFLaunch): seeding for a launch that merely
+// joins the running process rewrites the disk copy while the live
+// process keeps its birth chrome, and the two diverge silently.
 func seedFFProfile(proxy bool, appMode bool) error {
 	dir := ffProfileDir()
 	if err := os.MkdirAll(filepath.Join(dir, "chrome"), 0o755); err != nil {
@@ -355,6 +376,15 @@ func seedFFProfile(proxy bool, appMode bool) error {
 	if err := os.WriteFile(filepath.Join(dir, "user.js"), []byte(b.String()), 0o644); err != nil {
 		return err
 	}
+	modeName := "普通"
+	if appMode {
+		modeName = "应用化"
+	}
+	proxyName := "直连"
+	if proxy {
+		proxyName = "走节点"
+	}
+	logf("firefox", "info", "已播种 Firefox 档案（模式：%s，网络：%s）", modeName, proxyName)
 	css := "/* Managed by MJ Terminal: normal mode (chrome visible). */\n"
 	if appMode {
 		// v0.54 root cause (field report "app-mode window has no
@@ -373,13 +403,141 @@ func seedFFProfile(proxy bool, appMode bool) error {
 #TabsToolbar { visibility: collapse !important; }
 #nav-bar { visibility: collapse !important; }
 #PersonalToolbar { visibility: collapse !important; }
+#toolbar-menubar { visibility: collapse !important; }
 .titlebar-buttonbox-container { visibility: visible !important; }
 `
 	}
 	return os.WriteFile(filepath.Join(dir, "chrome", "userChrome.css"), []byte(css), 0o644)
 }
 
-func launchFirefox(proxy bool, appMode bool, target string) error {
+// ---------- v0.56: Firefox process birth-mode tracking ----------
+//
+// Field-proven root cause (2026-10-30): Firefox is a single
+// process per profile, and userChrome.css is read ONCE, when
+// that process is born. A launch while the process is alive
+// joins it and inherits its birth mode -- in BOTH directions:
+// open 普通 first and every later 应用化 window comes up with
+// tabs and an address bar; open 应用化 first and a later 普通
+// window comes up bare. Worse, the daemon used to re-seed the
+// profile on every launch, so the disk copy and the live
+// process's chrome diverged silently.
+//
+// The fix is to know and respect the birth mode:
+//   - every FRESH launch (no process alive before, one alive
+//     after) records {appmode, pid, startedAt} in Data/ffstate.json;
+//   - a launch request whose mode matches the birth mode joins
+//     the process WITHOUT seeding (the disk seed stays whatever
+//     the live process was born with);
+//   - a conflicting (or unknown-mode) request neither seeds nor
+//     opens: the Firefox page is told the running mode and
+//     offers a one-click 重启并切换 (ffRestartHandler);
+//   - process birth and death are logged (the console blind
+//     spot that made the field failure hard to see).
+
+type ffProcRecord struct {
+	AppMode   bool  `json:"appmode"`
+	PID       int   `json:"pid"`
+	StartedAt int64 `json:"startedAt"`
+}
+
+func ffStatePath() string { return filepath.Join(dataDir(), "ffstate.json") }
+
+func ffLoadRecord() (ffProcRecord, bool) {
+	b, err := os.ReadFile(ffStatePath())
+	if err != nil {
+		return ffProcRecord{}, false
+	}
+	var rec ffProcRecord
+	if json.Unmarshal(b, &rec) != nil {
+		return ffProcRecord{}, false
+	}
+	return rec, true
+}
+
+func ffSaveRecord(appMode bool, pid int) {
+	rec := ffProcRecord{AppMode: appMode, PID: pid, StartedAt: time.Now().Unix()}
+	if b, err := json.Marshal(rec); err == nil {
+		_ = os.MkdirAll(dataDir(), 0o755)
+		_ = os.WriteFile(ffStatePath(), b, 0o644)
+	}
+}
+
+func ffClearRecord() { _ = os.Remove(ffStatePath()) }
+
+func ffModeName(appMode bool) string {
+	if appMode {
+		return "应用化"
+	}
+	return "普通"
+}
+
+// ffProfileLocked reports whether a Firefox process currently
+// holds the profile (its parent.lock file exists) -- the same
+// probe storage.go's cleanup guard uses.
+func ffProfileLocked() bool {
+	locked := false
+	_ = filepath.WalkDir(ffProfileDir(), func(p string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && (d.Name() == "parent.lock" || d.Name() == ".parentlock") {
+			locked = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return locked
+}
+
+// ffReconcileProc folds the record and the live lock into the
+// current truth: alive = a process holds the profile now;
+// known/birthAppMode = the mode that process was born in (from
+// the record). A record whose process has died is logged and
+// cleared here, so the death lands in the console even if
+// nobody opens the Firefox page afterwards (the status handler
+// and every open call reconcile).
+func ffReconcileProc() (alive bool, birthAppMode bool, known bool) {
+	rec, has := ffLoadRecord()
+	if !ffProfileLocked() {
+		if has {
+			logf("firefox", "info", "Firefox 进程已退出（出生模式：%s，PID %d）", ffModeName(rec.AppMode), rec.PID)
+			ffClearRecord()
+		}
+		return false, false, false
+	}
+	if !has {
+		return true, false, false
+	}
+	return true, rec.AppMode, true
+}
+
+type ffLaunchDecision int
+
+const (
+	ffFresh ffLaunchDecision = iota
+	ffJoin
+	ffConflict
+)
+
+// decideFFLaunch is the pure launch rule (ffstate_test.go pins
+// it): no process -> fresh; a process born in the requested
+// mode -> join; anything else (other mode, or a process whose
+// birth mode we never recorded) -> conflict, because joining
+// would silently hand the user a window in the wrong mode.
+func decideFFLaunch(alive bool, known bool, birthAppMode bool, wantAppMode bool) ffLaunchDecision {
+	if !alive {
+		return ffFresh
+	}
+	if known && birthAppMode == wantAppMode {
+		return ffJoin
+	}
+	return ffConflict
+}
+
+// startFFProcess performs one firefox.exe start. fresh=true
+// means the caller has established that no process holds the
+// profile: the profile is seeded for this launch and the birth
+// is recorded. fresh=false is a join: NO seeding -- the running
+// process keeps its birth chrome and the disk copy must not
+// diverge from it.
+func startFFProcess(proxy bool, appMode bool, target string, fresh bool) error {
 	exe := filepath.Join(ffInstallDir(), "firefox.exe")
 	if _, err := os.Stat(exe); err != nil {
 		return fmt.Errorf("还没安装 Firefox 组件，先在 Firefox 页点「下载组件」")
@@ -392,8 +550,10 @@ func launchFirefox(proxy bool, appMode bool, target string) error {
 			return fmt.Errorf("节点启动失败：%w", err)
 		}
 	}
-	if err := seedFFProfile(proxy, appMode); err != nil {
-		return err
+	if fresh {
+		if err := seedFFProfile(proxy, appMode); err != nil {
+			return err
+		}
 	}
 	if target == "" {
 		target = "about:home"
@@ -410,6 +570,10 @@ func launchFirefox(proxy bool, appMode bool, target string) error {
 	// inventory patrol now claims it from the spawn ledger and the
 	// -profile command-line fingerprint.
 	noteSpawnedProcess(uint32(cmd.Process.Pid), "Firefox")
+	if fresh {
+		ffSaveRecord(appMode, cmd.Process.Pid)
+		logf("firefox", "info", "Firefox 进程启动（模式：%s，PID %d）", ffModeName(appMode), cmd.Process.Pid)
+	}
 	return nil
 }
 
@@ -424,10 +588,34 @@ func ffOpenHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"error": "当前不是 Windows 环境（这是测试环境），到 Windows 上会正常打开 Firefox"})
 		return
 	}
-	if err := launchFirefox(body.Proxy, body.AppMode, strings.TrimSpace(body.URL)); err != nil {
-		logf("firefox", "error", "打开 Firefox 失败：%v", err)
-		writeJSON(w, map[string]any{"error": err.Error()})
+	target := strings.TrimSpace(body.URL)
+	alive, birthApp, known := ffReconcileProc()
+	switch decideFFLaunch(alive, known, birthApp, body.AppMode) {
+	case ffConflict:
+		running := "未知"
+		if known {
+			running = ffModeName(birthApp)
+		}
+		logf("firefox", "warn", "Firefox 模式冲突：进程正以%s模式运行（出生模式%s），本次%s请求未执行，等待用户选择重启并切换",
+			running, map[bool]string{true: "有记录", false: "无记录"}[known], ffModeName(body.AppMode))
+		writeJSON(w, map[string]any{
+			"conflict":    true,
+			"runningMode": running,
+			"error":       "Firefox 正以" + running + "模式运行，模式在进程启动时就定死了，本次打开没有执行。点「重启并切换」会关掉 Firefox 再以" + ffModeName(body.AppMode) + "模式重开（标签页会按 Firefox 的会话恢复回来）。",
+		})
 		return
+	case ffJoin:
+		if err := startFFProcess(body.Proxy, body.AppMode, target, false); err != nil {
+			logf("firefox", "error", "打开 Firefox 失败：%v", err)
+			writeJSON(w, map[string]any{"error": err.Error()})
+			return
+		}
+	default: // ffFresh
+		if err := startFFProcess(body.Proxy, body.AppMode, target, true); err != nil {
+			logf("firefox", "error", "打开 Firefox 失败：%v", err)
+			writeJSON(w, map[string]any{"error": err.Error()})
+			return
+		}
 	}
 	kind := "直连"
 	if body.Proxy {
@@ -438,4 +626,83 @@ func ffOpenHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	logf("firefox", "info", "已打开 Firefox（%s）", kind)
 	writeJSON(w, map[string]any{"ok": true, "mode": kind})
+}
+
+// ffRestartHandler serves POST /api/firefox/restart: the
+// one-click answer to a mode conflict. It closes the Firefox
+// windows gracefully (WM_CLOSE via the platform layer), waits
+// for the profile lock to be released (bounded at ~15 s -- a
+// Firefox that refuses to die is reported honestly, never
+// force-killed from here), then seeds and starts fresh in the
+// requested mode.
+func ffRestartHandler(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Proxy   bool   `json:"proxy"`
+		AppMode bool   `json:"appmode"`
+		URL     string `json:"url"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	if runtime.GOOS != "windows" {
+		writeJSON(w, map[string]any{"error": "当前不是 Windows 环境（这是测试环境），到 Windows 上才能重启 Firefox"})
+		return
+	}
+	_, birthApp, known := ffReconcileProc()
+	from := "未知"
+	if known {
+		from = ffModeName(birthApp)
+	}
+	logf("firefox", "info", "重启并切换：开始关闭 Firefox（%s → %s）", from, ffModeName(body.AppMode))
+	extMu.Lock()
+	var hwnds []uint64
+	for h, e := range extWins {
+		if !e.Shell && platformProcessImageBase(e.pid) == "firefox.exe" {
+			hwnds = append(hwnds, h)
+		}
+	}
+	extMu.Unlock()
+	for _, h := range hwnds {
+		platformCloseWindow(h)
+	}
+	deadline := time.Now().Add(15 * time.Second)
+	for ffProfileLocked() && time.Now().Before(deadline) {
+		time.Sleep(300 * time.Millisecond)
+	}
+	if ffProfileLocked() {
+		logf("firefox", "error", "重启并切换失败：等了 15 秒 Firefox 还没完全退出（档案仍被占用）")
+		writeJSON(w, map[string]any{"error": "Firefox 还没完全退出，等了 15 秒档案仍被占用。请手动把 Firefox 窗口全关掉，再点一次打开。"})
+		return
+	}
+	ffClearRecord()
+	target := strings.TrimSpace(body.URL)
+	if err := startFFProcess(body.Proxy, body.AppMode, target, true); err != nil {
+		logf("firefox", "error", "重启并切换失败：%v", err)
+		writeJSON(w, map[string]any{"error": err.Error()})
+		return
+	}
+	logf("firefox", "info", "重启并切换完成：Firefox 已以%s模式重开", ffModeName(body.AppMode))
+	writeJSON(w, map[string]any{"ok": true, "mode": ffModeName(body.AppMode)})
+}
+
+// ffUninstallHandler serves POST /api/firefox/uninstall (the
+// desktop right-click menu's 卸载组件）: removes the component
+// program. The profile (Data/FirefoxProfile -- the user's
+// logins) is deliberately kept, and the confirm text in the UI
+// says so; a running Firefox blocks the uninstall.
+func ffUninstallHandler(w http.ResponseWriter, r *http.Request) {
+	if ffProfileLocked() {
+		writeJSON(w, map[string]any{"error": "Firefox 还在运行，先把它的窗口全关掉再卸载"})
+		return
+	}
+	dir := ffInstallDir()
+	if err := os.RemoveAll(dir); err != nil {
+		logf("firefox", "error", "卸载 Firefox 组件失败：%v", err)
+		writeJSON(w, map[string]any{"error": "卸载失败（程序可能还在运行，先关掉它）：" + err.Error()})
+		return
+	}
+	_ = os.Remove(ffVersionPath())
+	_ = os.Remove(filepath.Join(dataDir(), "ff-icon.ico"))
+	ffClearRecord()
+	ffSt.set("idle", "")
+	logf("firefox", "info", "已卸载 Firefox 组件（程序已删除；档案保留在 Data/FirefoxProfile）")
+	writeJSON(w, map[string]any{"ok": true})
 }

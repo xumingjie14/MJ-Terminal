@@ -510,6 +510,47 @@ table.gridtab td,table.gridtab th{white-space:nowrap;max-width:280px;overflow:hi
 #mb-hide{width:13px;height:13px;border-radius:50%;border:0;background:#ff5f57;cursor:pointer;padding:0;flex:none;box-shadow:inset 0 0 2px rgba(0,0,0,.3);color:transparent;font-size:9px;line-height:13px;text-align:center}
 #mb-hide:hover{color:rgba(0,0,0,.55);filter:brightness(1.08)}
 .extcard .et span{display:block;font-size:11px;opacity:.75;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* ---------- v0.56 ---------- */
+:root{--deskico:54px}
+#icons .icon .appico{width:var(--deskico);height:var(--deskico);border-radius:calc(var(--deskico)*.24);font-size:calc(var(--deskico)*.5)}
+.appico .appArt{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;pointer-events:none}
+.dockbtn .appico .appArt,.lp-item .appico .appArt{padding:0}
+/* Stage Manager preview cards (item 1) */
+.extcard.prev{flex-direction:column;align-items:stretch;gap:6px;padding:6px;width:172px}
+#extstrip:has(.extcard.prev){width:184px}
+.extcard .ethumb{width:100%;height:88px;object-fit:cover;border-radius:8px;background:rgba(0,0,0,.45);display:block;pointer-events:none}
+.extcard .ecap{display:flex;align-items:center;gap:6px;min-width:0;padding:0 2px 2px}
+.extcard .ecap b{font-size:11.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.92}
+.extcard .ecap .appico{width:20px;height:20px;border-radius:5px;font-size:11px;margin:0;flex:none}
+.extcard .extRealIcon{width:26px;height:26px;border-radius:6px;flex:none;object-fit:contain}
+/* context-menu submenus (items 5 + 7) */
+.ctxitem.hasSub{position:relative;padding-right:22px}
+.ctxitem.hasSub::after{content:'›';position:absolute;right:10px;opacity:.65}
+.ctxitem .radio{font-style:normal;width:14px;display:inline-block;opacity:.9}
+.ctxSub{position:absolute;left:calc(100% + 2px);top:-6px;min-width:150px;padding:6px;border-radius:12px;background:rgba(32,32,40,.92);backdrop-filter:blur(24px) saturate(170%);-webkit-backdrop-filter:blur(24px) saturate(170%);border:1px solid rgba(255,255,255,.22);box-shadow:0 16px 44px rgba(0,0,0,.5);display:none;z-index:5}
+.ctxitem.hasSub:hover .ctxSub,.ctxitem.hasSub.openSub .ctxSub{display:block}
+.ctxSub.flip{left:auto;right:calc(100% + 2px)}
+.ctxSub .ctxitem{white-space:nowrap}
+/* folder minis + folder pop extras (item 4) */
+.folderico .fmini{position:relative;overflow:hidden}
+.folderico .fmini .appico{width:100%;height:100%;border-radius:5px;font-size:12px;margin:0;box-shadow:none}
+.fp-foot{display:flex;gap:8px;justify-content:center;margin-top:14px}
+.fp-foot button{padding:7px 16px;border-radius:9px;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.14);color:#fff;font:inherit;font-size:13px;cursor:pointer}
+.fp-foot button:hover{background:rgba(255,255,255,.24)}
+.fp-pick{position:absolute;inset:0;background:rgba(16,16,22,.55);display:flex;align-items:center;justify-content:center;z-index:5;border-radius:inherit}
+.fp-pick-panel{width:min(430px,86%);max-height:74%;overflow:auto;background:rgba(38,38,46,.97);border:1px solid rgba(255,255,255,.2);border-radius:16px;padding:16px;color:#fff}
+.fp-pick-panel h4{margin:0 0 10px;font-size:14px}
+.fp-pick-it{display:flex;align-items:center;gap:10px;width:100%;padding:7px 9px;border:0;border-radius:9px;background:transparent;color:#fff;font:inherit;font-size:13.5px;cursor:pointer;text-align:left}
+.fp-pick-it:hover{background:rgba(255,255,255,.12)}
+.fp-pick-it .appico{width:30px;height:30px;border-radius:7px;font-size:15px;margin:0;flex:none}
+.fp-grid.dropIn{outline:2px solid var(--accent);outline-offset:5px;border-radius:10px}
+/* v0.56: the folder pop's backdrop lets pointer events through
+   (only the panel itself is interactive), so a desktop drag can
+   START and travel while a folder is open -- that is what makes
+   "drag into the open folder" a real gesture. Outside clicks
+   still close it via the document pointerdown rule. */
+#folderpop{pointer-events:none}
+#folderpop .fp-panel{pointer-events:auto}
 </style>
 </head>
 <body>
@@ -553,18 +594,18 @@ table.gridtab td,table.gridtab th{white-space:nowrap;max-width:280px;overflow:hi
 
 <script>
 const APPS=[
- {id:'home',e:'',g:'g-home',glyph:'⌂',n:'工作站'},
- {id:'term',e:'>_',g:'g-term',glyph:'>_',n:'终端'},
- {id:'files',e:'🗂️',g:'g-files',glyph:'🗂️',n:'文件'},
- {id:'browser',e:'',g:'g-browser',glyph:'',n:'谷歌浏览器'},
+ {id:'home',e:'',g:'g-home',glyph:'⌂',n:'工作站',art:1},
+ {id:'term',e:'>_',g:'g-term',glyph:'>_',n:'终端',art:1},
+ {id:'files',e:'🗂️',g:'g-files',glyph:'🗂️',n:'文件',art:1},
+ {id:'browser',e:'',g:'g-browser',glyph:'',n:'谷歌浏览器',art:1},
  {id:'firefox',e:'🦊',g:'g-firefox',glyph:'🦊',n:'Firefox'},
- {id:'ssh',e:'🖥️',g:'g-ssh',glyph:'🖥️',n:'SSH'},
- {id:'servermon',e:'🗄️',g:'g-servermon',glyph:'🗄️',n:'服务器'},
- {id:'console',e:'≡',g:'g-console',glyph:'≡',n:'控制台'},
- {id:'appstore',e:'🛍️',g:'g-store',glyph:'🛍️',n:'应用商店'},
- {id:'openclaw',e:'🦞',g:'g-openclaw',glyph:'🦞',n:'小龙虾'},
- {id:'core',e:'🚀',g:'g-core',glyph:'🚀',n:'节点'},
- {id:'sys',e:'⚙️',g:'g-sys',glyph:'⚙️',n:'设置'},
+ {id:'ssh',e:'🖥️',g:'g-ssh',glyph:'🖥️',n:'SSH',art:1},
+ {id:'servermon',e:'🗄️',g:'g-servermon',glyph:'🗄️',n:'服务器',art:1},
+ {id:'console',e:'≡',g:'g-console',glyph:'≡',n:'控制台',art:1},
+ {id:'appstore',e:'🛍️',g:'g-store',glyph:'🛍️',n:'应用商店',art:1},
+ {id:'openclaw',e:'🦞',g:'g-openclaw',glyph:'🦞',n:'小龙虾',art:1},
+ {id:'core',e:'🚀',g:'g-core',glyph:'🚀',n:'节点',art:1},
+ {id:'sys',e:'⚙️',g:'g-sys',glyph:'⚙️',n:'设置',art:1},
  /* file viewers (v0.32): real windows in the same openApp system
     (so they join the Stage Manager like everything else), but they
     are viewers, not resident apps -- nodesk keeps them off the
@@ -598,7 +639,7 @@ async function api(p,opt){const r=await fetch(p,opt);let t=await r.text();try{re
    reports "fresh" (no settings file yet), the old local values are
    migrated up once and the local copies dropped. */
 let SETTINGS=null;
-const SETDEF={wallpaper:'tahoe',stageManager:false,idleExitMinutes:30,phoneMode:true,phoneTriggerWidth:1200,phoneWidth:400,chromeCacheMB:200,stageAutoClaimBrowser:true,filesOnDesktop:true,remoteEnabled:false,winPlaceOnClaim:true,winHideOnMinimize:true,winCloseToTray:true,immersiveMode:false,desktopFullscreen:false,dockPosition:'bottom',dockAutoHide:false,dockIconSize:52,cc_show_immersive:true,cc_show_stage:true,cc_show_fullscreen:true,cc_show_dockhide:true,cc_show_remote:true,cc_show_wallpaper:true,notify_allow_sandbox:true,notify_allow_update:true,notify_allow_servermon:true,notify_allow_node:true,notify_allow_remote:true,notify_allow_files:true,notify_banner_sandbox:true,notify_banner_update:true,notify_banner_servermon:true,notify_banner_node:true,notify_banner_remote:true,notify_banner_files:true,nc_widgets:'[{"id":"calendar","show":true},{"id":"server","show":true},{"id":"node","show":true}]',exitClosesApps:true,nodeStartMode:'last',nodeSubAuto:true,nodeSubIntervalMin:360,nodeTestURL:'http://www.gstatic.com/generate_204',nodeTestTimeoutMs:5000,nodeClashAPI:true,summonHotkey:'F8',defaultOfficeSuite:'onlyoffice'};
+const SETDEF={wallpaper:'tahoe',stageManager:false,idleExitMinutes:30,phoneMode:true,phoneTriggerWidth:1200,phoneWidth:400,chromeCacheMB:200,stageAutoClaimBrowser:true,filesOnDesktop:true,remoteEnabled:false,winPlaceOnClaim:true,winHideOnMinimize:true,winCloseToTray:true,immersiveMode:false,desktopFullscreen:false,dockPosition:'bottom',dockAutoHide:false,dockIconSize:52,cc_show_immersive:true,cc_show_stage:true,cc_show_fullscreen:true,cc_show_dockhide:true,cc_show_remote:true,cc_show_wallpaper:true,notify_allow_sandbox:true,notify_allow_update:true,notify_allow_servermon:true,notify_allow_node:true,notify_allow_remote:true,notify_allow_files:true,notify_banner_sandbox:true,notify_banner_update:true,notify_banner_servermon:true,notify_banner_node:true,notify_banner_remote:true,notify_banner_files:true,nc_widgets:'[{"id":"calendar","show":true},{"id":"server","show":true},{"id":"node","show":true}]',exitClosesApps:true,nodeStartMode:'last',nodeSubAuto:true,nodeSubIntervalMin:360,nodeTestURL:'http://www.gstatic.com/generate_204',nodeTestTimeoutMs:5000,nodeClashAPI:true,summonHotkey:'F8',defaultOfficeSuite:'onlyoffice',stageDisplay:'preview',deskIconSize:54,deskSort:'manual'};
 function wallKey(){ if(SETTINGS) return SETTINGS.wallpaper||'tahoe'; return localStorage.getItem('mj-wall')||'tahoe' }
 /* v0.46 Dock basics: position + auto-hide are view-side behaviours
    over daemon settings (same pattern as the wallpaper). */
@@ -621,7 +662,24 @@ async function loadSettings(){
    localStorage.removeItem('mj-wall'); localStorage.removeItem('mj-stage');
   }
  }catch(e){ if(!SETTINGS) SETTINGS={...SETDEF} }
- applyWallpaper(); updateStageUI();
+ applyWallpaper(); updateStageUI(); applyDeskIconSize();
+}
+/* v0.56 desktop icon size: one settings key (deskIconSize, px),
+   three surfaces （设置 slider / 控制中心 slider / desktop blank
+   menu presets). The grid pitch derives from it (deskPitch), so
+   the desktop re-renders at the new cell size; the Dock has its
+   own size system and is untouched. The fake DOM in the boot
+   test has a plain-object style, hence the guarded setProperty. */
+function deskIconSize(){ const v=SETTINGS&&+SETTINGS.deskIconSize; return (v>=36&&v<=96)?Math.round(v):54 }
+function deskPitch(){ return deskIconSize()+50 }
+let deskRenderedOnce=false;
+function applyDeskIconSize(){
+ try{ const st=document.documentElement&&document.documentElement.style; if(st&&st.setProperty) st.setProperty('--deskico',deskIconSize()+'px'); }catch(e){}
+ /* Only re-render once the desktop has painted for real: a
+    re-render during settings load would run the order migration
+    against a half-loaded entry set. The boot render picks the
+    size up via deskPitch()/the CSS var on its own. */
+ if(deskRenderedOnce&&typeof renderDesk==='function') renderDesk();
 }
 const settingsReady=loadSettings();
 
@@ -688,8 +746,14 @@ updateStageUI();
 
 /* ----- windows ----- */
 function appIcon(a,size){
- if(a.id==='browser')return `<div class="appico g-browser"><div class="chrome-dot"></div></div>`;
  if(a.id==='firefox')return ffDeskIconHTML();
+ /* v0.56 item 6 (plan A): entries with art:1 wear the
+    macosicons.com artwork the daemon serves at /api/appicon/;
+    if the image fails it removes itself and the drawn tile
+    underneath shows -- the icon degrades, never breaks.
+    Provenance: icon-provenance.md at the repo root. */
+ if(a.art)return `<div class="appico ${a.g}">${esc(a.glyph)}<img class="appArt" alt="" draggable="false" src="/api/appicon/${a.id}" onerror="this.remove()"></div>`;
+ if(a.id==='browser')return `<div class="appico g-browser"><div class="chrome-dot"></div></div>`;
  return `<div class="appico ${a.g}">${esc(a.glyph)}</div>`;
 }
 function makeWin(app,i){
@@ -813,13 +877,34 @@ function updateStageUI(){
    (YouTube, X, ...). With Stage Manager on they appear as static icon
    cards in a group at the left, under the in-system thumbnails;
    clicking one asks the daemon to bring that real window to front. */
+/* v0.56 item 1: two card shapes, one setting (stageDisplay,
+   default preview). Preview cards show the daemon's real
+   window snapshot (PrintWindow on the host, /api/extwin/thumb);
+   a window whose snapshot fails drops to an identity card for
+   good (thumbBad) instead of retrying forever. Identity cards
+   lead with the cleaned page title and the real app icon --
+   never the old identical letter tiles for browser windows. */
+const thumbBad=new Set();
+function extIconHTML(x){
+ if(x.ikind==='firefox') return `<img class="extRealIcon" alt="" src="/api/firefox/icon" onerror="this.remove()">`;
+ if(x.ikind==='chrome') return `<img class="extRealIcon" alt="" src="/api/chrome/icon" onerror="this.remove()">`;
+ return webIconHTML({name:x.app,url:x.url||''},true);
+}
+function extCardHTML(x,preview){
+ const title=cleanWinTitle(x.title)||x.app||'应用';
+ if(preview&&!thumbBad.has(x.hwnd)){
+  return `<button class="extcard prev${x.active?' active':''}${x.minimized?' mini':''}" data-hwnd="${x.hwnd}"><img class="ethumb" alt="" src="/api/extwin/thumb?hwnd=${x.hwnd}&t=${Math.floor(Date.now()/3000)}" onerror="thumbBad.add(${x.hwnd});refreshExtStrip()"><span class="ecap">${extIconHTML(x)}<b>${esc(title)}</b></span></button>`;
+ }
+ return `<button class="extcard${x.active?' active':''}${x.minimized?' mini':''}" data-hwnd="${x.hwnd}"><span class="actdot"></span>${extIconHTML(x)}<span class="et"><b>${esc(title)}</b><span>${esc(x.app||'')}</span></span></button>`;
+}
 async function refreshExtStrip(){
  const box=document.getElementById('extstrip'); if(!box) return;
  if(!stageOn()){ box.classList.add('hidden'); box.innerHTML=''; return; }
  let list=[];
  try{ const r=await api('/api/extwin'); list=(r.windows||[]).filter(x=>!x.shell); }catch(e){}
  if(!list.length){ box.classList.add('hidden'); box.innerHTML=''; return; }
- box.innerHTML=`<div class="extlab">外部应用 · 点一下切过去</div>`+list.map(x=>`<button class="extcard${x.active?' active':''}${x.minimized?' mini':''}" data-hwnd="${x.hwnd}"><span class="actdot"></span>${webIconHTML({name:x.app,url:x.url||''},true)}<span class="et"><b>${esc(x.app||'应用')}</b><span>${esc(x.title||x.url||'')}</span></span></button>`).join('');
+ const preview=!SETTINGS||SETTINGS.stageDisplay!=='identity';
+ box.innerHTML=`<div class="extlab">外部应用 · 点一下切过去</div>`+list.map(x=>extCardHTML(x,preview)).join('');
  box.classList.remove('hidden');
  box.querySelectorAll('.extcard').forEach(c=>c.onclick=async()=>{
    const r=await api('/api/extwin/focus',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hwnd:Number(c.dataset.hwnd)})}).catch(()=>null);
@@ -922,7 +1007,8 @@ function webIconHTML(a,mini){
 let LAYOUT={pos:{},folders:[]};
 let suppressClickUntil=0;
 async function loadLayout(){
- try{const r=await api('/api/layout'); if(r&&r.pos) LAYOUT={pos:r.pos||{},folders:r.folders||[]}}catch(e){}
+ try{const r=await api('/api/layout'); if(r&&r.pos) LAYOUT={pos:r.pos||{},folders:r.folders||[],opens:r.opens||{},added:r.added||{},hiddenFiles:r.hiddenFiles||[]}}catch(e){}
+ LAYOUT.opens=LAYOUT.opens||{}; LAYOUT.added=LAYOUT.added||{}; LAYOUT.hiddenFiles=LAYOUT.hiddenFiles||[];
 }
 let _saveLayoutT=null;
 function saveLayout(){
@@ -936,13 +1022,90 @@ function deskPos(key,slot){
     order from an old layout; painting itself uses grid cells. */
  const p=LAYOUT.pos[key];
  const stored=(p&&typeof p.x==='number'&&typeof p.y==='number')?p:null;
- return effPosFor(stored,slot,innerWidth,innerHeight,DRAG_PITCH);
+ return effPosFor(stored,slot,innerWidth,innerHeight,deskPitch());
 }
 function folderById(id){return LAYOUT.folders.find(f=>f.id===id)}
+/* ----- v0.56: kind-agnostic desktop entries -----
+   A desktop entry is a canonical key: app:<id> / web:<url> /
+   store:<id> / box:<id> / prod:<id> / file:<name> (folders are
+   folder:<id>). entryMeta resolves a key to {name, icon(),
+   open()} from whichever catalog owns it, so the desktop, the
+   Launchpad, Spotlight and folder contents all render and
+   launch a member exactly the same way. Folder membership used
+   to store bare web URLs (pre-v0.56); folderItems migrates them
+   to web: keys in place, once per folder object. */
+const _normFolders=new WeakSet();
+function folderItems(f){
+ if(!f) return [];
+ if(!_normFolders.has(f)){
+  f.items=(Array.isArray(f.items)?f.items:[]).map(u=>{
+   if(typeof u!=='string') return '';
+   if(/^(app|web|store|box|prod|file):/.test(u)) return u;
+   if(/^https?:\/\//.test(u)) return 'web:'+u;
+   return u;
+  }).filter(Boolean);
+  _normFolders.add(f);
+ }
+ return f.items;
+}
+function folderedKeys(){ const s=new Set(); LAYOUT.folders.forEach(f=>folderItems(f).forEach(k=>s.add(k))); return s; }
+function entryMeta(key){
+ try{
+  if(key.startsWith('app:')){ const a=APPS.find(x=>'app:'+x.id===key); if(!a) return null; return {key,name:a.n,icon:()=>appIcon(a),open:()=>{ if(a.id==='firefox') launchFirefoxEntry(); else openApp(a.id); }}; }
+  if(key.startsWith('web:')){ const a=WEBAPPS.find(x=>'web:'+x.url===key); if(!a) return null; return {key,name:a.name,icon:()=>webIconHTML(a),open:()=>openWebApp(a.url)}; }
+  if(key.startsWith('store:')){ const a=STOREAPPS.find(x=>'store:'+x.id===key); if(!a) return null; return {key,name:a.name,icon:()=>storeIconHTML(a),open:()=>launchStoreApp(a.id)}; }
+  if(key.startsWith('box:')){ const a=BOXAPPS.find(x=>'box:'+x.id===key); if(!a) return null; return {key,name:a.name,icon:()=>storeIconHTML(a),open:()=>launchBoxApp(a.id)}; }
+  if(key.startsWith('prod:')){ const c=PRODAPPS.find(x=>'prod:'+x.id===key); if(!c) return null; return {key,name:c.name,icon:()=>prodIconHTML(c),open:()=>launchProdApp(c.id)}; }
+  if(key.startsWith('file:')){ const f=DESKFILES.find(x=>'file:'+x.name===key); if(!f) return null; return {key,name:f.name,icon:()=>fileIconHTML(f),open:()=>openDeskFile(f.path,f.kind)}; }
+ }catch(e){ console.error('[mj-desk] 条目解析失败，已跳过：'+key,e); }
+ return null;
+}
+/* Open counters + first-seen stamps, both inside the layout
+   blob (they travel with the folder): opens feeds the 最常用
+   sort, added feeds 添加日期. Stamps are assigned lazily the
+   first time an entry is enumerated after v0.56. */
+function recOpen(key){
+ if(!key||key.startsWith('folder:')) return;
+ LAYOUT.opens=LAYOUT.opens||{};
+ LAYOUT.opens[key]=(LAYOUT.opens[key]||0)+1;
+ saveLayout();
+}
+function stampAdded(keys){
+ LAYOUT.added=LAYOUT.added||{};
+ let dirty=false; const now=Date.now();
+ keys.forEach(k=>{ if(!LAYOUT.added[k]){ LAYOUT.added[k]=now; dirty=true; } });
+ if(dirty) saveLayout();
+}
+/* Desktop sorting (item 7): DESKORDER stays the single truth;
+   with a non-manual mode active the top-level order IS the
+   sorted order (persisted by the normal render path), so every
+   surface that reads DESKORDER agrees. A manual drag switches
+   the mode back to 手动 (finishDrag). */
+function deskSortMode(){ const m=SETTINGS&&SETTINGS.deskSort; return ['name','freq','kind','added'].includes(m)?m:'manual' }
+function setDeskSort(m){ if(SETTINGS) SETTINGS.deskSort=m; saveSetting({deskSort:m}); if(typeof renderDesk==='function'&&deskRenderedOnce) renderDesk(); }
+function setDeskIconSize(px){ px=Math.max(36,Math.min(96,Math.round(+px||54))); if(SETTINGS) SETTINGS.deskIconSize=px; saveSetting({deskIconSize:px}); applyDeskIconSize(); }
+const KIND_RANK={app:0,web:1,store:2,box:3,prod:4,file:5,folder:6};
+function sortedDeskOrder(keys){
+ const mode=deskSortMode(); if(mode==='manual') return keys;
+ const nameOf=k=>{ if(k.startsWith('folder:')){ const f=folderById(k.slice(7)); return f?f.name:''; } const m=entryMeta(k); return m?m.name:''; };
+ const arr=keys.slice();
+ if(mode==='name') arr.sort((a,b)=>nameOf(a).localeCompare(nameOf(b),'zh'));
+ else if(mode==='freq'){ const o=LAYOUT.opens||{}; arr.sort((a,b)=>((o[b]||0)-(o[a]||0))||nameOf(a).localeCompare(nameOf(b),'zh')); }
+ else if(mode==='kind') arr.sort((a,b)=>((KIND_RANK[a.split(':')[0]]??9)-(KIND_RANK[b.split(':')[0]]??9))||nameOf(a).localeCompare(nameOf(b),'zh'));
+ else if(mode==='added'){ const ad=LAYOUT.added||{}; arr.sort((a,b)=>((ad[a]||0)-(ad[b]||0))||nameOf(a).localeCompare(nameOf(b),'zh')); }
+ return arr;
+}
+/* Stage Manager identity (item 1): a browser window's cleaned
+   page title -- the browser's own suffix is noise there. */
+function cleanWinTitle(t){
+ let s=String(t||'').trim();
+ s=s.replace(/\s*[—–-]\s*Mozilla Firefox$/,'').replace(/\s*-\s*Google Chrome$/,'').replace(/\s*-\s*Microsoft[​]? Edge$/,'').replace(/\s*[—–-]\s*Chromium$/,'');
+ return s;
+}
 function folderIconHTML(f){
- const items=f.items.map(u=>WEBAPPS.find(a=>a.url===u)).filter(Boolean).slice(0,4);
+ const items=folderItems(f).map(k=>entryMeta(k)).filter(Boolean).slice(0,4);
  if(!items.length) return `<div class="appico folderico"><span class="fempty">📁</span></div>`;
- return `<div class="appico folderico">${items.map(a=>{const fv=faviconURL(a.url);return `<span class="fmini">${esc(webLetter(a.name))}${fv?`<img src="${fv}" alt="" draggable="false" onerror="this.remove()">`:''}</span>`}).join('')}</div>`;
+ return `<div class="appico folderico">${items.map(m=>`<span class="fmini">${m.icon()}</span>`).join('')}</div>`;
 }
 function mkDeskIcon(key,kind,iconHTML,name,onOpen,fid){
  const d=document.createElement('button');
@@ -950,7 +1113,11 @@ function mkDeskIcon(key,kind,iconHTML,name,onOpen,fid){
  d.innerHTML=iconHTML+`<div class="n">${esc(name)}</div>`;
  d.title=name;
  d.onclick=()=>{ document.querySelectorAll('.icon.sel').forEach(x=>{if(x!==d)x.classList.remove('sel')}); d.classList.add('sel'); };
- d.ondblclick=()=>{ if(Date.now()<suppressClickUntil) return; onOpen(); };
+ d.ondblclick=()=>{ if(Date.now()<suppressClickUntil) return; recOpen(key); onOpen(); };
+ /* v0.56 item 5: right-clicking an icon gets ITS menu, not the
+    desktop's. Imported files override this below with their own
+    (showFileCtx, which grew the same item actions). */
+ d.oncontextmenu=ev=>{ ev.preventDefault(); ev.stopPropagation(); showItemCtx(ev.clientX,ev.clientY,key,kind,fid); };
  attachDrag(d,key,kind);
  return d;
 }
@@ -985,7 +1152,7 @@ function mkDeskIcon(key,kind,iconHTML,name,onOpen,fid){
 let DESKORDER=[];
 let deskOrderReady=false;
 let deskNormalized=false;
-function deskCell(i){ return cellPosFor(i,innerWidth,innerHeight,DRAG_PITCH) }
+function deskCell(i){ return cellPosFor(i,innerWidth,innerHeight,deskPitch()) }
 function safeDeskEntry(key,build){
  /* v0.55: one bad entry (a malformed app record, an icon builder
     tripping over unexpected data) is skipped and logged -- it must
@@ -1005,15 +1172,17 @@ function collectDeskEntries(){
     filesOnDesktop setting; the files stay in Data/files. */
  const entries=[];
  const pushEn=en=>{ if(en) entries.push(en); };
- APPS.forEach(a=>{ if(a.nodesk) return; pushEn(safeDeskEntry('app:'+a.id,()=>mkDeskIcon('app:'+a.id,'app',appIcon(a),a.n,a.id==='firefox'?()=>launchFirefoxEntry():()=>openApp(a.id)))); });
- const inFolder=new Set(); LAYOUT.folders.forEach(f=>f.items.forEach(u=>inFolder.add(u)));
- WEBAPPS.filter(a=>!inFolder.has(a.url)).forEach(a=>{ pushEn(safeDeskEntry('web:'+a.url,()=>mkDeskIcon('web:'+a.url,'web',webIconHTML(a),a.name,()=>openWebApp(a.url)))); });
+ /* v0.56: folder membership hides the member from the top level
+    for EVERY kind now (one-home rule), not just web apps. */
+ const inFolder=folderedKeys();
+ APPS.forEach(a=>{ if(a.nodesk||inFolder.has('app:'+a.id)) return; pushEn(safeDeskEntry('app:'+a.id,()=>mkDeskIcon('app:'+a.id,'app',appIcon(a),a.n,a.id==='firefox'?()=>launchFirefoxEntry():()=>openApp(a.id)))); });
+ WEBAPPS.filter(a=>!inFolder.has('web:'+a.url)).forEach(a=>{ pushEn(safeDeskEntry('web:'+a.url,()=>mkDeskIcon('web:'+a.url,'web',webIconHTML(a),a.name,()=>openWebApp(a.url)))); });
  LAYOUT.folders.forEach(f=>{ pushEn(safeDeskEntry('folder:'+f.id,()=>{ const el=mkDeskIcon('folder:'+f.id,'folder',folderIconHTML(f),f.name,()=>openFolderPop(f.id,el),f.id); return el; })); });
- STOREAPPS.forEach(a=>{ pushEn(safeDeskEntry('store:'+a.id,()=>mkDeskIcon('store:'+a.id,'native',storeIconHTML(a),a.name,()=>launchStoreApp(a.id)))); });
- BOXAPPS.forEach(a=>{ pushEn(safeDeskEntry('box:'+a.id,()=>mkDeskIcon('box:'+a.id,'native',storeIconHTML(a),a.name,()=>launchBoxApp(a.id)))); });
- PRODAPPS.forEach(c=>{ pushEn(safeDeskEntry('prod:'+c.id,()=>mkDeskIcon('prod:'+c.id,'native',prodIconHTML(c),c.name,()=>launchProdApp(c.id)))); });
+ STOREAPPS.filter(a=>!inFolder.has('store:'+a.id)).forEach(a=>{ pushEn(safeDeskEntry('store:'+a.id,()=>mkDeskIcon('store:'+a.id,'native',storeIconHTML(a),a.name,()=>launchStoreApp(a.id)))); });
+ BOXAPPS.filter(a=>!inFolder.has('box:'+a.id)).forEach(a=>{ pushEn(safeDeskEntry('box:'+a.id,()=>mkDeskIcon('box:'+a.id,'native',storeIconHTML(a),a.name,()=>launchBoxApp(a.id)))); });
+ PRODAPPS.filter(c=>!inFolder.has('prod:'+c.id)).forEach(c=>{ pushEn(safeDeskEntry('prod:'+c.id,()=>mkDeskIcon('prod:'+c.id,'native',prodIconHTML(c),c.name,()=>launchProdApp(c.id)))); });
  if(!SETTINGS||SETTINGS.filesOnDesktop!==false){
-  DESKFILES.forEach(f=>{
+  DESKFILES.filter(f=>!inFolder.has('file:'+f.name)&&!(LAYOUT.hiddenFiles||[]).includes(f.name)).forEach(f=>{
    pushEn(safeDeskEntry('file:'+f.name,()=>{
     const el=mkDeskIcon('file:'+f.name,'file',fileIconHTML(f),f.name,()=>openDeskFile(f.path,f.kind));
     el.oncontextmenu=ev=>{ ev.preventDefault(); ev.stopPropagation(); showFileCtx(ev.clientX,ev.clientY,f); };
@@ -1039,13 +1208,13 @@ function reconcileDeskOrder(entries){
    const st=LAYOUT.pos[e.key];
    return {key:e.key,stored:(st&&typeof st.x==='number'&&typeof st.y==='number')?st:null,slot:i};
   });
-  DESKORDER=orderFromPositions(deco,innerWidth,innerHeight,DRAG_PITCH);
+  DESKORDER=orderFromPositions(deco,innerWidth,innerHeight,deskPitch());
   deskOrderReady=true;
-  const eff=deco.map(d=>effPosFor(d.stored,d.slot,innerWidth,innerHeight,DRAG_PITCH));
+  const eff=deco.map(d=>effPosFor(d.stored,d.slot,innerWidth,innerHeight,deskPitch()));
   const byKey=new Map(deco.map(d=>[d.key,d]));
   let moved=false;
   DESKORDER.forEach((k,i)=>{
-   const c=deskCell(i), d=byKey.get(k), p=effPosFor(d.stored,d.slot,innerWidth,innerHeight,DRAG_PITCH);
+   const c=deskCell(i), d=byKey.get(k), p=effPosFor(d.stored,d.slot,innerWidth,innerHeight,deskPitch());
    if(p.x!==c.x||p.y!==c.y) moved=true;
   });
   if(moved||anyOverlapPos(eff,92,100)>0){
@@ -1064,9 +1233,9 @@ function reconcileDeskOrder(entries){
   if(have.has(fe.key)) continue;
   const st=LAYOUT.pos[fe.key];
   const stored=(st&&typeof st.x==='number'&&typeof st.y==='number')?st:null;
-  const p=effPosFor(stored,slotOf.get(fe.key),innerWidth,innerHeight,DRAG_PITCH);
+  const p=effPosFor(stored,slotOf.get(fe.key),innerWidth,innerHeight,deskPitch());
   const centers=keep.map((k,i)=>{ const c=deskCell(i); return {x:c.x+46,y:c.y+50}; });
-  let t=dragInsertIndex(centers,p.x+46,p.y+50,dragBaseCX(),DRAG_PITCH);
+  let t=dragInsertIndex(centers,p.x+46,p.y+50,dragBaseCX(),deskPitch());
   t=Math.max(0,Math.min(keep.length,t));
   keep.splice(t,0,fe.key);
   have.add(fe.key);
@@ -1112,6 +1281,11 @@ function renderDesk(){
  catch(e){ console.error('[mj-desk] 名单构建失败，桌面降级为空名单绘制',e); }
  try{ reconcileDeskOrder(entries); }
  catch(e){ console.error('[mj-desk] 顺序调和失败，按来源顺序绘制',e); DESKORDER=entries.map(x=>x.key); deskOrderReady=true; }
+ /* v0.56: first-seen stamps for the 添加日期 sort (top-level
+    entries plus folder members), then the active sort (item 7)
+    re-orders the top level. Both are no-ops in 手动 mode. */
+ try{ stampAdded(entries.map(e=>e.key).concat(LAYOUT.folders.flatMap(f=>folderItems(f)))); }catch(e){}
+ if(deskSortMode()!=='manual'){ const so=sortedDeskOrder(DESKORDER); if(so.join('')!==DESKORDER.join('')) DESKORDER=so; }
  const byKey=new Map(entries.map(e=>[e.key,e]));
  iconsEl.innerHTML='';
  DESKORDER.forEach((k,i)=>{
@@ -1121,6 +1295,7 @@ function renderDesk(){
   iconsEl.appendChild(en.el);
  });
  persistDeskPos();
+ deskRenderedOnce=true;
  deskAssertNoOverlap('render');
 }
 /* Cells derive from the window size, so a resize re-derives them
@@ -1231,7 +1406,10 @@ function folderDissolvesAfter(items){ return items.length===0 }
    edit. A quick pass over an icon never arms -- it just reorders.
    Esc (or pointer cancel) restores everything, nothing is saved. */
 let dragState=null;
-const DRAG_PITCH=104;
+/* v0.56: the grid pitch is no longer a constant -- it derives
+   from the desktop icon size setting (deskPitch(), defined with
+   the settings plumbing). The drag math takes it as a parameter
+   everywhere it used to read the constant. */
 function dragBaseCX(){ return innerWidth-72 }
 function iconSeq(){
  /* All desktop icons in THE desktop order (DESKORDER) -- the same
@@ -1309,8 +1487,27 @@ function updateDrag(ds,px,py){
   const r=s.el.getBoundingClientRect();
   if(px>=r.left&&px<=r.right&&py>=r.top&&py<=r.bottom){ hit=s.el; break; }
  }
+ /* v0.56: dragging into the OPEN folder's panel files the icon
+    into that folder (the third way in, beside the tile drop and
+    the 添加 picker). */
+ const fpGrid=document.getElementById('fp-grid');
+ if(openFolderId&&ds.kind!=='folder'){
+  const panel=document.getElementById('fp-panel');
+  if(panel){ const pr=panel.getBoundingClientRect();
+   if(px>=pr.left&&px<=pr.right&&py>=pr.top&&py<=pr.bottom){
+    disarmDrag(ds);
+    ds.seq.forEach(s=>s.el.classList.remove('bud'));
+    if(fpGrid) fpGrid.classList.add('dropIn');
+    ds.el.style.transform='scale(.55)';
+    ds.hoverEl=null; ds.hoverMode='folderIn';
+    return;
+   } }
+ }
+ if(fpGrid) fpGrid.classList.remove('dropIn');
  let mode='reorder';
- if(hit&&ds.kind==='web'&&hit.dataset.fid) mode='folder';
+ /* v0.56: ANY entry kind can be filed into a folder now (item
+    4); stack-to-create-a-folder stays a web-apps gesture. */
+ if(hit&&hit.dataset.fid&&ds.kind!=='folder') mode='folder';
  else if(hit&&ds.kind==='web'&&hit.dataset.kind==='web') mode='stack';
  /* Stack-to-create arming: only a steady ~600ms dwell on the SAME
     icon arms it. Moving off (or onto anything else) disarms. */
@@ -1332,7 +1529,7 @@ function updateDrag(ds,px,py){
  ds.el.style.transform=(mode==='folder')?'scale(.55)':'';
  ds.hoverEl=hit; ds.hoverMode=mode;
  if(mode!=='reorder') return; /* folder/stack: freeze the reorder gap */
- let t=dragInsertIndex(ds.centers,px,py,dragBaseCX(),DRAG_PITCH);
+ let t=dragInsertIndex(ds.centers,px,py,dragBaseCX(),deskPitch());
  t=Math.max(0,Math.min(ds.seq.length-1,t));
  if(t!==ds.targetIdx){ ds.targetIdx=t; applyDragShift(ds); }
 }
@@ -1356,13 +1553,23 @@ function finishDrag(ds,cx,cy){
  disarmDrag(ds);
  ds.seq.forEach(s=>s.el.classList.remove('bud'));
  el.style.transform='';
- /* 1) Dropped onto a folder tile: file it in. The folder keeps its
-       name; its thumbnail re-renders from its contents on the next
-       renderDesk. */
- if(ds.hoverMode==='folder'&&ds.hoverEl&&ds.kind==='web'){
+ const fpGridEl=document.getElementById('fp-grid'); if(fpGridEl) fpGridEl.classList.remove('dropIn');
+ /* 0) v0.56: dropped into the OPEN folder's panel. */
+ if(ds.hoverMode==='folderIn'&&openFolderId&&ds.kind!=='folder'){
+  const f=folderById(openFolderId);
+  if(f&&!folderItems(f).includes(ds.key)) f.items.push(ds.key);
+  delete LAYOUT.pos[ds.key];
+  endDragVisual(ds);
+  saveLayout(); renderDesk();
+  openFolderPop(openFolderId,null);
+  return;
+ }
+ /* 1) Dropped onto a folder tile: file it in (v0.56: any kind).
+       The folder keeps its name; its thumbnail re-renders from
+       its contents on the next renderDesk. */
+ if(ds.hoverMode==='folder'&&ds.hoverEl&&ds.kind!=='folder'){
   const f=folderById(ds.hoverEl.dataset.fid);
-  const url=ds.key.slice(4);
-  if(f&&!f.items.includes(url)) f.items.push(url);
+  if(f&&!folderItems(f).includes(ds.key)) f.items.push(ds.key);
   delete LAYOUT.pos[ds.key];
   endDragVisual(ds);
   saveLayout(); renderDesk();
@@ -1377,7 +1584,7 @@ function finishDrag(ds,cx,cy){
    if(turl!==durl){
     const id='f'+Date.now().toString(36);
     const tp={x:Math.round(parseFloat(armedEl.style.left)||0),y:Math.round(parseFloat(armedEl.style.top)||0)};
-    LAYOUT.folders.push({id,name:'文件夹',items:[turl,durl]});
+    LAYOUT.folders.push({id,name:'文件夹',items:['web:'+turl,'web:'+durl]});
     LAYOUT.pos['folder:'+id]=tp;
     delete LAYOUT.pos[armedEl.dataset.key]; delete LAYOUT.pos[ds.key];
     endDragVisual(ds);
@@ -1396,6 +1603,9 @@ function finishDrag(ds,cx,cy){
        Positions cannot jump -- the glide target IS the cell the
        repaint will assign. */
  const target=ds.targetIdx;
+ /* v0.56 item 7: a manual drag is a manual order -- any active
+    sort steps aside (the surfaces re-read the same key). */
+ if(target!==ds.originIdx&&deskSortMode()!=='manual') setDeskSort('manual');
  DESKORDER=dragMovedArray(DESKORDER,ds.originIdx,target);
  el.classList.remove('dragging');
  el.style.left=ds.slots[target].x+'px';
@@ -1426,7 +1636,7 @@ function cancelDrag(ds){
 function desktopInsertAt(key,px,py,excludeFid){
  const seq=iconSeq().filter(s=>!(excludeFid&&s.key==='folder:'+excludeFid));
  const centers=seq.map(s=>({x:s.x+s.w/2,y:s.y+s.h/2}));
- let t=dragInsertIndex(centers,px,py,dragBaseCX(),DRAG_PITCH);
+ let t=dragInsertIndex(centers,px,py,dragBaseCX(),deskPitch());
  t=Math.max(0,Math.min(seq.length,t));
  const keys=seq.map(s=>s.key).filter(k=>k!==key);
  keys.splice(Math.min(t,keys.length),0,key);
@@ -1448,16 +1658,50 @@ function openFolderPop(fid,anchorEl,opts){
  const f=folderById(fid); if(!f) return;
  openFolderEl=anchorEl||openFolderEl; openFolderId=fid;
  const pop=document.getElementById('folderpop');
- const items=f.items.map(u=>WEBAPPS.find(a=>a.url===u)).filter(Boolean);
- pop.innerHTML=`<div class="fp-panel" id="fp-panel"><div class="fp-title" id="fp-title" title="点标题改名">${esc(f.name)}</div><div class="fp-grid" id="fp-grid">${items.length?items.map(a=>`<button class="fp-item" data-url="${esc(a.url)}">${webIconHTML(a)}<span>${esc(a.name)}</span></button>`).join(''):'<p class="mut fp-empty">空的：把桌面上的网站图标拖到这个文件夹上，就能放进来。</p>'}</div></div>`;
+ /* v0.56: members resolve through entryMeta -- every kind
+    renders and launches here exactly as on the desktop. */
+ const metas=folderItems(f).map(k=>entryMeta(k)).filter(Boolean);
+ pop.innerHTML=`<div class="fp-panel" id="fp-panel"><div class="fp-title" id="fp-title" title="点标题改名">${esc(f.name)}</div><div class="fp-grid" id="fp-grid">${metas.length?metas.map(m=>`<button class="fp-item" data-key="${esc(m.key)}">${m.icon()}<span>${esc(m.name)}</span></button>`).join(''):'<p class="mut fp-empty">空的：把桌面上的图标拖到这个文件夹上，或者点下面「添加」放进来。</p>'}</div><div class="fp-foot"><button id="fp-add">＋ 添加</button><button id="fp-imp">📥 导入文件</button></div></div>`;
  pop.classList.remove('hidden');
  pop.onclick=ev=>{ if(ev.target===pop) closeFolderPop(); };
  document.getElementById('fp-title').onclick=()=>startFolderTitleEdit();
+ document.getElementById('fp-add').onclick=()=>showFolderPicker(fid);
+ document.getElementById('fp-imp').onclick=()=>{ window.__mjFolderImport=fid; document.getElementById('deskimp').click(); };
  pop.querySelectorAll('.fp-item').forEach(it=>{
-  it.onclick=()=>{ if(Date.now()<suppressClickUntil) return; closeFolderPop(); if(window.__lpClose) window.__lpClose(); openWebApp(it.dataset.url); };
+  it.onclick=()=>{ if(Date.now()<suppressClickUntil) return; const m=entryMeta(it.dataset.key); closeFolderPop(); if(window.__lpClose) window.__lpClose(); if(m){ recOpen(m.key); m.open(); } };
   attachFolderItemDrag(it,fid);
  });
  if(opts.editTitle) startFolderTitleEdit();
+}
+/* The in-folder 添加 picker: every entry that is not already in
+   a folder (and is not a folder itself), one click files it in
+   (move, not copy -- the one-home rule). */
+function showFolderPicker(fid){
+ const pop=document.getElementById('folderpop');
+ const panel=document.getElementById('fp-panel'); if(!panel) return;
+ panel.querySelectorAll('.fp-pick').forEach(x=>x.remove());
+ const inAny=folderedKeys();
+ const keys=[];
+ APPS.forEach(a=>{ if(!a.nodesk) keys.push('app:'+a.id); });
+ WEBAPPS.forEach(a=>keys.push('web:'+a.url));
+ STOREAPPS.forEach(a=>keys.push('store:'+a.id));
+ BOXAPPS.forEach(a=>keys.push('box:'+a.id));
+ PRODAPPS.forEach(c=>keys.push('prod:'+c.id));
+ if(!SETTINGS||SETTINGS.filesOnDesktop!==false) DESKFILES.forEach(f=>keys.push('file:'+f.name));
+ const metas=keys.filter(k=>!inAny.has(k)).map(k=>entryMeta(k)).filter(Boolean);
+ const ov=document.createElement('div');
+ ov.className='fp-pick';
+ ov.innerHTML=`<div class="fp-pick-panel"><h4>添加进文件夹</h4>${metas.length?metas.map(m=>`<button class="fp-pick-it" data-key="${esc(m.key)}">${m.icon()}<span>${esc(m.name)}</span></button>`).join(''):'<p class="mut">桌面上的东西都已经在文件夹里了。</p>'}<div class="fp-foot"><button id="fp-pick-x">完成</button></div></div>`;
+ panel.appendChild(ov);
+ ov.querySelector('#fp-pick-x').onclick=()=>{ ov.remove(); openFolderPop(fid,openFolderEl); };
+ ov.querySelectorAll('.fp-pick-it').forEach(b=>b.onclick=()=>{
+  const f=folderById(fid); if(!f) return;
+  if(!folderItems(f).includes(b.dataset.key)) f.items.push(b.dataset.key);
+  delete LAYOUT.pos[b.dataset.key];
+  saveLayout(); renderDesk();
+  b.remove();
+  if(!ov.querySelector('.fp-pick-it')) ov.querySelector('.fp-pick-panel').insertAdjacentHTML('beforeend','<p class="mut">桌面上的东西都已经在文件夹里了。</p>');
+ });
 }
 function startFolderTitleEdit(){
  const f=folderById(openFolderId); const t=document.getElementById('fp-title');
@@ -1484,7 +1728,7 @@ function attachFolderItemDrag(it,fid){
   if(ev.button!==0) return;
   ev.preventDefault();
   const r=it.getBoundingClientRect();
-  fpDrag={it,fid,url:it.dataset.url,sx:ev.clientX,sy:ev.clientY,ox:r.left,oy:r.top,active:false,mode:'grid',targetIdx:0,originIdx:0};
+  fpDrag={it,fid,key:it.dataset.key,sx:ev.clientX,sy:ev.clientY,ox:r.left,oy:r.top,active:false,mode:'grid',targetIdx:0,originIdx:0};
   try{it.setPointerCapture(ev.pointerId)}catch(e){}
  });
  it.addEventListener('pointermove',ev=>{
@@ -1579,11 +1823,11 @@ function finishFolderDrag(st){
   return;
  }
  /* Dragged out of the panel: back onto the desktop at the pointed
-    slot; the panel closes. */
- f.items=f.items.filter(u=>u!==st.url);
+    slot; the panel closes. (v0.56: keyed, any kind.) */
+ f.items=folderItems(f).filter(u=>u!==st.key);
  const dissolved=folderDissolvesAfter(f.items);
  if(dissolved) LAYOUT.folders=LAYOUT.folders.filter(x=>x.id!==st.fid);
- desktopInsertAt('web:'+st.url,px,py,dissolved?st.fid:null);
+ desktopInsertAt(st.key,px,py,dissolved?st.fid:null);
  if(dissolved) delete LAYOUT.pos['folder:'+st.fid];
  saveLayout(); closeFolderPop(); renderDesk();
 }
@@ -1598,15 +1842,153 @@ function endFolderDragVisual(st){
 /* ----- desktop context menu ----- */
 const ctxEl=document.getElementById('ctxmenu');
 function hideCtx(){ctxEl.classList.add('hidden')}
-function showCtx(x,y){
- ctxEl.innerHTML=`<div class="ctxitem" id="ctx-nf">📁&nbsp; 新建文件夹</div><div class="ctxitem" id="ctx-imp">📥&nbsp; 从电脑导入文件…</div><div class="ctxitem" id="ctx-rf">⟳&nbsp; 刷新</div><div class="ctxitem" id="ctx-ps">🎨&nbsp; 个性化</div>`;
+/* ----- context menus (v0.56: one component, content by kind) -----
+   ctxOpen paints items into the shared #ctxmenu; an item with a
+   `sub` payload gets a hover submenu (radio items carry a ✓).
+   The blank-desktop menu keeps its four classics and gains
+   图标大小 / 排序方式 submenus (item 7); icon right-clicks get
+   per-item menus (item 5) via showItemCtx. */
+function ctxItemHTML(it){
+ const sub=it.sub?`<div class="ctxSub">${it.sub.map(ctxItemHTML).join('')}</div>`:'';
+ return `<div class="ctxitem${it.sub?' hasSub':''}" data-act="${it.act||''}" ${it.arg?`data-arg="${esc(it.arg)}"`:''} ${it.danger?'style="color:#ff9d97"':''}>${it.radio?`<i class="radio">${it.on?'✓':''}</i>`:''}${esc(it.label)}${sub}</div>`;
+}
+function ctxOpen(x,y,items,onPick){
+ ctxEl.innerHTML=items.map(it=>it.sep?'<div style="height:1px;background:rgba(255,255,255,.16);margin:5px 8px"></div>':ctxItemHTML(it)).join('');
  ctxEl.classList.remove('hidden');
- ctxEl.style.left=Math.min(x,innerWidth-196)+'px';
- ctxEl.style.top=Math.min(y,innerHeight-200)+'px';
- document.getElementById('ctx-nf').onclick=()=>{hideCtx();newFolder(x,y)};
- document.getElementById('ctx-imp').onclick=()=>{hideCtx();document.getElementById('deskimp').click()};
- document.getElementById('ctx-rf').onclick=()=>location.reload();
- document.getElementById('ctx-ps').onclick=()=>{hideCtx();openApp('sys')};
+ const flip=x>innerWidth-440;
+ ctxEl.querySelectorAll('.ctxSub').forEach(s=>s.classList.toggle('flip',flip));
+ ctxEl.style.left=Math.max(4,Math.min(x,innerWidth-216))+'px';
+ ctxEl.style.top=Math.max(30,Math.min(y,innerHeight-360))+'px';
+ ctxEl.querySelectorAll('.ctxitem[data-act]').forEach(el=>{
+  el.onclick=ev=>{
+   if(el.classList.contains('hasSub')){ el.classList.toggle('openSub'); ev.stopPropagation(); return; }
+   const act=el.dataset.act, arg=el.dataset.arg;
+   hideCtx(); onPick&&onPick(act,arg);
+  };
+ });
+}
+function showCtx(x,y){
+ const sz=deskIconSize(), sm=deskSortMode();
+ const sizes=[['小',42],['标准',54],['大',68],['特大',84]].map(([n,v])=>({act:'size',arg:String(v),label:n+'（'+v+'）',radio:true,on:sz===v}));
+ const sorts=[['manual','手动'],['name','名称'],['freq','最常用'],['kind','种类'],['added','添加日期']].map(([v,n])=>({act:'sort',arg:v,label:n,radio:true,on:(sm===v)||(v==='manual'&&sm==='manual')}));
+ ctxOpen(x,y,[
+  {act:'nf',label:'📁  新建文件夹'},
+  {act:'imp',label:'📥  从电脑导入文件…'},
+  {sep:true},
+  {label:'图标大小',sub:sizes},
+  {label:'排序方式',sub:sorts},
+  {sep:true},
+  {act:'rf',label:'⟳  刷新'},
+  {act:'ps',label:'🎨  个性化'},
+ ],(act,arg)=>{
+  if(act==='nf') newFolder(x,y);
+  else if(act==='imp') document.getElementById('deskimp').click();
+  else if(act==='rf') location.reload();
+  else if(act==='ps') openApp('sys');
+  else if(act==='size') setDeskIconSize(+arg);
+  else if(act==='sort') setDeskSort(arg);
+ });
+}
+/* Per-item menu content by entry kind + state (item 5). Web
+   apps: 打开 / 调整窗口▸（记忆·手机·桌面·全屏， persisted on the
+   entry, applied at next launch) / 卸载 -- deliberately NO
+   编辑. Store: 打开 / 卸载 (the store's own uninstall, data
+   warning included). Components & Firefox: 打开 / 卸载组件.
+   System apps: 打开 only. Folders: 打开 / 重命名 / 解散. */
+function showItemCtx(x,y,key,kind,fid){
+ const openIt=()=>{ const m=entryMeta(key); if(m){ recOpen(key); m.open(); } };
+ if(kind==='folder'||key.startsWith('folder:')){
+  const f=folderById(fid||key.slice(7)); if(!f) return;
+  ctxOpen(x,y,[
+   {act:'open',label:'打开'},
+   {act:'rename',label:'重命名…'},
+   {act:'dissolve',label:'解散文件夹',danger:true},
+  ],act=>{
+   if(act==='open'){ const el=document.querySelector(`.icon[data-key="${CSS.escape(key)}"]`); openFolderPop(f.id,el); }
+   else if(act==='rename'){ const el=document.querySelector(`.icon[data-key="${CSS.escape(key)}"]`); openFolderPop(f.id,el,{editTitle:true}); }
+   else if(act==='dissolve'){
+    if(!confirm('解散「'+f.name+'」？里面的图标会回到桌面，文件夹本身删掉。')) return;
+    folderItems(f).forEach(k=>{ delete LAYOUT.pos[k]; });
+    LAYOUT.folders=LAYOUT.folders.filter(z=>z.id!==f.id);
+    delete LAYOUT.pos[key];
+    saveLayout(); renderDesk();
+    toast('已解散文件夹，图标回到桌面');
+   }
+  });
+  return;
+ }
+ if(key.startsWith('web:')){
+  const a=WEBAPPS.find(w=>'web:'+w.url===key); if(!a) return;
+  const cur=a.winmode||'memory';
+  const modes=[['memory','记忆'],['phone','手机'],['desktop','桌面'],['fullscreen','全屏']].map(([v,n])=>({act:'winmode',arg:v,label:n,radio:true,on:cur===v}));
+  ctxOpen(x,y,[
+   {act:'open',label:'打开'},
+   {label:'调整窗口',sub:modes},
+   {act:'uninstall',label:'卸载',danger:true},
+  ],async(act,arg)=>{
+   if(act==='open') openIt();
+   else if(act==='winmode'){
+    const r=await api('/api/apps/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:a.url,winmode:arg})});
+    if(r&&r.error){ alert(r.error); return; }
+    await loadWebApps();
+    toast('窗口模式已设为「'+({memory:'记忆',phone:'手机',desktop:'桌面',fullscreen:'全屏'})[arg]+'」，下次打开生效');
+   }
+   else if(act==='uninstall'){
+    if(!confirm('卸载网站应用「'+a.name+'」？\n只是删掉这个桌面入口，网站本身和浏览器里的登录数据不受影响。')) return;
+    const r=await api('/api/apps/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:a.url,delete:true})});
+    if(r&&r.error){ alert(r.error); return; }
+    LAYOUT.folders.forEach(fd=>{ fd.items=folderItems(fd).filter(k=>k!==key); });
+    delete LAYOUT.pos[key];
+    saveLayout(); await loadWebApps(); renderDesk();
+   }
+  });
+  return;
+ }
+ if(key.startsWith('store:')){
+  const a=STOREAPPS.find(s=>'store:'+s.id===key); if(!a) return;
+  ctxOpen(x,y,[{act:'open',label:'打开'},{act:'uninstall',label:'卸载',danger:true}],async act=>{
+   if(act==='open') openIt();
+   else if(act==='uninstall'){
+    if(!confirm('卸载 '+a.name+'？\n便携应用的程序和数据都在同一个文件夹里，卸载会把 '+a.name+' 的本地数据（如聊天记录、配置）一起全部删掉，不可恢复。')) return;
+    const r=await api('/api/apps/uninstall',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:a.id})});
+    if(r&&r.error){ alert(r.error); return; }
+    LAYOUT.folders.forEach(fd=>{ fd.items=folderItems(fd).filter(k=>k!==key); });
+    saveLayout(); await loadStoreApps(); renderDesk();
+   }
+  });
+  return;
+ }
+ if(key.startsWith('prod:')){
+  const c=PRODAPPS.find(p=>'prod:'+p.id===key); if(!c) return;
+  ctxOpen(x,y,[{act:'open',label:'打开'},{act:'uninstall',label:'卸载组件',danger:true}],async act=>{
+   if(act==='open') openIt();
+   else if(act==='uninstall'){
+    if(!confirm('卸载 '+c.name+'？\n程序和它在组件目录里的数据会一起删掉，不可恢复。')) return;
+    const r=await api('/api/components/uninstall',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:c.id})});
+    if(r&&r.error){ alert(r.error); return; }
+    LAYOUT.folders.forEach(fd=>{ fd.items=folderItems(fd).filter(k=>k!==key); });
+    saveLayout(); await loadProdApps(); renderDesk();
+   }
+  });
+  return;
+ }
+ if(key==='app:firefox'){
+  const items=[{act:'open',label:'打开'}];
+  if(FFSTATE&&FFSTATE.installed) items.push({act:'uninstall',label:'卸载组件',danger:true});
+  ctxOpen(x,y,items,async act=>{
+   if(act==='open') openIt();
+   else if(act==='uninstall'){
+    if(!confirm('卸载 Firefox 组件？\n程序会删掉；你的 Firefox 档案（登录、书签，在 Data/FirefoxProfile）保留，重装后还在。')) return;
+    const r=await api('/api/firefox/uninstall',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
+    if(r&&r.error){ alert(r.error); return; }
+    await loadFFState(); renderDesk();
+    toast('Firefox 组件已卸载（档案保留）');
+   }
+  });
+  return;
+ }
+ /* System apps and anything unlisted: 打开 only. */
+ ctxOpen(x,y,[{act:'open',label:'打开'}],()=>openIt());
 }
 function newFolder(x,y){
  const id='f'+Date.now().toString(36);
@@ -1640,7 +2022,13 @@ document.addEventListener('keydown',ev=>{
 
 async function loadWebApps(){
  try{const r=await api('/api/apps');WEBAPPS=r.apps||[]}catch(e){WEBAPPS=[]}
- LAYOUT.folders.forEach(f=>{ f.items=f.items.filter(u=>WEBAPPS.some(a=>a.url===u)); });
+ /* v0.56: the old prune (drop folder items that are not web
+    apps) IS the kind restriction item 4 removes. Now: legacy
+    bare-URL items migrate to web: keys, and only web: keys
+    whose app vanished are pruned -- other kinds are validated
+    by their own catalogs at render time (entryMeta skips what
+    it cannot resolve), never deleted from under the user here. */
+ LAYOUT.folders.forEach(f=>{ folderItems(f); f.items=f.items.filter(k=>!k.startsWith('web:')||WEBAPPS.some(a=>'web:'+a.url===k)); });
 }
 /* ----- portable apps from the store (v0.24): desktop icons ----- */
 let STORECAT=[], STOREAPPS=[];
@@ -1796,7 +2184,16 @@ async function importFiles(fileList,via){
   }catch(e){ fails.push(f.name+'：上传失败'); }
  }
  importBusy=false;
- await loadDeskFiles(); renderDesk();
+ await loadDeskFiles();
+ if(LAYOUT.hiddenFiles&&LAYOUT.hiddenFiles.length){ const before=LAYOUT.hiddenFiles.length; LAYOUT.hiddenFiles=LAYOUT.hiddenFiles.filter(n=>!files.some(fl=>fl.name===n)); if(LAYOUT.hiddenFiles.length!==before) saveLayout(); }
+ /* v0.56: an import started from inside a folder （导入文件 in
+    the folder popup) lands the new files in THAT folder. */
+ const intoFid=window.__mjFolderImport; window.__mjFolderImport=null;
+ if(intoFid&&ok){
+  const f=folderById(intoFid);
+  if(f){ files.forEach(fl=>{ const k='file:'+fl.name; if(DESKFILES.some(d=>d.name===fl.name)&&!folderItems(f).includes(k)) f.items.push(k); }); saveLayout(); }
+ }
+ renderDesk();
  if(window.__filesRefresh) window.__filesRefresh(); /* v0.50: an open Finder window repaints too */
  if(fails.length) alert('有 '+fails.length+' 个文件没导入成功：\n'+fails.join('\n'));
  else if(ok) toast('已导入 '+ok+' 个文件到桌面');
@@ -1822,13 +2219,28 @@ document.addEventListener('paste',ev=>{
  if(ev.clipboardData&&ev.clipboardData.files&&ev.clipboardData.files.length){ ev.preventDefault(); importFiles(ev.clipboardData.files,'paste'); }
 });
 document.getElementById('deskimp').addEventListener('change',e=>{ importFiles(e.target.files,'picker'); e.target.value=''; });
-/* file icon right-click menu: open / rename / export / delete */
+/* file icon right-click menu: open / reveal / rename / export /
+   remove-icon / delete. v0.56: 从桌面移除 (icon only, the file
+   stays in Data/files and in the Files app) and 删除文件 (the
+   real delete, confirmed) are deliberately separate items. */
 function showFileCtx(x,y,f){
- ctxEl.innerHTML=`<div class="ctxitem" id="fc-open">打开</div><div class="ctxitem" id="fc-rename">重命名…</div><div class="ctxitem" id="fc-export">导出到电脑（下载文件夹）</div><div class="ctxitem" id="fc-del" style="color:#ff9d97">删除</div>`;
+ ctxEl.innerHTML=`<div class="ctxitem" id="fc-open">打开</div><div class="ctxitem" id="fc-reveal">在「文件」中显示</div><div class="ctxitem" id="fc-rename">重命名…</div><div class="ctxitem" id="fc-export">导出到电脑（下载文件夹）</div><div class="ctxitem" id="fc-unpin">从桌面移除</div><div class="ctxitem" id="fc-del" style="color:#ff9d97">删除文件</div>`;
  ctxEl.classList.remove('hidden');
  ctxEl.style.left=Math.min(x,innerWidth-220)+'px';
- ctxEl.style.top=Math.min(y,innerHeight-190)+'px';
- document.getElementById('fc-open').onclick=()=>{ hideCtx(); openDeskFile(f.path,f.kind); };
+ ctxEl.style.top=Math.min(y,innerHeight-260)+'px';
+ document.getElementById('fc-open').onclick=()=>{ hideCtx(); recOpen('file:'+f.name); openDeskFile(f.path,f.kind); };
+ document.getElementById('fc-reveal').onclick=()=>{ hideCtx(); openApp('files'); let n=0; const t=setInterval(()=>{ if((window.__filesReveal&&window.__filesReveal(f.path))||++n>12) clearInterval(t); },120); };
+ document.getElementById('fc-unpin').onclick=()=>{
+  hideCtx();
+  /* Icon only: the name goes on the layout's hidden list; the
+     file itself stays in Data/files and in the Files app, and
+     re-importing the same name brings the icon back. */
+  LAYOUT.hiddenFiles=LAYOUT.hiddenFiles||[];
+  if(!LAYOUT.hiddenFiles.includes(f.name)) LAYOUT.hiddenFiles.push(f.name);
+  delete LAYOUT.pos['file:'+f.name];
+  saveLayout(); renderDesk();
+  toast('已从桌面移除（文件还在「文件」里）');
+ };
  document.getElementById('fc-export').onclick=()=>{ hideCtx(); exportDeskFile(f); };
  document.getElementById('fc-rename').onclick=async()=>{
   hideCtx();
@@ -1845,6 +2257,10 @@ function showFileCtx(x,y,f){
   const r=await api('/api/files/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:f.name})});
   if(r.error){ alert('删除失败：'+r.error); return; }
   delete LAYOUT.pos['file:'+f.name];
+  /* v0.56: a deleted file also leaves every folder and the
+     hidden list -- no dangling membership. */
+  LAYOUT.folders.forEach(fd=>{ fd.items=folderItems(fd).filter(k=>k!=='file:'+f.name); });
+  LAYOUT.hiddenFiles=(LAYOUT.hiddenFiles||[]).filter(n=>n!==f.name);
   saveLayout(); await loadDeskFiles(); renderDesk();
  };
 }
@@ -2156,7 +2572,7 @@ function render(id){
   b.innerHTML=`<div class="fv"><div class="fv-path">文稿库 <span style="opacity:.6">›</span> <b id="fv-crumb">全部文件</b><span style="opacity:.55;font-size:12px">　· 单层文稿库（Data/files），不是电脑上的文件夹</span></div><div class="fv-main"><div class="fv-side" id="fv-side"></div><div class="fv-center"><div class="fv-tools"><span class="seg" id="fv-viewseg"><button data-v="icon">图标</button><button data-v="list">列表</button><button data-v="cols">分栏</button></span><select class="fv-sorts" id="fv-sort" title="排序"><option value="name">名称</option><option value="size">大小</option><option value="kind">类型</option><option value="mtime">导入时间</option></select><button class="btn gray" id="fv-import">导入…</button><input class="fv-q" id="fv-q" type="text" placeholder="搜索当前分组" autocomplete="off"></div><div class="fv-body" id="fv-body"></div></div><div class="fv-prev" id="fv-prev"></div></div></div>`;
  }
  if(id==='browser') b.innerHTML=`<h3>谷歌浏览器（独立窗口）</h3><p class="mut" style="margin-top:8px">这个浏览器和公用电脑自己的浏览器是分开的：独立档案存在 EXE 旁边的 Data 文件夹，历史、Cookie、登录都在你自己的档案里。<br><b style="color:#fff">走节点打开时，只有这个窗口的流量走节点</b>，不会改这台电脑的系统代理。</p><div class="row" style="margin-top:14px"><input class="txt" id="burl" value="https://www.google.com"></div><div class="row" style="margin-top:10px"><button class="btn" id="bproxy">🚀 走节点打开 Chrome</button><button class="btn gray" id="bdirect">直连打开 Chrome</button><button class="btn gray" id="btest">代理自检</button></div><p style="margin-top:12px"><span class="tag" id="bstatus">连不上时先点「代理自检」，它会告诉你卡在哪一步</span></p><hr style="border-color:rgba(255,255,255,.14);margin:18px 0"><h3>网站应用（钉到桌面）</h3><p class="mut" style="margin-top:6px">下面的网站已经钉在桌面右侧，点开就是<b style="color:#fff">应用化的干净窗口</b>：没有地址栏、没有标签页，像打开一个 App，自动走节点（全局加速开着时）。适合 X、YouTube 这种固定要去的网站。</p><div id="walist" class="mut" style="margin-top:10px">加载中…</div><div class="row" style="margin-top:12px"><input class="txt" id="waname" placeholder="名字，如 GitHub" style="max-width:150px"><input class="txt" id="waurl" placeholder="网址，如 https://github.com"></div><div class="row" style="margin-top:8px"><button class="btn" id="waadd">＋ 钉到桌面</button><span class="tag" id="wastatus"></span></div><hr style="border-color:rgba(255,255,255,.14);margin:18px 0"><h3>谷歌云同步（换电脑不丢登录）</h3><p class="mut" style="margin-top:6px">Chrome 的登录搬不了家（被那台电脑的 Windows 账户锁着），但<b style="color:#fff">开启谷歌同步</b>后，换一台电脑打开终端机，在隔离 Chrome 里登一次谷歌，密码、书签、历史就会同步回来，各网站的登录基本点一下就恢复。同步的开关在 Chrome 里面，下面这个按钮会直接把同步设置页在隔离 Chrome 中打开。</p><div class="row" style="margin-top:10px"><button class="btn" id="bsync">打开同步设置</button><span class="tag" id="bsyncst">打开后在 Chrome 里点「开启同步」并登录谷歌账户</span></div>`;
- if(id==='firefox') b.innerHTML=`<h3>Firefox（系统内浏览器 · 登录可搬家）</h3><p class="mut" style="margin-top:8px">这是装在咱们系统里面的 Firefox，用自己的档案（EXE 旁 Data/FirefoxProfile）。和 Chrome 不一样，<b style="color:#fff">Firefox 的登录、Cookie、历史都锁在档案自己身上</b>：把文件夹带到另一台电脑打开，登录状态样，这是专门用来装需要登录的网站的浏览器。建议进 Firefox 后给档案设一个<b style="color:#fff">主密码</b>（设置 → 隐私与安全 → 主密码），文件夹在别人手里也解不开。宿主机自己的 Firefox 与它互不相干。</p><p style="margin-top:12px"><span class="tag" id="ffinfo">组件状态读取中…</span></p><div class="row" style="margin-top:10px"><button class="btn" id="ffdl">下载 Firefox 组件</button><span class="tag" id="ffprog"></span></div><div class="row" style="margin-top:14px"><input class="txt" id="ffurl" placeholder="网址（留空开主页），如 https://github.com"></div><div class="row" style="margin-top:10px"><button class="btn" id="ffopen">🚀 走节点打开</button><button class="btn gray" id="ffopenapp">应用化打开（走节点）</button><button class="btn gray" id="ffopend">直连打开</button></div><p class="mut" style="margin-top:10px">应用化＝隐藏标签栏和地址栏的干净窗口，在 Firefox <b style="color:#fff">冷启动时</b>生效：Firefox 已经开着时，先关掉它再点应用化打开。Firefox 开着时再点打开，会提示已在运行——直接用那个窗口就行。</p><p style="margin-top:8px"><span class="tag" id="ffstatus"></span></p>`;
+ if(id==='firefox') b.innerHTML=`<h3>Firefox（系统内浏览器 · 登录可搬家）</h3><p class="mut" style="margin-top:8px">这是装在咱们系统里面的 Firefox，用自己的档案（EXE 旁 Data/FirefoxProfile）。和 Chrome 不一样，<b style="color:#fff">Firefox 的登录、Cookie、历史都锁在档案自己身上</b>：把文件夹带到另一台电脑打开，登录状态样，这是专门用来装需要登录的网站的浏览器。建议进 Firefox 后给档案设一个<b style="color:#fff">主密码</b>（设置 → 隐私与安全 → 主密码），文件夹在别人手里也解不开。宿主机自己的 Firefox 与它互不相干。</p><p style="margin-top:12px"><span class="tag" id="ffinfo">组件状态读取中…</span></p><div class="row" style="margin-top:10px"><button class="btn" id="ffdl">下载 Firefox 组件</button><span class="tag" id="ffprog"></span></div><div class="row" style="margin-top:14px"><input class="txt" id="ffurl" placeholder="网址（留空开主页），如 https://github.com"></div><div class="row" style="margin-top:10px"><button class="btn" id="ffopen">🚀 走节点打开</button><button class="btn gray" id="ffopenapp">应用化打开（走节点）</button><button class="btn gray" id="ffopend">直连打开</button></div><div id="ffconflict" style="display:none;margin-top:12px;padding:10px 12px;border-radius:10px;background:rgba(255,159,10,.14);border:1px solid rgba(255,159,10,.45)"><p style="font-size:13px;line-height:1.6" id="ffconflict-t"></p><div class="row" style="margin-top:8px"><button class="btn" id="ffrestart">重启并切换</button><span class="mut" style="font-size:12px">会关掉现在的 Firefox 窗口再重开；标签页按 Firefox 的会话恢复回来。</span></div></div><p class="mut" style="margin-top:10px">应用化＝隐藏标签栏和地址栏的干净窗口。Firefox 是单进程浏览器：<b style="color:#fff">普通/应用化在进程启动那一刻就定死了</b>，开着的时候再点另一种打开不会生效——页面会提示冲突，点「重启并切换」一键处理。</p><p style="margin-top:8px"><span class="tag" id="ffstatus"></span></p>`;
  if(id==='ssh') b.innerHTML=`<h3>SSH 远程终端</h3><p class="mut" style="margin-top:6px">连接、私钥、服务器指纹都存在 EXE 旁的 <b style="color:#fff">Data/ssh</b> 里，跟着文件夹走。密码和私钥口令只在连接时输入、<b style="color:#fff">不保存</b>。第一次连某台服务器会记下它的指纹，之后每次校验，对不上会拦住。</p><div class="row" style="margin-top:10px"><select id="sshconn" class="txt" style="max-width:250px"></select><button class="btn gray" id="sshnew">＋ 新建</button><button class="btn gray" id="sshedit">编辑</button><button class="btn gray" id="sshdel">删除</button></div><div id="sshform" style="display:none;margin-top:10px"><div class="row"><input class="txt" id="sf_name" placeholder="名字，如 新加坡服务器" style="max-width:170px"><input class="txt" id="sf_host" placeholder="主机 / IP"><input class="txt" id="sf_port" placeholder="端口" value="22" style="max-width:80px"><input class="txt" id="sf_user" placeholder="用户名" style="max-width:120px"></div><div class="row" style="margin-top:8px"><label class="mut">登录方式 <select id="sf_auth" class="txt"><option value="key">密钥</option><option value="password">密码</option></select></label><select id="sf_key" class="txt" style="max-width:170px"></select><label class="mut"><input type="checkbox" id="sf_proxy"> 走节点连接</label></div><div class="row" style="margin-top:8px"><input class="txt" id="sf_keyname" placeholder="新密钥名（导入时填，如 id_sg）" style="max-width:210px"></div><textarea id="sf_keydata" rows="3" style="width:100%;margin-top:6px" placeholder="粘贴私钥内容导入（可选，存进 Data/ssh/keys；已存的密钥在上面选）"></textarea><div class="row" style="margin-top:8px"><button class="btn" id="sfsave">保存连接</button><span class="tag" id="sfst"></span></div></div><div class="row" style="margin-top:12px"><input class="txt" id="sshpass" type="password" placeholder="密码 / 私钥口令（连接时输，不保存）" style="max-width:250px" autocomplete="off"><button class="btn" id="sshgo">连接</button><button class="btn gray" id="sshstop">断开</button><span class="tag" id="sshst">未连接</span></div><div id="sshterm" style="margin-top:10px;height:300px;background:#0b0e14;border-radius:10px;padding:6px;overflow:hidden"></div><hr style="border-color:rgba(255,255,255,.14);margin:16px 0"><h3>文件（SFTP）</h3><p class="mut" style="margin-top:4px">共用上面的终端连接传文件，不用再输一次密码。</p><div class="row" style="margin-top:8px"><span class="tag" id="sfpath">未连接</span><button class="btn gray" id="sfup">↑ 上级</button><button class="btn gray" id="sfrefresh">刷新</button><button class="btn gray" id="sfmkdir">新建文件夹</button><button class="btn gray" id="sfupload">上传文件</button><input type="file" id="sffile" style="display:none"></div><div id="sflist" class="mut" style="margin-top:8px">连上服务器后，这里能浏览、上传、下载、删除远程文件。</div>`;
  if(id==='servermon') b.innerHTML=`<div class="sm-wrap"><div class="sm-side"><div class="sm-hd">服务器</div><div id="sm-list"></div><p class="mut" style="font-size:11.5px;padding:10px 8px 0;line-height:1.6">监控走 SSH 通道读服务器数据，不用在服务器上装任何东西。密钥连接可自动采样；密码连接先在 SSH 里连上，或在详情里输一次密码手动采样。</p></div><div class="sm-main" id="sm-main"><p class="mut">加载中…</p></div></div>`;
  if(id==='console'){ b.style.padding='0'; b.style.background='#0b0e14'; b.style.display='flex'; b.style.flexDirection='column';
@@ -2282,17 +2698,38 @@ function bind(id){
   };
   const goto=pid=>{ curPage=pid; navPaint(); paintPage(pid) };
   const paintAppearance=()=>{
-   G('set-main').innerHTML=`<div class="set-page"><div class="set-sec">壁纸</div><div class="set-desc">点一张换壁纸，立刻生效。也可以上传你自己的图片当壁纸（存在 EXE 旁的 Data 文件夹，跟着程序走）。</div><div class="wp-grid" id="wp-grid">${Object.entries(WALLPAPERS).map(([k,v])=>`<div class="wp" data-wp="${k}" style="background:${v.css}"><span>${v.n}</span></div>`).join('')}</div><div class="sm-card" style="margin-top:14px"><div class="sm-row"><span>自定义壁纸</span><span class="row"><label class="btn gray" for="wp-file" style="cursor:pointer">上传我的图片…</label><input type="file" id="wp-file" accept="image/*" style="display:none"><button class="btn gray" id="wp-remove">删除自定义壁纸</button></span></div><div class="sm-row"><span>当前</span><span class="set-val" id="wp-status">…</span></div></div><p class="set-note">壁纸选择存在 Data/settings.json，跟着文件夹走，换电脑不丢。</p></div>`;
+   G('set-main').innerHTML=`<div class="set-page"><div class="set-sec">壁纸</div><div class="set-desc">点一张换壁纸，立刻生效。也可以上传你自己的图片当壁纸（存在 EXE 旁的 Data 文件夹，跟着程序走）。</div><div class="wp-grid" id="wp-grid">${Object.entries(WALLPAPERS).map(([k,v])=>`<div class="wp" data-wp="${k}" style="background:${v.css}"><span>${v.n}</span></div>`).join('')}</div><div class="sm-card" style="margin-top:14px"><div class="sm-row"><span>自定义壁纸</span><span class="row"><label class="btn gray" for="wp-file" style="cursor:pointer">上传我的图片…</label><input type="file" id="wp-file" accept="image/*" style="display:none"><button class="btn gray" id="wp-remove">删除自定义壁纸</button></span></div><div class="sm-row"><span>当前</span><span class="set-val" id="wp-status">…</span></div></div><div class="set-sec">桌面图标</div><div class="set-desc">桌面图标的大小和排列方式。大小在桌面空白处右键菜单、控制中心里也能调；手动拖动任何图标，排序会切回「手动」。</div><div class="sm-card"><div class="sm-row"><span>图标大小</span><span class="row"><input type="range" id="ap-size" min="36" max="96" step="2" value="${deskIconSize()}" style="accent-color:#0a84ff"><span class="set-val" id="ap-size-v">${deskIconSize()}</span></span></div><div class="sm-row"><span>排序方式</span><span class="seg" id="ap-sort"><button data-m="manual">手动</button><button data-m="name">名称</button><button data-m="freq">最常用</button><button data-m="kind">种类</button><button data-m="added">添加日期</button></span></div></div><p class="set-note">壁纸选择存在 Data/settings.json，跟着文件夹走，换电脑不丢。</p></div>`;
    const markSel=()=>{ const cur=customWall?'':wallKey(); document.querySelectorAll('.wp').forEach(x=>x.classList.toggle('sel',x.dataset.wp===cur)); const st=G('wp-status'); if(st) st.textContent=customWall?'自定义壁纸':(WALLPAPERS[cur]?.n||cur); };
    markSel();
    document.querySelectorAll('.wp').forEach(x=>x.onclick=async()=>{ if(customWall){ await api('/api/wallpaper',{method:'DELETE'}); customWall=false; } await saveSetting({wallpaper:x.dataset.wp}); applyWallpaper(); markSel(); });
    G('wp-file').onchange=async e=>{ const f=e.target.files[0]; if(!f) return; const st=G('wp-status'); st.textContent='上传中…'; const buf=await f.arrayBuffer(); const r=await fetch('/api/wallpaper',{method:'POST',headers:{'Content-Type':f.type||'image/jpeg'},body:buf}); const j=await r.json().catch(()=>({})); if(j.ok){ customWall=true; applyWallpaper(); markSel(); } else st.textContent='失败：'+(j.error||'未知错误'); };
    G('wp-remove').onclick=async()=>{ await api('/api/wallpaper',{method:'DELETE'}); customWall=false; applyWallpaper(); markSel(); };
+   const apSize=G('ap-size');
+   if(apSize){
+    apSize.oninput=()=>{ const v=+apSize.value; G('ap-size-v').textContent=v; if(SETTINGS) SETTINGS.deskIconSize=v; applyDeskIconSize(); };
+    apSize.onchange=()=>{ saveSetting({deskIconSize:+apSize.value}); };
+    const seg=G('ap-sort');
+    const paintSort=()=>seg.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.m===deskSortMode()||(b.dataset.m==='manual'&&deskSortMode()==='manual')));
+    paintSort();
+    seg.querySelectorAll('button').forEach(b=>b.onclick=()=>{ setDeskSort(b.dataset.m); paintSort(); });
+   }
   };
   const paintDesktop=()=>{
    const s=SETTINGS||SETDEF;
-   G('set-main').innerHTML=`<div class="set-page"><div class="set-sec">台前调度</div><div class="set-desc">开启后，桌面只显示当前应用，其他打开的应用缩到左侧成一排实时缩略图，点缩略图就切换过来。菜单栏右侧的 ▦ 也可以随开随关。</div><div class="sm-card"><div class="sm-row"><span>台前调度</span><label class="sm-sw"><input type="checkbox" id="ds-stage" ${stageOn()?'checked':''}><i></i></label></div><div class="sm-row"><span>浏览器新窗口自动纳入台前调度</span><label class="sm-sw"><input type="checkbox" id="ds-autoclaim" ${s.stageAutoClaimBrowser!==false?'checked':''}><i></i></label></div></div><p class="set-note">自动纳入：隔离 Chrome / Firefox 自己新开的窗口（网页弹窗、新窗口、拖出的标签、独立的开发者工具）会自动登记进台前调度，方便切换；登记后是否摆位由下方「开窗礼仪」里的开关决定。已经登记的窗口不受这个开关影响。</p><div class="set-sec">Dock</div><div class="set-desc">终端机自己的 Dock，和 macOS 一样可以换边、可以自动隐藏；图标放大跟随指针连续缩放。改动即时生效，不用重启。</div><div class="sm-card"><div class="sm-row"><span>位置</span><span class="seg" id="ds-dockpos"><button data-p="bottom">底部</button><button data-p="left">左侧</button><button data-p="right">右侧</button></span></div><div class="sm-row"><span>自动隐藏 Dock</span><label class="sm-sw"><input type="checkbox" id="ds-dockhide" ${s.dockAutoHide?'checked':''}><i></i></label></div></div><p class="set-note">自动隐藏后，Dock 沿它所在的那条边滑出，只留一条 3px 的边：指针贴到那条边停约 0.3 秒（或快速甩到边沿）它就滑进来，移开约 0.4 秒又滑回去。台前调度开着时把 Dock 放到左侧，会和台前调度条带抢左缘——条带（系统内缩略图和外部应用卡片）会临时镜像到右缘，Dock 改回来它也跟着回来，只是位置镜像，行为不变。</p><div class="set-sec">小窗手机宽</div><div class="set-desc">桌面窗口没最大化、或窄于触发宽度时，新打开的网站应用按手机宽度落位，网站多会显示手机版页面。只管打开时摆好，之后随你拖动。</div><div class="sm-card"><div class="sm-row"><span>手机宽模式</span><label class="sm-sw"><input type="checkbox" id="ds-pm" ${s.phoneMode?'checked':''}><i></i></label></div><div class="sm-row"><span>触发宽度（桌面窄于此值，px）</span><input class="set-num" id="ds-ptw" type="number" min="600" max="4000" step="50" value="${s.phoneTriggerWidth}"></div><div class="sm-row"><span>手机宽度（落位宽度，px）</span><input class="set-num" id="ds-pw" type="number" min="280" max="800" step="10" value="${s.phoneWidth}"></div></div><div class="set-sec">开窗礼仪</div><div class="set-desc">从终端机打开、或被台前调度认领的窗口，第一次出现时自动摆进桌面区域（约 62% × 85%，菜单栏和 Dock 不会被盖住），你正在终端里操作时桌面还会垫在新窗口后面，就像在自己的系统里开应用；摆好之后完全归你，拖动、最大化都不再被拉回。你在宿主的其他软件里忙时，新窗口只登记、不抢屏。</div><div class="sm-card"><div class="sm-row"><span>新窗口自动落位（桌面垫背）</span><label class="sm-sw"><input type="checkbox" id="ds-place" ${s.winPlaceOnClaim!==false?'checked':''}><i></i></label></div><div class="sm-row"><span>最小化时联动隐藏</span><label class="sm-sw"><input type="checkbox" id="ds-hidemin" ${s.winHideOnMinimize!==false?'checked':''}><i></i></label></div><div class="sm-row"><span>关闭桌面时隐藏到托盘</span><label class="sm-sw"><input type="checkbox" id="ds-tray" ${s.winCloseToTray!==false?'checked':''}><i></i></label></div></div><p class="set-note">联动隐藏：最小化桌面时已登记的窗口整套跟着藏起，桌面自己留在宿主任务栏里找得到，恢复桌面时整套按原样回来（你自己单独最小化的窗口不会被动）。关闭桌面则藏得更彻底：任务栏不留按钮，宿主右下角系统托盘会出现终端机图标，点它（或照旧双击程序）整套恢复。无论哪种藏法，退出系统前所有被藏的窗口都会先恢复显示。</p><div class="set-sec">沉浸模式</div><div class="set-desc">开启后，终端机打开的一切只留在终端机里：已经登记进台前调度的窗口（包括桌面自己）会从宿主任务栏和 Alt-Tab 里消失，切换入口只剩台前调度与 Dock；宿主右下角的托盘图标是回宿主的锚，点它整套回来。没有被台前调度认领的窗口永远不会被隐藏，一直留在宿主任务栏上找得到。</div><div class="sm-card"><div class="sm-row"><span>沉浸模式</span><label class="sm-sw"><input type="checkbox" id="ds-immersive" ${s.immersiveMode?'checked':''}><i></i></label></div><div class="sm-row"><span>桌面全屏</span><label class="sm-sw"><input type="checkbox" id="ds-fullscreen" ${s.desktopFullscreen?'checked':''}><i></i></label></div></div><p class="set-note">桌面全屏：桌面视图以无边框全屏占据它所在的显示器，关掉这个开关就恢复原来的窗口大小与位置；两个开关都即时生效，不用重启。一句实话：万一终端机异常退出（被强杀或崩溃），个别已沉浸的窗口可能暂时留在隐藏状态——把那个窗口关掉即自愈，重新打开终端机时启动清扫也会把它们还原回任务栏。</p><div class="set-sec">导入的文件</div><div class="set-desc">从电脑导入到终端桌面的文件存在 Data/files 里，和应用图标混排在桌面上。关掉只是不在桌面上显示这些图标，文件本身、导入通道（拖入 / 桌面菜单导入 / 粘贴）都不受影响。</div><div class="sm-card"><div class="sm-row"><span>在桌面显示导入的文件</span><label class="sm-sw"><input type="checkbox" id="ds-files" ${s.filesOnDesktop!==false?'checked':''}><i></i></label></div></div><div class="set-sec">控制中心</div><div class="set-desc">菜单栏右边双开关图标打开的控制中心里放哪些格子，改动即时生效。节点大格是核心控制，和 macOS 的核心控件一样不能关。</div><div class="sm-card"><div class="sm-row"><span>节点（核心控制）</span><span class="set-val">始终显示</span></div>${[['immersive','沉浸模式'],['stage','台前调度'],['fullscreen','桌面全屏'],['dockhide','Dock 自动隐藏'],['remote','远程协助'],['wallpaper','壁纸']].map(([k,n])=>`<div class="sm-row"><span>${n}</span><label class="sm-sw"><input type="checkbox" id="ds-cc-${k}" ${s['cc_show_'+k]!==false?'checked':''}><i></i></label></div>`).join('')}</div></div>`;
+   G('set-main').innerHTML=`<div class="set-page"><div class="set-sec">台前调度</div><div class="set-desc">开启后，桌面只显示当前应用，其他打开的应用缩到左侧成一排实时缩略图，点缩略图就切换过来。菜单栏右侧的 ▦ 也可以随开随关。</div><div class="sm-card"><div class="sm-row"><span>台前调度</span><label class="sm-sw"><input type="checkbox" id="ds-stage" ${stageOn()?'checked':''}><i></i></label></div><div class="sm-row"><span>浏览器新窗口自动纳入台前调度</span><label class="sm-sw"><input type="checkbox" id="ds-autoclaim" ${s.stageAutoClaimBrowser!==false?'checked':''}><i></i></label></div><div class="sm-row"><span>外部窗口卡片</span><span class="seg" id="ds-stagedisp"><button data-m="preview">窗口预览</button><button data-m="identity">应用标识</button></span></div></div><p class="set-note">窗口预览＝卡片上是窗口的真实画面缩略图（默认）；应用标识＝只显示应用图标和窗口标题，画面抓不到的窗口会自动用这种。自动纳入：隔离 Chrome / Firefox 自己新开的窗口（网页弹窗、新窗口、拖出的标签、独立的开发者工具）会自动登记进台前调度，方便切换；登记后是否摆位由下方「开窗礼仪」里的开关决定。已经登记的窗口不受这个开关影响。</p><div class="set-sec">窗口记忆</div><div class="set-desc">每个应用上次关窗时的大小和位置会被记住，下次打开优先按记忆落位（超出当前桌面范围会自动收回）。网站应用在右键菜单「调整窗口」里选了手机/桌面/全屏时，那个选择优先于记忆。</div><div class="sm-card"><div class="sm-row"><span>已记住的窗口</span><span class="set-val" id="ds-geom-n">…</span></div><div class="sm-row"><span>清除窗口记忆</span><button class="btn gray" id="ds-geom-clear">全部清除</button></div></div><div class="set-sec">Dock</div><div class="set-desc">终端机自己的 Dock，和 macOS 一样可以换边、可以自动隐藏；图标放大跟随指针连续缩放。改动即时生效，不用重启。</div><div class="sm-card"><div class="sm-row"><span>位置</span><span class="seg" id="ds-dockpos"><button data-p="bottom">底部</button><button data-p="left">左侧</button><button data-p="right">右侧</button></span></div><div class="sm-row"><span>自动隐藏 Dock</span><label class="sm-sw"><input type="checkbox" id="ds-dockhide" ${s.dockAutoHide?'checked':''}><i></i></label></div></div><p class="set-note">自动隐藏后，Dock 沿它所在的那条边滑出，只留一条 3px 的边：指针贴到那条边停约 0.3 秒（或快速甩到边沿）它就滑进来，移开约 0.4 秒又滑回去。台前调度开着时把 Dock 放到左侧，会和台前调度条带抢左缘——条带（系统内缩略图和外部应用卡片）会临时镜像到右缘，Dock 改回来它也跟着回来，只是位置镜像，行为不变。</p><div class="set-sec">小窗手机宽</div><div class="set-desc">桌面窗口没最大化、或窄于触发宽度时，新打开的网站应用按手机宽度落位，网站多会显示手机版页面。只管打开时摆好，之后随你拖动。</div><div class="sm-card"><div class="sm-row"><span>手机宽模式</span><label class="sm-sw"><input type="checkbox" id="ds-pm" ${s.phoneMode?'checked':''}><i></i></label></div><div class="sm-row"><span>触发宽度（桌面窄于此值，px）</span><input class="set-num" id="ds-ptw" type="number" min="600" max="4000" step="50" value="${s.phoneTriggerWidth}"></div><div class="sm-row"><span>手机宽度（落位宽度，px）</span><input class="set-num" id="ds-pw" type="number" min="280" max="800" step="10" value="${s.phoneWidth}"></div></div><div class="set-sec">开窗礼仪</div><div class="set-desc">从终端机打开、或被台前调度认领的窗口，第一次出现时自动摆进桌面区域（约 62% × 85%，菜单栏和 Dock 不会被盖住），你正在终端里操作时桌面还会垫在新窗口后面，就像在自己的系统里开应用；摆好之后完全归你，拖动、最大化都不再被拉回。你在宿主的其他软件里忙时，新窗口只登记、不抢屏。</div><div class="sm-card"><div class="sm-row"><span>新窗口自动落位（桌面垫背）</span><label class="sm-sw"><input type="checkbox" id="ds-place" ${s.winPlaceOnClaim!==false?'checked':''}><i></i></label></div><div class="sm-row"><span>最小化时联动隐藏</span><label class="sm-sw"><input type="checkbox" id="ds-hidemin" ${s.winHideOnMinimize!==false?'checked':''}><i></i></label></div><div class="sm-row"><span>关闭桌面时隐藏到托盘</span><label class="sm-sw"><input type="checkbox" id="ds-tray" ${s.winCloseToTray!==false?'checked':''}><i></i></label></div></div><p class="set-note">联动隐藏：最小化桌面时已登记的窗口整套跟着藏起，桌面自己留在宿主任务栏里找得到，恢复桌面时整套按原样回来（你自己单独最小化的窗口不会被动）。关闭桌面则藏得更彻底：任务栏不留按钮，宿主右下角系统托盘会出现终端机图标，点它（或照旧双击程序）整套恢复。无论哪种藏法，退出系统前所有被藏的窗口都会先恢复显示。</p><div class="set-sec">沉浸模式</div><div class="set-desc">开启后，终端机打开的一切只留在终端机里：已经登记进台前调度的窗口（包括桌面自己）会从宿主任务栏和 Alt-Tab 里消失，切换入口只剩台前调度与 Dock；宿主右下角的托盘图标是回宿主的锚，点它整套回来。没有被台前调度认领的窗口永远不会被隐藏，一直留在宿主任务栏上找得到。</div><div class="sm-card"><div class="sm-row"><span>沉浸模式</span><label class="sm-sw"><input type="checkbox" id="ds-immersive" ${s.immersiveMode?'checked':''}><i></i></label></div><div class="sm-row"><span>桌面全屏</span><label class="sm-sw"><input type="checkbox" id="ds-fullscreen" ${s.desktopFullscreen?'checked':''}><i></i></label></div></div><p class="set-note">桌面全屏：桌面视图以无边框全屏占据它所在的显示器，关掉这个开关就恢复原来的窗口大小与位置；两个开关都即时生效，不用重启。一句实话：万一终端机异常退出（被强杀或崩溃），个别已沉浸的窗口可能暂时留在隐藏状态——把那个窗口关掉即自愈，重新打开终端机时启动清扫也会把它们还原回任务栏。</p><div class="set-sec">导入的文件</div><div class="set-desc">从电脑导入到终端桌面的文件存在 Data/files 里，和应用图标混排在桌面上。关掉只是不在桌面上显示这些图标，文件本身、导入通道（拖入 / 桌面菜单导入 / 粘贴）都不受影响。</div><div class="sm-card"><div class="sm-row"><span>在桌面显示导入的文件</span><label class="sm-sw"><input type="checkbox" id="ds-files" ${s.filesOnDesktop!==false?'checked':''}><i></i></label></div></div><div class="set-sec">控制中心</div><div class="set-desc">菜单栏右边双开关图标打开的控制中心里放哪些格子，改动即时生效。节点大格是核心控制，和 macOS 的核心控件一样不能关。</div><div class="sm-card"><div class="sm-row"><span>节点（核心控制）</span><span class="set-val">始终显示</span></div>${[['immersive','沉浸模式'],['stage','台前调度'],['fullscreen','桌面全屏'],['dockhide','Dock 自动隐藏'],['remote','远程协助'],['wallpaper','壁纸']].map(([k,n])=>`<div class="sm-row"><span>${n}</span><label class="sm-sw"><input type="checkbox" id="ds-cc-${k}" ${s['cc_show_'+k]!==false?'checked':''}><i></i></label></div>`).join('')}</div></div>`;
    G('ds-stage').onchange=e=>toggleStage(e.target.checked);
+   const sdSeg=G('ds-stagedisp');
+   if(sdSeg){
+    const paintSD=()=>sdSeg.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.m===((SETTINGS&&SETTINGS.stageDisplay)||'preview')));
+    paintSD();
+    sdSeg.querySelectorAll('button').forEach(b=>b.onclick=async()=>{ const r=await saveSetting({stageDisplay:b.dataset.m}); if(r&&r.error){ alert('保存失败：'+r.error); return; } paintSD(); refreshExtStrip(); });
+   }
+   const geomN=G('ds-geom-n');
+   if(geomN){
+    const paintN=async()=>{ try{ const s=await api('/api/wingeom/clear'); geomN.textContent=(s.count||0)+' 个窗口'; }catch(e){ geomN.textContent='—'; } };
+    paintN();
+    G('ds-geom-clear').onclick=async()=>{ const r=await api('/api/wingeom/clear',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})}); if(r&&r.error){ alert('清除失败：'+r.error); return; } geomN.textContent='已清除 '+(r.cleared||0)+' 条'; toast('窗口记忆已清除，下次打开用默认大小'); };
+   }
    G('ds-files').onchange=async e=>{ const r=await saveSetting({filesOnDesktop:e.target.checked}); if(r&&r.error){ alert('保存失败：'+r.error); e.target.checked=!e.target.checked; return; } renderDesk(); };
    G('ds-autoclaim').onchange=async e=>{ const r=await saveSetting({stageAutoClaimBrowser:e.target.checked}); if(r&&r.error){ alert('保存失败：'+r.error); e.target.checked=!e.target.checked; } };
    const bindWinTgl=(id,key)=>{ const el=G(id); if(el) el.onchange=async e=>{ const r=await saveSetting({[key]:e.target.checked}); if(r&&r.error){ alert('保存失败：'+r.error); e.target.checked=!e.target.checked; } }; };
@@ -2660,10 +3097,30 @@ function bind(id){
    };
    paintFF();
    document.getElementById('ffdl').onclick=async()=>{ await api('/api/firefox/download',{method:'POST'}); paintFF(); };
+   let ffWant=null; // last open request, reused by 重启并切换
    const openFF=async(proxy,appmode)=>{
      const s=document.getElementById('ffstatus'); s.textContent='正在打开 Firefox…';
-     const r=await api('/api/firefox/open',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({proxy,appmode,url:document.getElementById('ffurl').value})});
+     ffWant={proxy,appmode,url:document.getElementById('ffurl').value};
+     const r=await api('/api/firefox/open',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(ffWant)});
+     const cf=document.getElementById('ffconflict');
+     if(r.conflict){
+       document.getElementById('ffconflict-t').textContent='Firefox 正以'+(r.runningMode||'未知')+'模式运行，本次想开的是'+(appmode?'应用化':'普通')+'模式。模式在进程启动时定死，不重启切换不了。';
+       cf.style.display='block'; s.textContent='模式冲突，等你决定';
+       return;
+     }
+     cf.style.display='none';
      s.textContent=r.error?('失败：'+r.error):('已打开 · '+(r.mode||''));
+   };
+   const rb=document.getElementById('ffrestart');
+   if(rb) rb.onclick=async()=>{
+     if(!ffWant) return;
+     const s=document.getElementById('ffstatus'); s.textContent='正在关闭 Firefox 并切换模式…';
+     rb.disabled=true;
+     const r=await api('/api/firefox/restart',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(ffWant)});
+     rb.disabled=false;
+     if(r.error){ s.textContent='失败：'+r.error; return; }
+     document.getElementById('ffconflict').style.display='none';
+     s.textContent='已切换 · '+(r.mode||'');
    };
    document.getElementById('ffopen').onclick=()=>openFF(true,false);
    document.getElementById('ffopenapp').onclick=()=>openFF(true,true);
@@ -3518,6 +3975,7 @@ async function paintCC(){
   h+='<div class="cc-list">'+Object.entries(WALLPAPERS).map(([k,v])=>`<div class="cc-li" data-ccwall="${k}"><span>${v.n}</span>${!customWall&&wallKey()===k?'<span class="cc-cur">✓ 当前</span>':''}</div>`).join('')+(customWall?'<div style="font-size:12px;opacity:.6;padding:6px 8px 2px">现在是自定义壁纸，点任一预设即换回预设。</div>':'')+'</div>';
  }
  h+=`<div class="cc-slider"><span>Dock 图标大小</span><input type="range" id="cc-docksize" min="44" max="64" step="1" value="${dockBase()}"><span id="cc-docksize-v" style="opacity:.7;font-variant-numeric:tabular-nums">${dockBase()}</span></div>`;
+ h+=`<div class="cc-slider"><span>桌面图标大小</span><input type="range" id="cc-desksize" min="36" max="96" step="2" value="${deskIconSize()}"><span id="cc-desksize-v" style="opacity:.7;font-variant-numeric:tabular-nums">${deskIconSize()}</span></div>`;
  h+='<div class="cc-foot"><button id="cc-edit">编辑控制中心</button></div>';
  ccEl.innerHTML=h;
  const nodeTile=ccEl.querySelector('#cc-node');
@@ -3563,6 +4021,13 @@ async function paintCC(){
   slider.addEventListener('pointerup',()=>{ ccSliderDrag=false; });
   slider.oninput=()=>{ if(SETTINGS) SETTINGS.dockIconSize=+slider.value; const v=ccEl.querySelector('#cc-docksize-v'); if(v) v.textContent=slider.value; dockMagReset(); };
   slider.onchange=async()=>{ ccSliderDrag=false; const r=await saveSetting({dockIconSize:+slider.value}); if(r&&r.error) alert('保存失败：'+r.error); };
+ }
+ const dslider=ccEl.querySelector('#cc-desksize');
+ if(dslider){
+  dslider.addEventListener('pointerdown',()=>{ ccSliderDrag=true; });
+  dslider.addEventListener('pointerup',()=>{ ccSliderDrag=false; });
+  dslider.oninput=()=>{ if(SETTINGS) SETTINGS.deskIconSize=+dslider.value; const v=ccEl.querySelector('#cc-desksize-v'); if(v) v.textContent=dslider.value; applyDeskIconSize(); };
+  dslider.onchange=async()=>{ ccSliderDrag=false; const r=await saveSetting({deskIconSize:+dslider.value}); if(r&&r.error) alert('保存失败：'+r.error); };
  }
  const edit=ccEl.querySelector('#cc-edit');
  if(edit) edit.onclick=()=>routeJump('setpage:desktop');
@@ -4102,13 +4567,13 @@ function lpEntries(){
     builder failing degrades that entry to a placeholder tile,
     never the whole Launchpad list. */
  const pushSafe=(key,name,buildIcon,open)=>{ let h; try{ h=buildIcon(); }catch(e){ console.error('[mj-lp] 图标构建失败，已降级：'+key,e); h='<div class="appico g-sys">?</div>'; } push(key,name,h,open); };
- APPS.forEach(a=>{ if(!a.nodesk) pushSafe('app:'+a.id,a.n,()=>appIcon(a),a.id==='firefox'?()=>launchFirefoxEntry():()=>openApp(a.id)); });
- const inFolder=new Set(); LAYOUT.folders.forEach(f=>f.items.forEach(u=>inFolder.add(u)));
- WEBAPPS.filter(a=>!inFolder.has(a.url)).forEach(a=>pushSafe('web:'+a.url,a.name,()=>webIconHTML(a),()=>openWebApp(a.url)));
+ const inFolder=folderedKeys(); /* v0.56: membership hides members here too, every kind */
+ APPS.forEach(a=>{ if(!a.nodesk&&!inFolder.has('app:'+a.id)) pushSafe('app:'+a.id,a.n,()=>appIcon(a),a.id==='firefox'?()=>launchFirefoxEntry():()=>openApp(a.id)); });
+ WEBAPPS.filter(a=>!inFolder.has('web:'+a.url)).forEach(a=>pushSafe('web:'+a.url,a.name,()=>webIconHTML(a),()=>openWebApp(a.url)));
  LAYOUT.folders.forEach(f=>pushSafe('folder:'+f.id,f.name,()=>folderIconHTML(f),el=>openFolderPop(f.id,el)));
- STOREAPPS.forEach(a=>pushSafe('store:'+a.id,a.name,()=>storeIconHTML(a),()=>launchStoreApp(a.id)));
- BOXAPPS.forEach(a=>pushSafe('box:'+a.id,a.name,()=>storeIconHTML(a),()=>launchBoxApp(a.id)));
- PRODAPPS.forEach(c=>pushSafe('prod:'+c.id,c.name,()=>prodIconHTML(c),()=>launchProdApp(c.id)));
+ STOREAPPS.filter(a=>!inFolder.has('store:'+a.id)).forEach(a=>pushSafe('store:'+a.id,a.name,()=>storeIconHTML(a),()=>launchStoreApp(a.id)));
+ BOXAPPS.filter(a=>!inFolder.has('box:'+a.id)).forEach(a=>pushSafe('box:'+a.id,a.name,()=>storeIconHTML(a),()=>launchBoxApp(a.id)));
+ PRODAPPS.filter(c=>!inFolder.has('prod:'+c.id)).forEach(c=>pushSafe('prod:'+c.id,c.name,()=>prodIconHTML(c),()=>launchProdApp(c.id)));
  DESKORDER.forEach(k=>{ if(byKey[k]) out.push(byKey[k]); });
  Object.keys(byKey).forEach(k=>{ if(!out.some(e=>e.key===k)) out.push(byKey[k]); });
  return out;
@@ -4537,6 +5002,9 @@ function paintFvPrev(){
  $50('fvp-del').onclick=()=>fvDeleteFiles([f]);
 }
 window.__filesRefresh=()=>{ if($50('fv-body')) paintFiles(); };
+/* v0.56: the desktop file menu's 在「文件」中显示 -- select the
+   file in the 全部 group once the Files window exists. */
+window.__filesReveal=(path)=>{ if(!$50('fv-body')) return false; FV.group='all'; FV.q=''; FV.sel=new Set([path]); FV.anchor=path; paintFiles(); return true; };
 window.__bindFiles=function(){
  const w=$50('win-files');
  if(w){ w.style.width='min(1060px,96vw)'; w.style.height='min(640px,calc(100vh - 120px))'; }

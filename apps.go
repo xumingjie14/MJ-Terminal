@@ -491,7 +491,7 @@ func appsLaunchHandler(w http.ResponseWriter, r *http.Request) {
 	logf("apps", "info", "已启动 %s %s", entry.Name, entry.Version)
 	// Register the app's window with the unified window manager:
 	// unified AppID, one-shot landing, Stage Manager strip (v0.31).
-	trackAppLaunch(entry.Name, exePath, before)
+	trackAppLaunchAs(entry.Name, exePath, before, "store:"+entry.ID)
 	writeJSON(w, map[string]any{"ok": true})
 }
 
@@ -517,6 +517,7 @@ func appsUninstallHandler(w http.ResponseWriter, r *http.Request) {
 	reg := loadAppsRegistry()
 	delete(reg, entry.ID)
 	saveAppsRegistry(reg)
+	winGeomDrop("store:" + entry.ID) // v0.56: a reinstall starts from the default landing
 	appState(entry.ID).set("idle", "")
 	logf("apps", "info", "已卸载 %s（程序与数据一并删除）", entry.Name)
 	writeJSON(w, map[string]any{"ok": true, "message": "已卸载：" + entry.Name + " 的程序和数据已全部删除"})

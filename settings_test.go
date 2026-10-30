@@ -38,3 +38,25 @@ func TestSummonHotkeyWhitelist(t *testing.T) {
 		t.Errorf("default summonHotkey = %q, want F8", got)
 	}
 }
+
+// v0.56 keys: stageDisplay / deskIconSize / deskSort defaults
+// and sanitize fallbacks (a settings.json written by an older
+// or newer build, or by hand, must land on sane values).
+func TestV056SettingDefaults(t *testing.T) {
+	d := defaultSettings()
+	if d.StageDisplay != "preview" || d.DeskIconSize != 54 || d.DeskSort != "manual" {
+		t.Errorf("v0.56 defaults = %q/%d/%q, want preview/54/manual", d.StageDisplay, d.DeskIconSize, d.DeskSort)
+	}
+	s := sanitizeSettings(mjSettings{StageDisplay: "identity", DeskIconSize: 96, DeskSort: "freq", SummonHotkey: "F8"})
+	if s.StageDisplay != "identity" || s.DeskIconSize != 96 || s.DeskSort != "freq" {
+		t.Errorf("valid v0.56 values should survive sanitize, got %q/%d/%q", s.StageDisplay, s.DeskIconSize, s.DeskSort)
+	}
+	s = sanitizeSettings(mjSettings{StageDisplay: "bogus", DeskIconSize: 400, DeskSort: "size", SummonHotkey: "F8"})
+	if s.StageDisplay != "preview" || s.DeskIconSize != 54 || s.DeskSort != "manual" {
+		t.Errorf("invalid v0.56 values should fall back, got %q/%d/%q", s.StageDisplay, s.DeskIconSize, s.DeskSort)
+	}
+	m := settingsMap()
+	if m["stageDisplay"] != "preview" || m["deskSort"] != "manual" {
+		t.Errorf("settingsMap should carry the v0.56 keys, got %v / %v", m["stageDisplay"], m["deskSort"])
+	}
+}

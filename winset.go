@@ -994,6 +994,7 @@ func doBirthPlacement(hwnd uint64) bool {
 		return false
 	}
 	app, title, already := e.App, e.Title, e.placed
+	geomKey, placeMode := e.geomKey, e.placeMode
 	extMu.Unlock()
 	shell := shellHWND()
 	shellReady := shell != 0 && shell != hwnd && platformWindowExists(shell) && !platformWindowIconic(shell)
@@ -1022,7 +1023,35 @@ func doBirthPlacement(hwnd uint64) bool {
 	if !ok {
 		return false
 	}
-	tl, tt, tr, tb, phone := placeTargetRectAuto(sl, st, sr, sb, platformWindowZoomed(shell))
+	// v0.56 landing choice, in priority order:
+	//   1. the webapp's forced 调整窗口 mode (phone / desktop /
+	//      fullscreen), chosen in its right-click menu;
+	//   2. the remembered geometry for this launch identity
+	//      (窗口记忆）, clamped into the current desktop area;
+	//   3. the standing default (placeTargetRectAuto: 62% x 85%,
+	//      or phone width in small-window mode).
+	var tl, tt, tr, tb int32
+	phone := false
+	how := ""
+	switch {
+	case placeMode == "phone":
+		tl, tt, tr, tb = placeTargetRectPhone(sl, st, sr, sb)
+		phone, how = true, "应用窗口模式：手机"
+	case placeMode == "desktop":
+		tl, tt, tr, tb = placeTargetRect(sl, st, sr, sb)
+		how = "应用窗口模式：桌面"
+	case placeMode == "fullscreen":
+		tl, tt, tr, tb = sl, st, sr, sb
+		how = "应用窗口模式：全屏"
+	default:
+		if g, had := winGeomGet(geomKey); had {
+			cg := clampWinGeom(g, sl, st, sr, sb)
+			tl, tt, tr, tb = cg.L, cg.T, cg.R, cg.B
+			how = "窗口记忆"
+		} else {
+			tl, tt, tr, tb, phone = placeTargetRectAuto(sl, st, sr, sb, platformWindowZoomed(shell))
+		}
+	}
 	if !platformPlaceWindow(hwnd, tl, tt, tr, tb) {
 		return false
 	}
@@ -1037,6 +1066,8 @@ func doBirthPlacement(hwnd uint64) bool {
 	}
 	if phone {
 		logf("winmgr", "info", "外部窗口落位（小窗手机宽）：%s → %d×%d", name, tr-tl, tb-tt)
+	} else if how != "" {
+		logf("winmgr", "info", "外部窗口落位（%s）：%s → %d×%d", how, name, tr-tl, tb-tt)
 	} else {
 		logf("winmgr", "info", "外部窗口落位：%s → %d×%d", name, tr-tl, tb-tt)
 	}

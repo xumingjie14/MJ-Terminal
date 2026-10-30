@@ -83,6 +83,11 @@ func enumTopLevel(fn func(hwnd uintptr) bool) {
 	procEnumWindows.Call(enumCallback, 0)
 }
 
+// platformProcessImageBase is the cross-platform spelling of
+// processImageBase (the Stage Manager list handler asks for the
+// icon kind of a registered window's process).
+func platformProcessImageBase(pid uint32) string { return processImageBase(pid) }
+
 func windowPID(hwnd uintptr) uint32 {
 	var pid uint32
 	procGetWindowThreadProcessId.Call(hwnd, uintptr(unsafe.Pointer(&pid)))

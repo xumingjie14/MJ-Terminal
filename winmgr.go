@@ -60,6 +60,13 @@ type extWindow struct {
 	// in extWinListHandler, never stored as truth.
 	Active    bool `json:"active"`
 	Minimized bool `json:"minimized"`
+	// v0.56: identity facts for the Stage Manager strip's identity
+	// mode, also computed on the copy in extWinListHandler:
+	// Browser marks a daemon-launched browser window; IconKind
+	// names the real icon the view can show for it ("chrome" /
+	// "firefox", "" for anything else).
+	Browser  bool   `json:"browser,omitempty"`
+	IconKind string `json:"icon,omitempty"`
 
 	pid       uint32
 	lastTitle string // title at last AppID stamp; a change triggers a re-stamp
@@ -91,6 +98,14 @@ type extWindow struct {
 	// the v0.36 ownership reason the patrol claimed it under
 	// (ownProfile / ownExe / ownTree). Audit trail only.
 	origin string
+	// v0.56: window geometry memory (wingeom.go). geomKey is the
+	// launch identity the window's size is remembered under (""
+	// = not remembered: the shell, dialogs). placeMode is the
+	// per-webapp landing mode from the 调整窗口 menu ("" / "memory"
+	// = geometry memory governs; "phone" / "desktop" /
+	// "fullscreen" force that landing instead).
+	geomKey   string
+	placeMode string
 }
 
 var (
@@ -170,7 +185,37 @@ func appNameForURL(u string) string {
 // browser that was not there before" is the reliable way to find it.
 // The window may take a moment to appear, so this polls briefly.
 func trackBrowserLaunch(app, targetURL, browserPath string, before map[uint64]bool, shell bool) {
-	trackLaunch(app, targetURL, browserPath, before, shell, !shell)
+	geomKey := ""
+	if !shell {
+		geomKey = "app:browser"
+	}
+	trackLaunch(app, targetURL, browserPath, before, shell, !shell, geomKey, "")
+}
+
+// trackBrowserLaunchAs is trackBrowserLaunch with an explicit
+// geometry identity and landing mode -- the web-app open path
+// uses it (an app-mode window belongs to its SITE, and the
+// webapp's 调整窗口 mode rides along to the birth placement).
+func trackBrowserLaunchAs(app, targetURL, browserPath string, before map[uint64]bool, shell bool, geomKey, placeMode string) {
+	trackLaunch(app, targetURL, browserPath, before, shell, !shell, geomKey, placeMode)
+}
+
+// siteGeomKey is the geometry identity of a browser app-mode
+// window: "site:<host>".
+func siteGeomKey(rawURL string) string {
+	if u, err := url.Parse(rawURL); err == nil && u.Hostname() != "" {
+		return "site:" + strings.ToLower(u.Hostname())
+	}
+	return ""
+}
+
+// exeGeomKey is the fallback geometry identity of a window with
+// no launch context: "exe:<lowercase image base name>".
+func exeGeomKey(imagePath string) string {
+	if imagePath == "" {
+		return ""
+	}
+	return "exe:" + strings.ToLower(filepath.Base(imagePath))
 }
 
 // trackAppLaunch is the store-app twin (v0.31): a portable app from
@@ -180,13 +225,19 @@ func trackBrowserLaunch(app, targetURL, browserPath string, before map[uint64]bo
 // off to a child process, so claiming keys on "the first new window
 // of this exe" (process image match), never on the started PID.
 func trackAppLaunch(appName, exePath string, before map[uint64]bool) {
-	trackLaunch(appName, "", exePath, before, false, false)
+	trackLaunch(appName, "", exePath, before, false, false, "", "")
+}
+
+// trackAppLaunchAs is trackAppLaunch with an explicit geometry
+// identity (store:<id> / comp:<id> / exe:<base>).
+func trackAppLaunchAs(appName, exePath string, before map[uint64]bool, geomKey string) {
+	trackLaunch(appName, "", exePath, before, false, false, geomKey, "")
 }
 
 // trackLaunch is the shared claiming engine behind both. browser
 // marks the registration as browser-owned, which is what puts its
 // PID into the v0.31 patrol's watched set.
-func trackLaunch(app, targetURL, exePath string, before map[uint64]bool, shell, browser bool) {
+func trackLaunch(app, targetURL, exePath string, before map[uint64]bool, shell, browser bool, geomKey, placeMode string) {
 	if exePath == "" {
 		return
 	}
@@ -203,7 +254,7 @@ func trackLaunch(app, targetURL, exePath string, before map[uint64]bool, shell, 
 			extMu.Unlock()
 			if hwnd, pid, ok := platformClaimWindow(exePath, before, claimed); ok {
 				extMu.Lock()
-				extWins[hwnd] = &extWindow{HWND: hwnd, App: app, URL: targetURL, Shell: shell, pid: pid, browser: browser, origin: "launch"}
+				extWins[hwnd] = &extWindow{HWND: hwnd, App: app, URL: targetURL, Shell: shell, pid: pid, browser: browser, origin: "launch", geomKey: geomKey, placeMode: placeMode}
 				extMu.Unlock()
 				logf("winmgr", "info", "已登记外部窗口：%s", app)
 				// 丙: stamp the unified AppUserModelID (best effort).
@@ -449,6 +500,15 @@ func claimWindowByPIDs(app string, pids, prefer map[uint32]bool, exclude map[uin
 	if !registerPIDClaimedWindow(app, wf, origin) {
 		return 0, false
 	}
+	// v0.56: geometry identity for a PID-claimed window is its
+	// exe (boxed apps share the patrol's fallback scheme).
+	if imageBase != "" {
+		extMu.Lock()
+		if e, ok2 := extWins[wf.HWND]; ok2 && e.geomKey == "" {
+			e.geomKey = "exe:" + strings.ToLower(imageBase)
+		}
+		extMu.Unlock()
+	}
 	logf("winmgr", "info", "已登记外部窗口：%s（显式 PID 集认领，PID %d）", app, wf.PID)
 	platformSetAppID(wf.HWND)
 	if !wf.Visible {
@@ -597,6 +657,10 @@ func pruneExtWindowsLocked() (restamp, place []uint64) {
 				// close-to-tray transition (winset.go).
 				noteShellWindowGone(h)
 			}
+			// v0.56: the geometry sampler gets a final flush
+			// for this window (drained outside the lock).
+			noteGeomGone(h, e.geomKey)
+			thumbForget(h)
 			delete(extWins, h)
 			continue
 		}
@@ -863,7 +927,17 @@ func extWinListHandler(w http.ResponseWriter, r *http.Request) {
 	for _, cp := range list {
 		cp.Active = fgNow != 0 && cp.HWND == fgNow
 		cp.Minimized = platformWindowIconic(cp.HWND)
+		// v0.56: identity facts for the strip (see the field
+		// comments on extWindow).
+		cp.Browser = cp.browser
+		switch platformProcessImageBase(cp.pid) {
+		case "chrome.exe", "msedge.exe":
+			cp.IconKind = "chrome"
+		case "firefox.exe":
+			cp.IconKind = "firefox"
+		}
 	}
+	geomFlushGone()
 	// Re-stamp outside the lock: the COM call can be slowish.
 	for _, h := range restamp {
 		platformSetAppID(h)
@@ -1108,6 +1182,10 @@ func patrolTick() {
 	for _, h := range place {
 		tryPlaceExtWindow(h)
 	}
+	// v0.56: window geometry memory -- flush the final rects of
+	// windows that just closed, then sample the live ones.
+	geomFlushGone()
+	geomSampleTick()
 
 	procs := platformProcessSnapshot()
 	wins := platformAllTopWindows()
@@ -1195,6 +1273,9 @@ func patrolTick() {
 				HWND: wf.HWND, App: label, Title: wf.Title, pid: wf.PID,
 				browser: v.Browser, placed: false, lastTitle: wf.Title, origin: v.Reason,
 				hiddenClaim: v.HiddenClaim,
+				// v0.56: a patrol-claimed window has no launch
+				// context; its geometry identity is its exe.
+				geomKey: exeGeomKey(byPID[wf.PID].ImagePath),
 			}
 			extMu.Unlock()
 			registered[wf.HWND] = true

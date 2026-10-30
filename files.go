@@ -790,7 +790,7 @@ func filesOpenPDFHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		noteSpawnedProcess(uint32(cmd.Process.Pid), "SumatraPDF")
 		logf("files", "info", "用 SumatraPDF 打开 PDF：%s", name)
-		trackAppLaunch("SumatraPDF", exePath, before)
+		trackAppLaunchAs("SumatraPDF", exePath, before, exeGeomKey(exePath))
 		writeJSON(w, map[string]any{"ok": true, "via": "sumatra"})
 		return
 	}
@@ -847,7 +847,7 @@ func filesRunHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		noteSpawnedProcess(uint32(cmd.Process.Pid), name)
 		logf("files", "info", "用户确认后运行可执行文件：%s", name)
-		trackAppLaunch(name, abs, before)
+		trackAppLaunchAs(name, abs, before, exeGeomKey(abs))
 	case ".bat", ".cmd":
 		cmd := exec.Command("cmd", "/c", abs)
 		cmd.Dir = dir

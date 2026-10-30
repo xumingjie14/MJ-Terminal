@@ -87,3 +87,12 @@ func platformEnterShellFullscreen(hwnd uint64) (int32, [4]int32, bool, bool) {
 func platformExitShellFullscreen(hwnd uint64, style int32, rect [4]int32, zoomed bool) bool {
 	return false
 }
+
+// v0.56: Stage Manager preview capture (thumb.go) -- no host
+// windows off Windows, so captures always fail and the strip
+// uses identity cards.
+func platformCaptureWindowPNG(hwnd uint64, maxW int) ([]byte, error) {
+	return nil, errNoCapture
+}
+
+func platformProcessImageBase(pid uint32) string { return "" }

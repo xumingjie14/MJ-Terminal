@@ -183,6 +183,24 @@ type mjSettings struct {
 	// chosen one is not installed, and guides the user to the
 	// component download when neither is.
 	DefaultOfficeSuite string `json:"defaultOfficeSuite"`
+	// v0.56: Stage Manager external-window cards -- "preview"
+	// (default: a live PrintWindow thumbnail of the real window)
+	// or "identity" (icon + cleaned page title + site). Read live
+	// by the desktop view on every strip paint; the daemon only
+	// stores the preference.
+	StageDisplay string `json:"stageDisplay"`
+	// v0.56: desktop icon size in px (the desktop grid's pitch
+	// follows it). Written by the 设置 → 外观 slider, the Control
+	// Center slider and the desktop right-click presets; read
+	// live by the desktop view. The Dock has its own size and is
+	// NOT governed by this key.
+	DeskIconSize int `json:"deskIconSize"`
+	// v0.56: desktop sort mode -- "manual" (default; the user's
+	// own DESKORDER), "name", "freq" （最常用）, "kind", "added".
+	// While a sort is active the view re-sorts the top-level
+	// order on every render; any manual drag flips it back to
+	// "manual" (the sort never fights the user for an icon).
+	DeskSort string `json:"deskSort"`
 }
 
 func defaultSettings() mjSettings {
@@ -233,8 +251,15 @@ func defaultSettings() mjSettings {
 		NodeClashAPI:          true,
 		SummonHotkey:          "F8",
 		DefaultOfficeSuite:    "onlyoffice",
+		StageDisplay:          "preview",
+		DeskIconSize:          54,
+		DeskSort:              "manual",
 	}
 }
+
+var stageDisplays = map[string]bool{"preview": true, "identity": true}
+
+var deskSorts = map[string]bool{"manual": true, "name": true, "freq": true, "kind": true, "added": true}
 
 var officeSuites = map[string]bool{"onlyoffice": true, "libreoffice": true}
 
@@ -483,6 +508,15 @@ func sanitizeSettings(s mjSettings) mjSettings {
 	if !officeSuites[s.DefaultOfficeSuite] {
 		s.DefaultOfficeSuite = d.DefaultOfficeSuite
 	}
+	if !stageDisplays[s.StageDisplay] {
+		s.StageDisplay = d.StageDisplay
+	}
+	if s.DeskIconSize < 36 || s.DeskIconSize > 96 {
+		s.DeskIconSize = d.DeskIconSize
+	}
+	if !deskSorts[s.DeskSort] {
+		s.DeskSort = d.DeskSort
+	}
 	// v0.54: prune per-app notification entries whose ids fail
 	// the whitelist (a hand-edited settings.json must not smuggle
 	// arbitrary keys into the store). Valid entries pass through.
@@ -600,6 +634,9 @@ func settingsMap() map[string]any {
 		"nodeClashAPI":            s.NodeClashAPI,
 		"summonHotkey":            s.SummonHotkey,
 		"defaultOfficeSuite":      s.DefaultOfficeSuite,
+		"stageDisplay":            s.StageDisplay,
+		"deskIconSize":            s.DeskIconSize,
+		"deskSort":                s.DeskSort,
 		"fresh":                   settingsFresh(),
 	}
 	// v0.54: per-app notification switches are emitted flattened
@@ -618,6 +655,8 @@ func settingsMap() map[string]any {
 // ---------- accessors used across the daemon ----------
 
 func settingIdleExitMinutes() int { return settingsGet().IdleExitMinutes }
+
+func settingStageDisplay() string { return settingsGet().StageDisplay }
 
 func settingPhone() (enabled bool, triggerWidth, width int) {
 	s := settingsGet()
@@ -994,6 +1033,30 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 				} else if v != next.ChromeCacheMB {
 					next.ChromeCacheMB = v
 					changed = append(changed, intLog("chromeCacheMB", v))
+				}
+			case "stageDisplay":
+				var v string
+				if json.Unmarshal(val, &v) != nil || !stageDisplays[v] {
+					fail = "stageDisplay 须为 preview / identity"
+				} else if v != next.StageDisplay {
+					next.StageDisplay = v
+					changed = append(changed, "stageDisplay = "+v)
+				}
+			case "deskIconSize":
+				var v int
+				if json.Unmarshal(val, &v) != nil || v < 36 || v > 96 {
+					fail = "deskIconSize 须在 36–96 之间"
+				} else if v != next.DeskIconSize {
+					next.DeskIconSize = v
+					changed = append(changed, intLog("deskIconSize", v))
+				}
+			case "deskSort":
+				var v string
+				if json.Unmarshal(val, &v) != nil || !deskSorts[v] {
+					fail = "deskSort 须为 manual / name / freq / kind / added"
+				} else if v != next.DeskSort {
+					next.DeskSort = v
+					changed = append(changed, "deskSort = "+v)
 				}
 			default:
 				// Unknown keys are ignored: an older desktop talking

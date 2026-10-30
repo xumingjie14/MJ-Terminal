@@ -404,6 +404,7 @@ func compUninstallHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"error": "卸载失败（程序可能还在运行，先关掉它）：" + err.Error()})
 		return
 	}
+	winGeomDrop("comp:" + c.ID) // v0.56: a reinstall starts from the default landing
 	st := compState(c.ID)
 	st.mu.Lock()
 	st.Phase, st.Message = "idle", ""
@@ -496,7 +497,7 @@ func launchComponent(c prodComponent, fileAbs string) error {
 		return fmt.Errorf("启动失败：%w", err)
 	}
 	noteSpawnedProcess(uint32(cmd.Process.Pid), c.Name)
-	trackAppLaunch(c.Name, exePath, before)
+	trackAppLaunchAs(c.Name, exePath, before, "comp:"+c.ID)
 	if fileAbs != "" {
 		logf(c.ID, "info", "已用 %s 打开 %s", c.Name, filepath.Base(fileAbs))
 	} else {
