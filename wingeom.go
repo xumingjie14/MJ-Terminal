@@ -31,7 +31,6 @@ package main
 import (
 	"encoding/json"
 	"net/http"
-	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -80,8 +79,8 @@ func loadWinGeomLocked() {
 		return
 	}
 	geomLoaded = true
-	b, err := os.ReadFile(winGeomPath())
-	if err != nil {
+	b, status, err := dsLoad("wingeom")
+	if err != nil || status == dsMissing {
 		return
 	}
 	var m map[string]winGeom
@@ -99,11 +98,7 @@ func saveWinGeomLocked() {
 	if err != nil {
 		return
 	}
-	tmp := winGeomPath() + ".mjtmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
-		return
-	}
-	_ = os.Rename(tmp, winGeomPath())
+	_ = dsSave("wingeom", b)
 }
 
 // winGeomGet returns the remembered rectangle for a launch key.

@@ -77,8 +77,8 @@ type installedApp struct {
 
 func loadAppsRegistry() map[string]installedApp {
 	out := map[string]installedApp{}
-	b, err := os.ReadFile(appsRegistryPath())
-	if err != nil {
+	b, status, err := dsLoad("apps-registry")
+	if err != nil || status == dsMissing {
 		return out
 	}
 	_ = json.Unmarshal(b, &out)
@@ -86,15 +86,11 @@ func loadAppsRegistry() map[string]installedApp {
 }
 
 func saveAppsRegistry(reg map[string]installedApp) {
-	_ = os.MkdirAll(appsRoot(), 0o755)
 	b, err := json.MarshalIndent(reg, "", " ")
 	if err != nil {
 		return
 	}
-	tmp := appsRegistryPath() + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err == nil {
-		_ = os.Rename(tmp, appsRegistryPath())
-	}
+	_ = dsSave("apps-registry", b)
 }
 
 // appInstalled trusts the registry only when the folder and the

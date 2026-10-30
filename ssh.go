@@ -85,8 +85,11 @@ func sshKeysDir() string { return filepath.Join(sshDir(), "keys") }
 func sshLoadConns() []sshConn {
 	sshStoreMu.Lock()
 	defer sshStoreMu.Unlock()
-	b, err := os.ReadFile(filepath.Join(sshDir(), "connections.json"))
-	if err != nil {
+	// v0.57: through the data layer (atomic saves + keep-last-good
+	// recovery for the connection list; the KEYS stay on their own
+	// path -- key material is not data-layer state).
+	b, status, err := dsLoad("ssh-connections")
+	if err != nil || status == dsMissing {
 		return []sshConn{}
 	}
 	var out []sshConn
@@ -103,7 +106,7 @@ func sshSaveConns(list []sshConn) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(sshDir(), "connections.json"), b, 0o600)
+	return dsSave("ssh-connections", b)
 }
 
 func sshKeyNames() []string {

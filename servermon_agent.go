@@ -119,7 +119,7 @@ func monAgentGet(id string) *monAgentMeta {
 		return m
 	}
 	m := &monAgentMeta{}
-	if b, err := os.ReadFile(monAgentPath(id)); err == nil {
+	if b, status, err := dsLoadFile(monAgentPath(id), dsJSONValidatorOf(monAgentMeta{})); err == nil && status != dsMissing {
 		_ = json.Unmarshal(b, m)
 	}
 	monAgentMetas[id] = m
@@ -130,7 +130,7 @@ func monAgentSave(id string) {
 	m := monAgentGet(id)
 	b, err := json.Marshal(m)
 	if err == nil {
-		_ = os.WriteFile(monAgentPath(id), b, 0o600)
+		_ = dsSaveFile(monAgentPath(id), b, 0o600, dsJSONValidatorOf(monAgentMeta{}), true)
 	}
 }
 

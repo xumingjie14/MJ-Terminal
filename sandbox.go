@@ -685,8 +685,8 @@ var boxAppsMu sync.Mutex
 
 func loadBoxApps() map[string]boxApp {
 	out := map[string]boxApp{}
-	b, err := os.ReadFile(sandboxAppsPath())
-	if err != nil {
+	b, status, err := dsLoad("sandbox-apps")
+	if err != nil || status == dsMissing {
 		return out
 	}
 	_ = json.Unmarshal(b, &out)
@@ -694,15 +694,11 @@ func loadBoxApps() map[string]boxApp {
 }
 
 func saveBoxApps(reg map[string]boxApp) {
-	_ = os.MkdirAll(sandboxDir(), 0o755)
 	b, err := json.MarshalIndent(reg, "", " ")
 	if err != nil {
 		return
 	}
-	tmp := sandboxAppsPath() + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err == nil {
-		_ = os.Rename(tmp, sandboxAppsPath())
-	}
+	_ = dsSave("sandbox-apps", b)
 }
 
 // boxAppsUpsert inserts or replaces one entry (pure).
@@ -1574,8 +1570,8 @@ type sbieMeta struct {
 
 func readComponentMeta() sbieMeta {
 	var m sbieMeta
-	b, err := os.ReadFile(componentMetaPath())
-	if err == nil {
+	b, status, err := dsLoad("sbie-meta")
+	if err == nil && status != dsMissing {
 		_ = json.Unmarshal(b, &m)
 	}
 	return m
@@ -1586,10 +1582,7 @@ func writeComponentMeta(source string) {
 		Version: sbieVersion, Source: source,
 		At: time.Now().Format("2006-01-02 15:04:05"),
 	}, "", " ")
-	tmp := componentMetaPath() + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err == nil {
-		_ = os.Rename(tmp, componentMetaPath())
-	}
+	_ = dsSave("sbie-meta", b)
 }
 
 // ---------- box placement (Sandboxie.ini [MJBox]) ----------
@@ -2386,13 +2379,12 @@ func savePendingInstallFile(path string, p *sbiePendingInstall) {
 	if err != nil {
 		return
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err == nil {
-		_ = os.Rename(tmp, path)
-	}
+	_ = dsSaveFile(path, b, 0o644, dsJSONValidatorOf(sbiePendingDisk{}), true)
 }
 
-func clearPendingInstallFile() { _ = os.Remove(pendingInstallPath()) }
+// clearPendingInstallFile removes the record AND its backup: a
+// cleared pending install must not resurrect from the .bak.
+func clearPendingInstallFile() { dsRemoveFile(pendingInstallPath()) }
 
 // finalizeCandidates runs the post-scan trust pipeline shared
 // by the install flow and the pending restore: seal flags,
@@ -2419,13 +2411,20 @@ func finalizeCandidates(ranked []boxExeCand, installerName string) (kept []boxEx
 // since vanished or been registered away). False means there
 // was nothing to restore.
 func restorePendingFrom(path, boxRoot string) bool {
-	b, err := os.ReadFile(path)
-	if err != nil {
+	// v0.57: through the data layer -- a torn or damaged record is
+	// restored from its keep-last-good backup instead of being
+	// silently dropped; only a record that parses but is unusable
+	// (no installer name) keeps the old drop-it behavior.
+	b, status, err := dsLoadFile(path, dsJSONValidatorOf(sbiePendingDisk{}))
+	if err != nil || status == dsMissing {
+		if status == dsCorrupt {
+			dsRemoveFile(path)
+		}
 		return false
 	}
 	var d sbiePendingDisk
 	if json.Unmarshal(b, &d) != nil || d.Installer == "" {
-		_ = os.Remove(path)
+		dsRemoveFile(path)
 		return false
 	}
 	before := map[string]bool{}

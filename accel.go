@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
 	"path/filepath"
 	"strings"
 )
@@ -27,8 +26,8 @@ import (
 func accelFile() string { return filepath.Join(dataDir(), "accel.txt") }
 
 func accelEnabled() bool {
-	b, err := os.ReadFile(accelFile())
-	if err != nil {
+	b, status, err := dsLoad("accel")
+	if err != nil || status == dsMissing {
 		return true // default ON
 	}
 	return strings.TrimSpace(string(b)) != "0"
@@ -39,7 +38,7 @@ func setAccel(on bool) {
 	if !on {
 		v = "0"
 	}
-	_ = os.WriteFile(accelFile(), []byte(v), 0o600)
+	_ = dsSave("accel", []byte(v))
 }
 
 func coreRunningQuick() bool {

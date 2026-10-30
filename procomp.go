@@ -108,8 +108,8 @@ func compVersionPath(c prodComponent) string {
 }
 
 func compInstalledVersion(c prodComponent) string {
-	b, err := os.ReadFile(compVersionPath(c))
-	if err != nil {
+	b, status, err := dsLoadFile(compVersionPath(c), nil)
+	if err != nil || status == dsMissing {
 		return ""
 	}
 	return strings.TrimSpace(string(b))
@@ -373,7 +373,7 @@ func runCompInstall(c prodComponent) {
 		st.set(c, "error", "安装失败："+err.Error())
 		return
 	}
-	_ = os.WriteFile(compVersionPath(c), []byte(m.Version), 0o644)
+	_ = dsSaveFile(compVersionPath(c), []byte(m.Version), 0o644, nil, true)
 	compPrepare(c) // per-component first-run layout (portable data dirs)
 	if ico, err := exeIconICO(compExePath(c)); err == nil && len(ico) > 0 {
 		_ = os.WriteFile(filepath.Join(dst, "mj-icon.ico"), ico, 0o644)

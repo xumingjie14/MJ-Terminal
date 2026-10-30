@@ -26,7 +26,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -132,15 +131,23 @@ func (st *notifyStore) loadLocked() {
 	st.loaded = true
 	st.dedupe = map[string]int64{}
 	st.once = map[string]bool{}
-	b, err := os.ReadFile(st.filePath())
-	if err != nil {
-		return // first run: empty store
+	// v0.57: through the data layer -- a damaged notifications.json
+	// is restored from its keep-last-good backup there ([data]
+	// logs it) instead of silently resetting the whole store.
+	spec, _ := dsSpecFor("notifications")
+	b, status, err := dsLoadFile(st.filePath(), spec.validate)
+	if err != nil || status == dsMissing {
+		if status == dsCorrupt {
+			logf("notify", "warn", "notifications.json 解析失败且无可用备份，已按空通知重置")
+		}
+		return // first run / unreadable: empty store
 	}
 	var f notifyFile
 	if json.Unmarshal(b, &f) != nil {
 		logf("notify", "warn", "notifications.json 解析失败，已按空通知重置")
 		return
 	}
+	dsNoteLoaded("notifications", spec)
 	st.events = f.Events
 	if f.Dedupe != nil {
 		st.dedupe = f.Dedupe
@@ -172,11 +179,8 @@ func (st *notifyStore) saveLocked() {
 	if err != nil {
 		return
 	}
-	p := st.filePath()
-	tmp := p + ".tmp"
-	if os.WriteFile(tmp, b, 0o600) == nil {
-		_ = os.Rename(tmp, p)
-	}
+	spec, _ := dsSpecFor("notifications")
+	_ = dsSaveFile(st.filePath(), b, spec.perm, spec.validate, spec.backup)
 }
 
 // record appends an event unless the same source+key was recorded

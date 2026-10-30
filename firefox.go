@@ -98,8 +98,8 @@ func ffInstalled() bool {
 func ffVersionPath() string { return filepath.Join(dataDir(), "firefox-version.txt") }
 
 func ffInstalledVersion() string {
-	b, err := os.ReadFile(ffVersionPath())
-	if err != nil {
+	b, status, err := dsLoad("ff-version")
+	if err != nil || status == dsMissing {
 		return ""
 	}
 	return strings.TrimSpace(string(b))
@@ -265,7 +265,7 @@ func runFFInstall() {
 		ffSt.set("error", "安装失败："+err.Error())
 		return
 	}
-	_ = os.WriteFile(ffVersionPath(), []byte(m.Version), 0o644)
+	_ = dsSave("ff-version", []byte(m.Version))
 	_ = seedFFProfile(true, false)
 	ffSt.set("ready", "安装完成：Firefox "+m.Version)
 	// v0.54: an app-category notification (通知中心 → 应用通知）.
@@ -443,8 +443,8 @@ type ffProcRecord struct {
 func ffStatePath() string { return filepath.Join(dataDir(), "ffstate.json") }
 
 func ffLoadRecord() (ffProcRecord, bool) {
-	b, err := os.ReadFile(ffStatePath())
-	if err != nil {
+	b, status, err := dsLoad("ffstate")
+	if err != nil || status == dsMissing {
 		return ffProcRecord{}, false
 	}
 	var rec ffProcRecord
@@ -457,12 +457,17 @@ func ffLoadRecord() (ffProcRecord, bool) {
 func ffSaveRecord(appMode bool, pid int) {
 	rec := ffProcRecord{AppMode: appMode, PID: pid, StartedAt: time.Now().Unix()}
 	if b, err := json.Marshal(rec); err == nil {
-		_ = os.MkdirAll(dataDir(), 0o755)
-		_ = os.WriteFile(ffStatePath(), b, 0o644)
+		_ = dsSave("ffstate", b)
 	}
 }
 
-func ffClearRecord() { _ = os.Remove(ffStatePath()) }
+// ffClearRecord removes the record AND its keep-last-good backup:
+// a cleared record must not be able to resurrect from the .bak.
+func ffClearRecord() {
+	if p, err := dsPath("ffstate"); err == nil {
+		dsRemoveFile(p)
+	}
+}
 
 func ffModeName(appMode bool) string {
 	if appMode {
@@ -826,7 +831,7 @@ func ffUninstallHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"error": "卸载失败（程序可能还在运行，先关掉它）：" + err.Error()})
 		return
 	}
-	_ = os.Remove(ffVersionPath())
+	dsRemoveFile(ffVersionPath()) // the version stamp and its data-layer backup
 	_ = os.Remove(filepath.Join(dataDir(), "ff-icon.ico"))
 	ffClearRecord()
 	ffSt.set("idle", "")

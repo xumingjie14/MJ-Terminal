@@ -134,13 +134,13 @@ func monState(id string) *monServerState {
 
 func monLoadPersisted() {
 	monCfgMu.Lock()
-	if b, err := os.ReadFile(filepath.Join(monDir(), "config.json")); err == nil {
+	if b, status, err := dsLoad("servermon-config"); err == nil && status != dsMissing {
 		_ = json.Unmarshal(b, &monCfgs)
 	}
 	monCfgMu.Unlock()
 	monUsageMu.Lock()
 	var u map[string]*monUsage
-	if b, err := os.ReadFile(filepath.Join(monDir(), "usage.json")); err == nil {
+	if b, status, err := dsLoad("servermon-usage"); err == nil && status != dsMissing {
 		if json.Unmarshal(b, &u) == nil && u != nil {
 			monUsages = u
 		}
@@ -152,14 +152,14 @@ func monSaveCfgs() {
 	monCfgMu.Lock()
 	defer monCfgMu.Unlock()
 	b, _ := json.MarshalIndent(monCfgs, "", " ")
-	_ = os.WriteFile(filepath.Join(monDir(), "config.json"), b, 0o600)
+	_ = dsSave("servermon-config", b)
 }
 
 func monSaveUsages() {
 	monUsageMu.Lock()
 	defer monUsageMu.Unlock()
 	b, _ := json.MarshalIndent(monUsages, "", " ")
-	_ = os.WriteFile(filepath.Join(monDir(), "usage.json"), b, 0o600)
+	_ = dsSave("servermon-usage", b)
 }
 
 func monGetCfg(id string) monCfg {

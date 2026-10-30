@@ -170,8 +170,8 @@ func ocInstalled() bool {
 }
 
 func ocInstalledVersion() string {
-	b, err := os.ReadFile(ocVersionPath())
-	if err != nil {
+	b, status, err := dsLoad("oc-version")
+	if err != nil || status == dsMissing {
 		return ""
 	}
 	return strings.TrimSpace(string(b))
@@ -353,7 +353,7 @@ func runOCInstall() {
 		logf("openclaw", "error", "小龙虾组件落位失败：%v", err)
 		return
 	}
-	_ = os.WriteFile(ocVersionPath(), []byte(m.Version), 0o644)
+	_ = dsSave("oc-version", []byte(m.Version))
 	ocSt.setInstall("done", "安装完成：小龙虾 "+m.Version)
 	logf("openclaw", "info", "小龙虾组件安装完成：OpenClaw %s（%.1f MB，校验通过）", m.Version, float64(written)/1048576)
 	// v0.54: an app-category notification (通知中心 → 应用通知）.
@@ -931,7 +931,7 @@ func ocUninstallHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"error": "删除失败：" + err.Error()})
 		return
 	}
-	_ = os.Remove(ocVersionPath())
+	dsRemoveFile(ocVersionPath()) // the version stamp and its data-layer backup
 	_ = os.RemoveAll(filepath.Join(dataDir(), "openclaw.tmp"))
 	ocSt.setInstall("idle", "")
 	ocSt.mu.Lock()

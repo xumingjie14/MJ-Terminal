@@ -39,8 +39,8 @@ type ocPrefs struct {
 
 func ocGetPrefs() ocPrefs {
 	p := ocPrefs{ViaNode: true, CrashRestart: true}
-	b, err := os.ReadFile(ocPrefsPath())
-	if err != nil {
+	b, status, err := dsLoad("oc-prefs")
+	if err != nil || status == dsMissing {
 		return p
 	}
 	var raw map[string]json.RawMessage
@@ -61,9 +61,8 @@ func ocGetPrefs() ocPrefs {
 }
 
 func ocSavePrefs(p ocPrefs) {
-	_ = os.MkdirAll(ocDir(), 0o755)
 	b, _ := json.Marshal(p)
-	_ = os.WriteFile(ocPrefsPath(), b, 0o644)
+	_ = dsSave("oc-prefs", b)
 }
 
 func ocViaNodePref() bool { return ocGetPrefs().ViaNode }

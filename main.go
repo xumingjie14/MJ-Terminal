@@ -645,7 +645,7 @@ func persistLinks() {
 	for _, n := range nodes {
 		lines = append(lines, n.Raw)
 	}
-	_ = os.WriteFile(filepath.Join(dataDir(), "links.txt"), []byte(strings.Join(lines, "\n")), 0o600)
+	_ = dsSave("links", []byte(strings.Join(lines, "\n")))
 }
 
 // loadPersistedLinks loads the node store (Data/nodes.json),
@@ -1378,8 +1378,8 @@ func isBundledURL(u string) bool {
 
 func loadTombstones() map[string]bool {
 	out := map[string]bool{}
-	b, err := os.ReadFile(tombstonePath())
-	if err != nil {
+	b, status, err := dsLoad("tombstones")
+	if err != nil || status == dsMissing {
 		return out
 	}
 	for _, line := range strings.Split(string(b), "\n") {
@@ -1395,13 +1395,12 @@ func saveTombstones(set map[string]bool) {
 	for u := range set {
 		lines = append(lines, u)
 	}
-	_ = os.MkdirAll(dataDir(), 0o755)
-	_ = os.WriteFile(tombstonePath(), []byte(strings.Join(lines, "\n")), 0o644)
+	_ = dsSave("tombstones", []byte(strings.Join(lines, "\n")))
 }
 
 func loadWebApps() []webApp {
-	b, err := os.ReadFile(appsPath())
-	if err != nil {
+	b, status, err := dsLoad("webapps")
+	if err != nil || status == dsMissing {
 		saveWebApps(bundledWebApps)
 		out := make([]webApp, len(bundledWebApps))
 		copy(out, bundledWebApps)
@@ -1462,8 +1461,7 @@ func saveWebApps(list []webApp) {
 		}
 		sb.WriteString(line + "\n")
 	}
-	_ = os.MkdirAll(dataDir(), 0o755)
-	_ = os.WriteFile(appsPath(), []byte(sb.String()), 0o644)
+	_ = dsSave("webapps", []byte(sb.String()))
 }
 
 func webAppsHandler(w http.ResponseWriter, r *http.Request) {
@@ -1600,7 +1598,10 @@ func openWebAppHandler(w http.ResponseWriter, r *http.Request) {
 func layoutPath() string { return filepath.Join(dataDir(), "layout.json") }
 
 func layoutGetHandler(w http.ResponseWriter, r *http.Request) {
-	b, err := os.ReadFile(layoutPath())
+	// v0.57: through the data layer -- a damaged layout.json is
+	// restored from its keep-last-good backup there instead of
+	// silently resetting the desktop arrangement.
+	b, _, err := dsLoad("layout")
 	if err != nil || !json.Valid(b) {
 		writeJSON(w, map[string]any{"layout": nil})
 		return
@@ -1652,8 +1653,7 @@ func layoutSaveHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"error": "布局数据不对"})
 		return
 	}
-	_ = os.MkdirAll(dataDir(), 0o755)
-	if err := os.WriteFile(layoutPath(), body, 0o644); err != nil {
+	if err := dsSave("layout", body); err != nil {
 		writeJSON(w, map[string]any{"error": err.Error()})
 		return
 	}

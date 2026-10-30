@@ -29,7 +29,6 @@ package main
 import (
 	"encoding/json"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -445,10 +444,17 @@ func settingsLoadLocked() {
 	}
 	setState.loaded = true
 	setState.cur = defaultSettings()
-	b, err := os.ReadFile(settingsPath())
-	if err != nil {
+	// v0.57: through the data layer (datastore.go) -- a damaged
+	// settings.json is restored from its keep-last-good backup
+	// there and the event logged under [data]; only a genuinely
+	// absent file counts as a fresh install.
+	b, status, err := dsLoad("settings")
+	if status == dsMissing {
 		setState.fresh = true
 		return
+	}
+	if err != nil {
+		return // corrupt with no usable backup: defaults, [data] has the loud record
 	}
 	var s mjSettings = setState.cur
 	if err := json.Unmarshal(b, &s); err != nil {
@@ -566,19 +572,14 @@ func settingsFresh() bool {
 	return setState.fresh
 }
 
-// settingsSaveLocked persists atomically (tmp + rename). Caller
-// holds the lock.
+// settingsSaveLocked persists through the data layer (atomic +
+// keep-last-good backup). Caller holds the lock.
 func settingsSaveLocked() error {
 	b, err := json.MarshalIndent(setState.cur, "", "  ")
 	if err != nil {
 		return err
 	}
-	tmp := settingsPath() + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, settingsPath()); err != nil {
-		_ = os.Remove(tmp)
+	if err := dsSave("settings", b); err != nil {
 		return err
 	}
 	setState.fresh = false

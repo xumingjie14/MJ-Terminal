@@ -150,8 +150,8 @@ func remoteLoadLocked() {
 	rmt.loaded = true
 	rmt.pending = map[string]*remotePending{}
 	rmt.lastSeen = map[string]time.Time{}
-	b, err := os.ReadFile(remoteStorePath())
-	if err != nil {
+	b, status, err := dsLoad("remote")
+	if err != nil || status == dsMissing {
 		return
 	}
 	var f struct {
@@ -177,13 +177,7 @@ func remoteSaveLocked() {
 	if err != nil {
 		return
 	}
-	tmp := remoteStorePath() + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
-		logf("remote", "error", "操作者列表保存失败：%v", err)
-		return
-	}
-	if err := os.Rename(tmp, remoteStorePath()); err != nil {
-		_ = os.Remove(tmp)
+	if err := dsSave("remote", b); err != nil {
 		logf("remote", "error", "操作者列表保存失败：%v", err)
 	}
 }

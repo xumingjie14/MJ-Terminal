@@ -45,7 +45,7 @@ import (
 // AppVersion is the single source of truth for the running version.
 // The CI workflow must publish the Release with the matching tag
 // (v + AppVersion) and update.json.
-const AppVersion = "0.56"
+const AppVersion = "0.57"
 
 const updateRepo = "xumingjie14/MJ-Terminal"
 const updateZipName = "MJ-System-64bit.zip"
@@ -80,8 +80,8 @@ func updateDir() string {
 func updateTokenPath() string { return filepath.Join(dataDir(), "update-token.txt") }
 
 func readUpdateToken() string {
-	b, err := os.ReadFile(updateTokenPath())
-	if err != nil {
+	b, status, err := dsLoad("update-token")
+	if err != nil || status == dsMissing {
 		return ""
 	}
 	return strings.TrimSpace(string(b))
@@ -612,7 +612,7 @@ func updateTokenHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"ok": true, "token": false})
 		return
 	}
-	if err := os.WriteFile(updateTokenPath(), []byte(tok), 0o600); err != nil {
+	if err := dsSave("update-token", []byte(tok)); err != nil {
 		writeJSON(w, map[string]any{"error": err.Error()})
 		return
 	}

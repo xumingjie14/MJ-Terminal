@@ -179,19 +179,22 @@ func npLoadStoreLocked() {
 	}
 	npLoaded = true
 	npStore = nodeStore{Mode: "rule", DNSMode: "anti"}
-	b, err := os.ReadFile(nodeStorePath())
-	if err == nil {
+	// v0.57: through the data layer -- a damaged nodes.json is
+	// restored from its keep-last-good backup there ([data] logs
+	// it); only a genuinely absent file takes the legacy import.
+	b, bstatus, berr := dsLoad("nodes")
+	if berr == nil && bstatus != dsMissing {
 		var s nodeStore
 		if jerr := json.Unmarshal(b, &s); jerr == nil {
 			npStore = s
 		} else {
 			logf("node", "warn", "nodes.json 解析失败，已按空库启动：%v", jerr)
 		}
-	} else {
+	} else if bstatus == dsMissing {
 		// Legacy import: everything in links.txt becomes the
 		// manual group, exactly the nodes the old versions saved.
-		lb, lerr := os.ReadFile(filepath.Join(dataDir(), "links.txt"))
-		if lerr == nil {
+		lb, lstatus, lerr := dsLoad("links")
+		if lerr == nil && lstatus != dsMissing {
 			for _, line := range strings.Split(string(lb), "\n") {
 				if n, perr := parseShareLink(line); perr == nil {
 					n.Group = "manual"
@@ -319,12 +322,7 @@ func npSaveStoreLocked() {
 	if err != nil {
 		return
 	}
-	tmp := nodeStorePath() + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err == nil {
-		if err := os.Rename(tmp, nodeStorePath()); err != nil {
-			_ = os.Remove(tmp)
-		}
-	}
+	_ = dsSave("nodes", b)
 	persistLinks()
 }
 
