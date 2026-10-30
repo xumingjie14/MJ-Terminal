@@ -499,7 +499,17 @@ func platformFocusWindow(hwnd uint64) bool {
 	attach(fgThread)
 	attach(targetThread)
 	r, _, _ := procSetForegroundWindow.Call(h)
-	procBringWindowToTop.Call(h)
+	if r == 0 {
+		// v0.54: some builds only honour the request once the
+		// window already tops the z-order. Bring it up and ask
+		// once more while the input queues are still attached --
+		// the same sanctioned combination, sequenced the other
+		// way; still no simulated input, ever.
+		procBringWindowToTop.Call(h)
+		r, _, _ = procSetForegroundWindow.Call(h)
+	} else {
+		procBringWindowToTop.Call(h)
+	}
 	for _, p := range attached {
 		procAttachThreadInput.Call(p.a, p.b, 0)
 	}
@@ -625,11 +635,23 @@ func platformRestoreShellWindow(hwnd uint64) {
 }
 
 // platformRaiseBackdrop slides the desktop view directly underneath
-// the newborn window in z-order: first the shell is lifted to the
-// top of the stack, then the new window is inserted directly above
-// it. Both moves are NOACTIVATE -- z-order only, focus is never
-// taken; where the user's focus sits afterwards is the system's
-// natural result of their own click.
+// the newborn window in z-order. Both moves are NOACTIVATE --
+// z-order only, focus is never taken; where the user's focus sits
+// afterwards is the system's natural result of their own click.
+//
+// v0.54 root-cause fix: SetWindowPos's hWndInsertAfter names the
+// window that stays ABOVE the positioned one ("the window to
+// precede the positioned window in the Z order"). The pre-v0.54
+// code lifted the shell to HWND_TOP and then placed the NEW
+// window with insertAfter=shell -- i.e. directly BELOW the shell
+// it had just topped. The landed rect (62% x 85%, inside the
+// desktop's frame) was then fully covered by the desktop view:
+// the window was registered, raised, and buried in one motion,
+// and only a manual Stage Manager / 窗口-menu click (whose
+// BringWindowToTop finally put it on top) ever surfaced it. The
+// order is now the one the original comment always claimed: the
+// new window tops first, then the shell is inserted directly
+// UNDER it (insertAfter=new window).
 func platformRaiseBackdrop(hwnd uint64, shell uint64) bool {
 	sh, nw := uintptr(shell), uintptr(hwnd)
 	if r, _, _ := procIsWindow.Call(sh); r == 0 {
@@ -642,9 +664,121 @@ func platformRaiseBackdrop(hwnd uint64, shell uint64) bool {
 	const swpNoMove = 0x0002
 	const swpNoActivate = 0x0010
 	flags := uintptr(swpNoSize | swpNoMove | swpNoActivate)
-	procSetWindowPos.Call(sh, 0 /* HWND_TOP */, 0, 0, 0, 0, flags)
-	r, _, _ := procSetWindowPos.Call(nw, sh, 0, 0, 0, 0, flags)
+	procSetWindowPos.Call(nw, 0 /* HWND_TOP */, 0, 0, 0, 0, flags)
+	r, _, _ := procSetWindowPos.Call(sh, nw, 0, 0, 0, 0, flags)
 	return r != 0
+}
+
+// platformWindowAbove reports whether hwnd sits above other in
+// the z-order, by walking GW_HWNDPREV up from other. v0.54: the
+// birth-presentation verification (winset.go's presentSweep) uses
+// it because foreground alone is NOT proof a window is on stage
+// -- the pre-v0.54 backdrop bug left windows foreground but
+// covered by the desktop view, and the foreground-only check
+// marked them presented and never retried. A missing window or
+// an exhausted walk answers false (not on stage: retry is owed).
+func platformWindowAbove(hwnd uint64, other uint64) bool {
+	if hwnd == other {
+		return true
+	}
+	if r, _, _ := procIsWindow.Call(uintptr(hwnd)); r == 0 {
+		return false
+	}
+	const gwHwndPrev = 3
+	cur := uintptr(other)
+	for i := 0; i < 1024; i++ {
+		prev, _, _ := procGetWindow.Call(cur, gwHwndPrev)
+		if prev == 0 {
+			return false
+		}
+		if prev == uintptr(hwnd) {
+			return true
+		}
+		cur = prev
+	}
+	return false
+}
+
+// ---------- v0.54: isolated-Chrome frame unification (DWM) ----------
+//
+// The layer of a Chrome window the terminal may legitimately
+// restyle: the DWM frame (border / caption / text colours and the
+// corner preference). Chrome draws its own tab strip and window
+// buttons and those stay Chrome's -- this never pretends
+// otherwise. Colours are the shell's dark-glass palette as opaque
+// COLORREFs (0x00BBGGRR): caption from the glass panel tone
+// (index.html .glasspanel rgba(28,28,36) -> #1C1C24), border the
+// panels' white-22% edge blended over that tone (#50525A), text
+// near-white (#F2F2F5). Applied when an isolated-browser window
+// is claimed, restored to the DWM defaults when it leaves the
+// registry or the daemon exits (winmgr.go's chromeFrameSweep /
+// chromeFrameRestoreAll). On Windows 10 the colour attributes
+// are unsupported and every call fails: the caller logs the
+// degradation once and the profile's seeded dark theme (main.go
+// seedChromeDarkTheme) remains the delivered layer.
+
+var (
+	dwmapi                    = syscall.NewLazyDLL("dwmapi.dll")
+	procDwmSetWindowAttribute = dwmapi.NewProc("DwmSetWindowAttribute")
+)
+
+const (
+	dwmwaCornerPreference = 33 // DWMWA_WINDOW_CORNER_PREFERENCE
+	dwmwaBorderColor      = 34 // DWMWA_BORDER_COLOR
+	dwmwaCaptionColor     = 35 // DWMWA_CAPTION_COLOR
+	dwmwaTextColor        = 36 // DWMWA_CAPTION_TEXT_COLOR
+	dwmColorDefault       = 0xFFFFFFFF
+	dwmwcpDefault         = 0 // DWMWCP_DEFAULT
+	dwmwcpRound           = 2 // DWMWCP_ROUND
+)
+
+var (
+	chromeCaptionCOLORREF uint32 = 0x00241C1C // #1C1C24
+	chromeBorderCOLORREF  uint32 = 0x005A5250 // #50525A
+	chromeTextCOLORREF    uint32 = 0x00F5F2F2 // #F2F2F5
+)
+
+func dwmSetAttr(h uintptr, attr uintptr, v uint32) bool {
+	r, _, _ := procDwmSetWindowAttribute.Call(h, attr, uintptr(unsafe.Pointer(&v)), 4)
+	return r == 0 // S_OK
+}
+
+// platformApplyChromeFrame stamps the terminal's dark frame onto
+// a claimed isolated-Chrome window. Returns the bitmask of the
+// attributes the OS accepted; 0 = nothing took (unsupported OS).
+func platformApplyChromeFrame(hwnd uint64) uint {
+	h := uintptr(hwnd)
+	if r, _, _ := procIsWindow.Call(h); r == 0 {
+		return 0
+	}
+	var m uint
+	if dwmSetAttr(h, dwmwaCornerPreference, dwmwcpRound) {
+		m |= chromeFrameCorner
+	}
+	if dwmSetAttr(h, dwmwaBorderColor, chromeBorderCOLORREF) {
+		m |= chromeFrameBorder
+	}
+	if dwmSetAttr(h, dwmwaCaptionColor, chromeCaptionCOLORREF) {
+		m |= chromeFrameCaption
+	}
+	if dwmSetAttr(h, dwmwaTextColor, chromeTextCOLORREF) {
+		m |= chromeFrameText
+	}
+	return m
+}
+
+// platformRestoreChromeFrame returns a window's frame to the
+// DWM defaults. Called when the window leaves the registry alive
+// and for every booked window before the daemon exits.
+func platformRestoreChromeFrame(hwnd uint64) {
+	h := uintptr(hwnd)
+	if r, _, _ := procIsWindow.Call(h); r == 0 {
+		return
+	}
+	dwmSetAttr(h, dwmwaBorderColor, dwmColorDefault)
+	dwmSetAttr(h, dwmwaCaptionColor, dwmColorDefault)
+	dwmSetAttr(h, dwmwaTextColor, dwmColorDefault)
+	dwmSetAttr(h, dwmwaCornerPreference, dwmwcpDefault)
 }
 
 // ---------- 丙: shared AppUserModelID via IPropertyStore ----------

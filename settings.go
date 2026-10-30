@@ -119,6 +119,15 @@ type mjSettings struct {
 	NotifyBannerNode    bool `json:"notify_banner_node"`
 	NotifyBannerRemote  bool `json:"notify_banner_remote"`
 	NotifyBannerFiles   bool `json:"notify_banner_files"`
+	// v0.54: per-app notification switches （设置 → 通知 → 应用通知）.
+	// Keys are app notify ids (store-<id> / prod-<id> / firefox /
+	// openclaw / web-<slug>); an ABSENT entry means the default:
+	// allowed. Only explicit user choices are stored, so a newly
+	// installed app is on by default without any migration. The
+	// settings wire keys are notify_allow_app_<id> /
+	// notify_banner_app_<id>, validated by validNotifyAppID.
+	NotifyAllowApp  map[string]bool `json:"notify_allow_app,omitempty"`
+	NotifyBannerApp map[string]bool `json:"notify_banner_app,omitempty"`
 	// NCWidgets is a JSON array [{"id":"calendar","show":true},...]
 	// in display order; ids are calendar/server/node.
 	NCWidgets string `json:"nc_widgets"`
@@ -344,6 +353,47 @@ func notifyBanner(s mjSettings, source string) bool {
 	return true
 }
 
+// validNotifyAppID is the whitelist rule for the dynamic part of
+// the v0.54 per-app notification keys: a short slug the daemon
+// can safely store and the frontend can safely render into an
+// element id -- lowercase letters, digits and dashes, starting
+// with a letter or digit, at most 64 chars. Anything else in a
+// settings POST is rejected, and sanitizeSettings prunes stored
+// entries that fail it.
+func validNotifyAppID(id string) bool {
+	if len(id) == 0 || len(id) > 64 {
+		return false
+	}
+	for i := 0; i < len(id); i++ {
+		c := id[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= '0' && c <= '9':
+		case c == '-' && i > 0:
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// notifyAppAllowed / notifyAppBanner read an app's switches.
+// Absent = default ON (a newly installed app notifies until the
+// user says otherwise) -- the mirror image of the source
+// switches, whose fields default true in defaultSettings.
+func notifyAppAllowed(s mjSettings, appID string) bool {
+	if v, ok := s.NotifyAllowApp[appID]; ok {
+		return v
+	}
+	return true
+}
+
+func notifyAppBanner(s mjSettings, appID string) bool {
+	if v, ok := s.NotifyBannerApp[appID]; ok {
+		return v
+	}
+	return true
+}
+
 var dockPositions = map[string]bool{"bottom": true, "left": true, "right": true}
 
 var wallpaperKeys = map[string]bool{
@@ -433,7 +483,30 @@ func sanitizeSettings(s mjSettings) mjSettings {
 	if !officeSuites[s.DefaultOfficeSuite] {
 		s.DefaultOfficeSuite = d.DefaultOfficeSuite
 	}
+	// v0.54: prune per-app notification entries whose ids fail
+	// the whitelist (a hand-edited settings.json must not smuggle
+	// arbitrary keys into the store). Valid entries pass through.
+	s.NotifyAllowApp = pruneNotifyAppMap(s.NotifyAllowApp)
+	s.NotifyBannerApp = pruneNotifyAppMap(s.NotifyBannerApp)
 	return s
+}
+
+// pruneNotifyAppMap returns a copy of m holding only entries
+// whose keys are valid app notify ids (nil stays nil).
+func pruneNotifyAppMap(m map[string]bool) map[string]bool {
+	if m == nil {
+		return nil
+	}
+	out := make(map[string]bool, len(m))
+	for k, v := range m {
+		if validNotifyAppID(k) {
+			out[k] = v
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // validTestURL: the urltest target must be an absolute http(s)
@@ -480,7 +553,7 @@ func settingsSaveLocked() error {
 
 func settingsMap() map[string]any {
 	s := settingsGet()
-	return map[string]any{
+	out := map[string]any{
 		"wallpaper":               s.Wallpaper,
 		"stageManager":            s.StageManager,
 		"idleExitMinutes":         s.IdleExitMinutes,
@@ -529,6 +602,17 @@ func settingsMap() map[string]any {
 		"defaultOfficeSuite":      s.DefaultOfficeSuite,
 		"fresh":                   settingsFresh(),
 	}
+	// v0.54: per-app notification switches are emitted flattened
+	// (notify_allow_app_<id>: bool) for the entries the user has
+	// explicitly set; an absent key reads as the default (on) on
+	// the view side, exactly like the daemon's own default.
+	for id, v := range s.NotifyAllowApp {
+		out["notify_allow_app_"+id] = v
+	}
+	for id, v := range s.NotifyBannerApp {
+		out["notify_banner_app_"+id] = v
+	}
+	return out
 }
 
 // ---------- accessors used across the daemon ----------
@@ -615,7 +699,53 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 		next := setState.cur
 		var changed []string
 		fail := ""
+		appMapsCloned := false
 		for key, val := range raw {
+			// v0.54: the per-app notification switches are
+			// dynamic keys (notify_allow_app_<id> /
+			// notify_banner_app_<id>) resolving into the
+			// NotifyAllowApp / NotifyBannerApp maps. The id
+			// must pass the whitelist; the maps on `next` are
+			// cloned before the first mutation (next is a
+			// shallow copy of the live settings -- mutating its
+			// maps in place would leak an unsaved change if a
+			// later key in the same POST failed).
+			if strings.HasPrefix(key, "notify_allow_app_") || strings.HasPrefix(key, "notify_banner_app_") {
+				allow := strings.HasPrefix(key, "notify_allow_app_")
+				id := strings.TrimPrefix(key, "notify_allow_app_")
+				id = strings.TrimPrefix(id, "notify_banner_app_")
+				var v bool
+				switch {
+				case !validNotifyAppID(id):
+					fail = "应用通知键不对：" + key
+				case json.Unmarshal(val, &v) != nil:
+					fail = key + " 必须是 true/false"
+				default:
+					if !appMapsCloned {
+						appMapsCloned = true
+						next.NotifyAllowApp = pruneNotifyAppMap(next.NotifyAllowApp)
+						if next.NotifyAllowApp == nil {
+							next.NotifyAllowApp = map[string]bool{}
+						}
+						next.NotifyBannerApp = pruneNotifyAppMap(next.NotifyBannerApp)
+						if next.NotifyBannerApp == nil {
+							next.NotifyBannerApp = map[string]bool{}
+						}
+					}
+					m := next.NotifyBannerApp
+					if allow {
+						m = next.NotifyAllowApp
+					}
+					if cur, ok := m[id]; !ok || cur != v {
+						m[id] = v
+						changed = append(changed, boolLog(key, v))
+					}
+				}
+				if fail != "" {
+					break
+				}
+				continue
+			}
 			switch key {
 			case "wallpaper":
 				var v string

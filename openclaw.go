@@ -356,6 +356,9 @@ func runOCInstall() {
 	_ = os.WriteFile(ocVersionPath(), []byte(m.Version), 0o644)
 	ocSt.setInstall("done", "安装完成：小龙虾 "+m.Version)
 	logf("openclaw", "info", "小龙虾组件安装完成：OpenClaw %s（%.1f MB，校验通过）", m.Version, float64(written)/1048576)
+	// v0.54: an app-category notification (通知中心 → 应用通知）.
+	postAppNotify("openclaw", "小龙虾 OpenClaw", "installed",
+		"小龙虾安装完成", "OpenClaw "+m.Version+" 已就绪", "openclaw")
 }
 
 // ocFixExecBits restores executable bits after zip extraction on

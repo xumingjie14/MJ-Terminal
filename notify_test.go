@@ -6,7 +6,11 @@ package main
 // session activity window. All pure / temp-dir based.
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -247,4 +251,147 @@ func TestRemoteSessionActiveWindow(t *testing.T) {
 	notifyRemote.active = false
 	notifyRemote.lastActivity = 0
 	notifyRemote.Unlock()
+}
+
+// v0.54: app-category events -- category/app fields round-trip,
+// per-app dedupe isolation, per-app clear, and the migration
+// read (events stored before the split have no category and
+// must read back as system).
+func TestNotifyAppEvents(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "notifications.json")
+	st := notifyStoreForTests(p)
+	now := time.Date(2026, 10, 30, 19, 0, 0, 0, time.UTC)
+	ev, ok := st.recordApp("store-telegram", "Telegram", "installed", "Telegram 安装完成", "", "appstore", now)
+	if !ok {
+		t.Fatal("first app event should record")
+	}
+	if ev.Category != "app" || ev.AppID != "store-telegram" || ev.AppName != "Telegram" || ev.Source != notifySrcApp {
+		t.Fatalf("app event fields wrong: %+v", ev)
+	}
+	// Same app + same key inside the window dedupes...
+	if _, ok := st.recordApp("store-telegram", "Telegram", "installed", "x", "", "", now.Add(time.Minute)); ok {
+		t.Fatal("same app+key within 10 min must dedupe")
+	}
+	// ...but a DIFFERENT app with the same key must not.
+	if _, ok := st.recordApp("prod-krita", "Krita", "installed", "Krita 安装完成", "", "", now.Add(time.Minute)); !ok {
+		t.Fatal("a different app must not be deduped away")
+	}
+	// A system event alongside keeps its own category on read.
+	if _, ok := st.record("node", "k", "节点事件", "", "", now); !ok {
+		t.Fatal("system event should record")
+	}
+	evs := st.list()
+	if len(evs) != 3 {
+		t.Fatalf("list has %d events, want 3", len(evs))
+	}
+	for _, e := range evs {
+		if e.Source == "node" && e.Category != "system" {
+			t.Fatalf("system event must read back category=system: %+v", e)
+		}
+		if e.Source == notifySrcApp && e.Category != "app" {
+			t.Fatalf("app event must read back category=app: %+v", e)
+		}
+	}
+	// Per-app clear removes only that app's stack.
+	if n := st.clearApp("store-telegram"); n != 1 {
+		t.Fatalf("clearApp removed %d, want 1", n)
+	}
+	if n := st.clearApp("store-telegram"); n != 0 {
+		t.Fatalf("clearApp again removed %d, want 0", n)
+	}
+	evs = st.list()
+	if len(evs) != 2 {
+		t.Fatalf("after clearApp, list has %d events, want 2", len(evs))
+	}
+	// Migration: a hand-written pre-v0.54 file (no category
+	// anywhere) reads every event as system.
+	p2 := filepath.Join(t.TempDir(), "notifications.json")
+	legacy := `{"version":1,"events":[{"id":"n1","time":1,"source":"node","title":"旧事件"}],"dedupe":{},"once":[]}`
+	if err := os.WriteFile(p2, []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	evs = notifyStoreForTests(p2).list()
+	if len(evs) != 1 || evs[0].Category != "system" {
+		t.Fatalf("legacy event must migrate to category=system: %+v", evs)
+	}
+}
+
+// v0.54: the per-app notification settings -- id whitelist,
+// default-on semantics, sanitize pruning, settingsMap emission,
+// and the POST handler round-trip for the dynamic keys.
+func TestSettingsAppNotifyKeys(t *testing.T) {
+	for _, id := range []string{"firefox", "openclaw", "store-telegram", "prod-onlyoffice", "web-github-com", "a", "a-b-c-1"} {
+		if !validNotifyAppID(id) {
+			t.Errorf("validNotifyAppID(%q) = false, want true", id)
+		}
+	}
+	for _, id := range []string{"", "-lead", "Upper", "has space", "under_score", "dot.name", "中文", "a/b", strings.Repeat("a", 65)} {
+		if validNotifyAppID(id) {
+			t.Errorf("validNotifyAppID(%q) = true, want false", id)
+		}
+	}
+	// Defaults: absent entry = allowed (both gates).
+	d := defaultSettings()
+	if !notifyAppAllowed(d, "store-telegram") || !notifyAppBanner(d, "store-telegram") {
+		t.Fatal("absent app entries must default to allowed")
+	}
+	d.NotifyAllowApp = map[string]bool{"store-telegram": false}
+	d.NotifyBannerApp = map[string]bool{"store-telegram": false, "firefox": true}
+	if notifyAppAllowed(d, "store-telegram") || !notifyAppAllowed(d, "prod-krita") {
+		t.Fatal("notifyAppAllowed must follow stored entries and default the rest")
+	}
+	if notifyAppBanner(d, "store-telegram") || !notifyAppBanner(d, "firefox") {
+		t.Fatal("notifyAppBanner must follow stored entries")
+	}
+	// Sanitize prunes invalid ids and keeps valid ones.
+	s := sanitizeSettings(mjSettings{NotifyAllowApp: map[string]bool{"store-ok": false, "BAD ID": false, "": true}})
+	if _, ok := s.NotifyAllowApp["BAD ID"]; ok {
+		t.Fatal("sanitize must prune invalid app ids")
+	}
+	if v, ok := s.NotifyAllowApp["store-ok"]; !ok || v {
+		t.Fatal("sanitize must keep valid app entries verbatim")
+	}
+	// settingsMap emits stored entries flattened.
+	setState.Lock()
+	oldCur, oldLoaded := setState.cur, setState.loaded
+	setState.cur = defaultSettings()
+	setState.cur.NotifyAllowApp = map[string]bool{"prod-krita": false}
+	setState.loaded = true
+	setState.Unlock()
+	m := settingsMap()
+	setState.Lock()
+	setState.cur, setState.loaded = oldCur, oldLoaded
+	setState.Unlock()
+	if v, ok := m["notify_allow_app_prod-krita"]; !ok || v != false {
+		t.Fatalf("settingsMap must emit notify_allow_app_prod-krita=false, got %v", m["notify_allow_app_prod-krita"])
+	}
+	if _, ok := m["notify_allow_app_firefox"]; ok {
+		t.Fatal("settingsMap must not invent entries the user never set")
+	}
+	// POST handler: a dynamic key round-trips into the maps; an
+	// invalid id is rejected and changes nothing.
+	setState.Lock()
+	setState.cur = defaultSettings()
+	setState.loaded = true
+	setState.Unlock()
+	post := func(body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/api/settings", strings.NewReader(body))
+		rec := httptest.NewRecorder()
+		settingsHandler(rec, req)
+		return rec
+	}
+	rec := post(`{"notify_allow_app_store-vlc": false}`)
+	if !strings.Contains(rec.Body.String(), `"notify_allow_app_store-vlc":false`) {
+		t.Fatalf("POST response must carry the stored app key: %s", rec.Body.String())
+	}
+	if notifyAppAllowed(settingsGet(), "store-vlc") {
+		t.Fatal("the stored switch must read back off")
+	}
+	rec = post(`{"notify_allow_app_BAD ID": false}`)
+	if !strings.Contains(rec.Body.String(), "error") {
+		t.Fatalf("an invalid app id must be rejected: %s", rec.Body.String())
+	}
+	setState.Lock()
+	setState.cur, setState.loaded = oldCur, oldLoaded
+	setState.Unlock()
 }

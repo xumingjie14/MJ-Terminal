@@ -483,6 +483,10 @@ func prepareWindowsForDaemonExit() {
 	// group-restore below then shows them all already back on
 	// the host taskbar.
 	immerseRestoreAllForExit()
+	// v0.54: the isolated-Chrome DWM frame colours come off with
+	// the immersion styles -- nothing the daemon restyled may
+	// outlive it either.
+	chromeFrameRestoreAll()
 	grpMu.Lock()
 	grpExiting = true
 	was := grpVis
@@ -740,8 +744,16 @@ func shellWatchTick() {
 // function a Stage Manager click uses -- one shared raise, no
 // parallel version) -> backdrop only when the presentation took
 // effect. The window is then marked present-pending; the patrol
-// verifies it really is foreground and retries the shared raise
-// exactly once if not (presentSweep below).
+// verifies it really is on stage and retries the shared raise
+// if not (presentSweep below).
+//
+// v0.54 completes this story: the backdrop itself was the last
+// bug -- platformRaiseBackdrop's z-order direction was inverted,
+// so the "backdrop" slid the desktop OVER the newborn instead of
+// under it (see winmgr_windows.go) -- and the verification only
+// ever checked foreground, which a covered window still holds.
+// Verification is now foreground + above-the-shell + not
+// minimized, with a bounded budget of two retries.
 func settleNewWindow(hwnd uint64, launchCtx bool) {
 	if grpIsHidden() {
 		if platformWindowExists(hwnd) && platformWindowVisible(hwnd) && !platformWindowIconic(hwnd) && platformHideWindow(hwnd) {
@@ -775,6 +787,18 @@ func settleNewWindow(hwnd uint64, launchCtx bool) {
 		// AttachThreadInput foreground-lock workaround) as the
 		// Stage Manager click in extWinFocusHandler.
 		presented = platformFocusWindow(hwnd)
+		if !presented {
+			// v0.54: a refused birth raise used to be silent.
+			// Name it in the console; the patrol's verification
+			// (presentSweep) owns the bounded retries from here.
+			extMu.Lock()
+			label := ""
+			if e, ok := extWins[hwnd]; ok {
+				label = e.App
+			}
+			extMu.Unlock()
+			logf("winmgr", "warn", "开窗礼仪：新窗口出生呈现未即时生效，巡逻将核验补提：%s", label)
+		}
 	}
 	usable := shell != 0 && shell != hwnd && platformWindowExists(shell) && !platformWindowIconic(shell) && platformWindowVisible(shell)
 	if presented && usable && decideBackdrop(backdropFacts{
@@ -799,13 +823,21 @@ func settleNewWindow(hwnd uint64, launchCtx bool) {
 	// the raise reported itself: focus APIs can claim success a
 	// beat before the window is really up (or fail quietly behind
 	// the foreground lock), and the sweep is the honest judge.
+	// v0.54: the judge now also checks the window is ABOVE the
+	// desktop view in z-order (and not minimized) -- foreground
+	// alone let the old backdrop bug pass verification while the
+	// window sat covered.
 	extMu.Lock()
 	if e, ok := extWins[hwnd]; ok {
 		e.presentPending = true
 		e.presentExpect = expect
-		e.presentRetried = false
+		e.presentRetries = 0
 	}
 	extMu.Unlock()
+	// v0.54: an isolated-browser window gets the terminal's dark
+	// DWM frame as it settles (launch and patrol claims alike);
+	// chromeFrameSweep keeps the book honest afterwards.
+	chromeFrameApplyFor(hwnd)
 }
 
 // ---------- v0.38: birth-presentation verification ----------
@@ -813,33 +845,56 @@ func settleNewWindow(hwnd uint64, launchCtx bool) {
 type presentFacts struct {
 	Pending       bool // marked at birth, not yet verified
 	ExpectPresent bool // the birth context said this window belongs on stage
-	RetryUsed     bool // the one retry is already spent
+	RetriesUsed   int  // retries already spent (budget: maxPresentRetries)
 	SetHidden     bool // the whole set is tucked away right now
+	BossHidden    bool // v0.52: tucked away by the boss key specifically
 	Foreground    bool // the window IS the foreground window now
+	AboveShell    bool // ... AND sits above the desktop view in z-order
+	Iconic        bool // minimized: cannot count as on stage
+	// Immersed is carried deliberately as a NON-input (v0.54):
+	// immersion (v0.45) restyles the window, but presentation is
+	// owed exactly the same with it on or off -- the field
+	// exists so the tests can pin that irrelevance.
+	Immersed bool
 }
 
 type presentAction int
 
 const (
 	presentDone  presentAction = iota // verified (or nothing owed): clear the mark
-	presentRetry                      // raise it once, through the shared path
+	presentRetry                      // raise it again, through the shared path
 	presentWait                       // cannot judge while the set is hidden: keep the mark
 )
 
+// maxPresentRetries bounds the sweep's re-raises (v0.54: raised
+// from one to two, because the second attempt is what covers the
+// slow claim->settle races; the budget applies only while the
+// window has NEVER verified on stage).
+const maxPresentRetries = 2
+
 // decidePresentRetry is the verification rule. A window that was
 // never expected on stage (quiet host-context claim) owes
-// nothing. A window hidden along with its set is judged only
-// after the set returns. Otherwise foreground is the bar, and
-// exactly one retry is owed -- after that the user, not the
-// daemon, owns the window's z-order.
+// nothing. A window hidden along with its set -- boss-hidden
+// included: a newborn must never pop out on its own while the
+// boss key has the set tucked away -- is judged only after the
+// set returns. Otherwise "on stage" means foreground AND above
+// the desktop view AND not minimized: v0.54 learned (the hard
+// way) that foreground alone is not proof, because the old
+// backdrop bug left windows foreground but covered by the shell,
+// and the old foreground-only check marked them presented and
+// never looked again. Retries are bounded; once the budget is
+// spent the window is the user's, not the daemon's.
 func decidePresentRetry(f presentFacts) presentAction {
 	if !f.Pending || !f.ExpectPresent {
 		return presentDone
 	}
-	if f.SetHidden {
+	if f.SetHidden || f.BossHidden {
 		return presentWait
 	}
-	if f.Foreground || f.RetryUsed {
+	if f.Foreground && f.AboveShell && !f.Iconic {
+		return presentDone
+	}
+	if f.RetriesUsed >= maxPresentRetries {
 		return presentDone
 	}
 	return presentRetry
@@ -851,38 +906,59 @@ func decidePresentRetry(f presentFacts) presentAction {
 // shared raise, never a private variant.
 func presentSweep() {
 	fg := platformForegroundHWND()
+	shell := shellHWND()
 	hidden := grpIsHidden()
+	boss := grpIsBossHidden()
 	type cand struct {
 		hwnd uint64
 		app  string
+		n    int // which retry this is (1-based, for the log)
 	}
 	var retries []cand
+	var gaveUp []string
 	extMu.Lock()
 	for h, e := range extWins {
 		if e.Shell || !e.presentPending {
 			continue
 		}
-		switch decidePresentRetry(presentFacts{
+		above := true // no shell to be under: nothing can cover it
+		if shell != 0 && shell != h {
+			above = platformWindowAbove(h, shell)
+		}
+		facts := presentFacts{
 			Pending:       true,
 			ExpectPresent: e.presentExpect,
-			RetryUsed:     e.presentRetried,
+			RetriesUsed:   e.presentRetries,
 			SetHidden:     hidden,
+			BossHidden:    boss,
 			Foreground:    fg != 0 && fg == h,
-		}) {
+			AboveShell:    above,
+			Iconic:        platformWindowIconic(h),
+		}
+		switch decidePresentRetry(facts) {
 		case presentDone:
 			e.presentPending = false
+			if facts.ExpectPresent && !hidden && !(facts.Foreground && facts.AboveShell && !facts.Iconic) {
+				// Budget spent and STILL not on stage: say so
+				// once (the pending flag clears here, so this
+				// line fires exactly once per window).
+				gaveUp = append(gaveUp, e.App)
+			}
 		case presentRetry:
-			e.presentRetried = true
-			retries = append(retries, cand{h, e.App})
+			e.presentRetries++
+			retries = append(retries, cand{h, e.App, e.presentRetries})
 		}
 	}
 	extMu.Unlock()
 	for _, c := range retries {
 		if platformFocusWindow(c.hwnd) {
-			logf("winmgr", "info", "开窗礼仪：新窗口出生后未露面，已补提呈现：%s", c.app)
+			logf("winmgr", "info", "开窗礼仪：新窗口出生后未露面，已补提呈现（第 %d 次）：%s", c.n, c.app)
 		} else {
-			logf("winmgr", "warn", "开窗礼仪：新窗口补提呈现仍未生效（系统前台锁定？）：%s", c.app)
+			logf("winmgr", "warn", "开窗礼仪：新窗口补提呈现仍未生效（系统前台锁定？）（第 %d 次）：%s", c.n, c.app)
 		}
+	}
+	for _, app := range gaveUp {
+		logf("winmgr", "warn", "开窗礼仪：新窗口多次补提仍未露面，已停止补提（点台前调度或窗口菜单可手动调出）：%s", app)
 	}
 }
 

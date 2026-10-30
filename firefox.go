@@ -254,6 +254,38 @@ func runFFInstall() {
 	_ = os.WriteFile(ffVersionPath(), []byte(m.Version), 0o644)
 	_ = seedFFProfile(true, false)
 	ffSt.set("ready", "安装完成：Firefox "+m.Version)
+	// v0.54: an app-category notification (通知中心 → 应用通知）.
+	postAppNotify("firefox", "Firefox", "installed",
+		"Firefox 安装完成", "Firefox "+m.Version+" 已就绪，配置目录在 Data 里，跟着文件夹走", "firefox")
+}
+
+// ffIconHandler serves the Firefox component's real icon for the
+// desktop / Launchpad / Dock tiles (v0.54 parity with the
+// productivity components' /api/components/icon). The extracted
+// .ico is cached in Data (ff-icon.ico) -- a runtime-derived file
+// in the data home, never a stored absolute path, so it travels
+// and re-extracts on any machine where the cache is missing.
+func ffIconHandler(w http.ResponseWriter, r *http.Request) {
+	if !ffInstalled() {
+		http.NotFound(w, r)
+		return
+	}
+	cache := filepath.Join(dataDir(), "ff-icon.ico")
+	if b, err := os.ReadFile(cache); err == nil && len(b) > 0 {
+		w.Header().Set("Content-Type", "image/x-icon")
+		w.Header().Set("Cache-Control", "max-age=3600")
+		_, _ = w.Write(b)
+		return
+	}
+	ico, err := exeIconICO(filepath.Join(ffInstallDir(), "firefox.exe"))
+	if err != nil || len(ico) == 0 {
+		http.NotFound(w, r)
+		return
+	}
+	_ = os.WriteFile(cache, ico, 0o644)
+	w.Header().Set("Content-Type", "image/x-icon")
+	w.Header().Set("Cache-Control", "max-age=3600")
+	_, _ = w.Write(ico)
 }
 
 // extractZipTo unzips into dir, guarding against zip-slip paths.
@@ -325,11 +357,23 @@ func seedFFProfile(proxy bool, appMode bool) error {
 	}
 	css := "/* Managed by MJ Terminal: normal mode (chrome visible). */\n"
 	if appMode {
+		// v0.54 root cause (field report "app-mode window has no
+		// close/minimize buttons"): the pre-v0.54 sheet collapsed
+		// #titlebar -- but in Firefox's own-drawn frame the
+		// window buttons (.titlebar-buttonbox-container: close /
+		// minimize / maximize) LIVE inside #titlebar, so the
+		// whole button box went with it. The claim/presentation
+		// machinery was innocent (Chrome passes through the same
+		// ops and keeps its buttons). Only the toolbars are
+		// collapsed now; #titlebar stays, and the button box is
+		// pinned visible so no future toolbar rule can take it
+		// again. The sheet is rewritten at every launch, so the
+		// fix applies itself on the next app-mode start.
 		css = `/* Managed by MJ Terminal: app mode (no tabs, no address bar). */
 #TabsToolbar { visibility: collapse !important; }
 #nav-bar { visibility: collapse !important; }
 #PersonalToolbar { visibility: collapse !important; }
-#titlebar { visibility: collapse !important; }
+.titlebar-buttonbox-container { visibility: visible !important; }
 `
 	}
 	return os.WriteFile(filepath.Join(dir, "chrome", "userChrome.css"), []byte(css), 0o644)

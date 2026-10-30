@@ -449,6 +449,9 @@ func runAppInstall(entry storeApp) {
 	saveAppsRegistry(reg)
 	st.set("done", "安装完成")
 	logf("apps", "info", "已安装 %s %s（%.1f MB，校验通过）", entry.Name, entry.Version, float64(written)/1048576)
+	// v0.54: an app-category notification (通知中心 → 应用通知）.
+	postAppNotify("store-"+entry.ID, entry.Name, "installed",
+		entry.Name+" 安装完成", "已通过校验并装好，在桌面或启动台点图标即可打开", "appstore")
 }
 
 func appsLaunchHandler(w http.ResponseWriter, r *http.Request) {

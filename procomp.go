@@ -380,6 +380,9 @@ func runCompInstall(c prodComponent) {
 	}
 	_ = os.Remove(zipPath)
 	st.set(c, "ready", "安装完成："+c.Name+" "+m.Version)
+	// v0.54: an app-category notification (通知中心 → 应用通知）.
+	postAppNotify("prod-"+c.ID, c.Name, "installed",
+		c.Name+" 安装完成", c.Name+" "+m.Version+" 已就绪，在桌面或启动台点图标即可打开", "setpage:components")
 }
 
 func compUninstallHandler(w http.ResponseWriter, r *http.Request) {

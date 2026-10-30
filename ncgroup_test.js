@@ -17,8 +17,8 @@ const assert = require('assert');
 const html = fs.readFileSync(__dirname + '/index.html', 'utf8');
 const m = html.match(/\/\* === ncgroup pure \(node-testable\) === \*\/([\s\S]*?)\/\* === end ncgroup pure === \*\//);
 assert(m, 'ncgroup pure block not found in index.html');
-const { ncGroupEvents, ncLayoutWidgets } = new Function(
-  m[1] + '\nreturn { ncGroupEvents, ncLayoutWidgets };'
+const { ncGroupEvents, ncLayoutWidgets, ncEventCategory, ncGroupKey } = new Function(
+  m[1] + '\nreturn { ncGroupEvents, ncLayoutWidgets, ncEventCategory, ncGroupKey };'
 )();
 
 const ev = (id, source, time) => ({ id, source, time, title: 't' + id });
@@ -81,5 +81,29 @@ assert.deepStrictEqual(
 const a = ncLayoutWidgets('');
 a[0].show = false;
 assert.deepStrictEqual(ncLayoutWidgets(''), DEF, 'default layout is not shared mutable state');
+
+// --- v0.54: the 系统/应用 split -- app events stack per app,
+// system events keep stacking by source, legacy events (no
+// category) read as system. ---
+assert.strictEqual(ncEventCategory({ source: 'node' }), 'system', 'no category -> system');
+assert.strictEqual(ncEventCategory({ source: 'app', category: 'app', appId: 'firefox' }), 'app');
+assert.strictEqual(ncGroupKey({ source: 'node' }), 'node', 'system key = source');
+assert.strictEqual(ncGroupKey({ source: 'app', category: 'app', appId: 'prod-krita' }), 'app:prod-krita', 'app key = app:<id>');
+const aev = (id, appId, appName, time) => ({ id, source: 'app', category: 'app', appId, appName, time, title: 't' + id });
+const mixed = [
+  aev('a3', 'store-telegram', 'Telegram', 900),
+  ev('s1', 'node', 800),
+  aev('a2', 'firefox', 'Firefox', 700),
+  aev('a1', 'store-telegram', 'Telegram', 600),
+];
+const mg = ncGroupEvents(mixed);
+assert.strictEqual(mg.length, 3, 'two apps + one source -> three groups');
+assert.strictEqual(mg[0].key, 'app:store-telegram', 'newest group first (telegram install pair)');
+assert.deepStrictEqual(mg[0].items.map(e => e.id), ['a3', 'a1'], 'per-app stack keeps its own events only');
+assert.strictEqual(mg[0].name, 'Telegram', 'app group carries the app name');
+assert.strictEqual(mg[0].category, 'app');
+assert.strictEqual(mg[1].key, 'node', 'system group keeps the source key');
+assert.strictEqual(mg[1].category, 'system');
+assert.strictEqual(mg[2].key, 'app:firefox', 'a second app is its own stack, not merged into 系统');
 
 console.log('ncgroup_test: all assertions passed');

@@ -55,6 +55,7 @@ func TestDecideBackdrop(t *testing.T) {
 }
 
 func TestDecidePresentRetry(t *testing.T) {
+	onStage := presentFacts{Pending: true, ExpectPresent: true, Foreground: true, AboveShell: true}
 	cases := []struct {
 		name string
 		f    presentFacts
@@ -62,11 +63,22 @@ func TestDecidePresentRetry(t *testing.T) {
 	}{
 		{"没打过待呈现标记→无事", presentFacts{}, presentDone},
 		{"出生不期待呈现（宿主语境悄悄认领）→无事", presentFacts{Pending: true, ExpectPresent: false, Foreground: false}, presentDone},
-		{"期待呈现且已在前台→验货通过", presentFacts{Pending: true, ExpectPresent: true, Foreground: true}, presentDone},
-		{"期待呈现但不在前台→补提一次", presentFacts{Pending: true, ExpectPresent: true, Foreground: false}, presentRetry},
-		{"补提已用掉、仍不在前台→收手（归用户）", presentFacts{Pending: true, ExpectPresent: true, Foreground: false, RetryUsed: true}, presentDone},
+		{"期待呈现且在前台又在桌面之上→验货通过", onStage, presentDone},
+		{"期待呈现但不在前台→补提", presentFacts{Pending: true, ExpectPresent: true, Foreground: false, AboveShell: true}, presentRetry},
+		{"在前台但被桌面盖住（v0.54 头条根因）→补提", presentFacts{Pending: true, ExpectPresent: true, Foreground: true, AboveShell: false}, presentRetry},
+		{"在前台、在桌面之上、但最小化着→补提（还原）", presentFacts{Pending: true, ExpectPresent: true, Foreground: true, AboveShell: true, Iconic: true}, presentRetry},
+		{"补提一次仍未露面→还有第二次", presentFacts{Pending: true, ExpectPresent: true, Foreground: false, AboveShell: true, RetriesUsed: 1}, presentRetry},
+		{"补提预算用尽、仍不在前台→收手（归用户）", presentFacts{Pending: true, ExpectPresent: true, Foreground: false, AboveShell: true, RetriesUsed: 2}, presentDone},
+		{"补提预算用尽、被桌面盖住→收手（归用户）", presentFacts{Pending: true, ExpectPresent: true, Foreground: true, AboveShell: false, RetriesUsed: 2}, presentDone},
 		{"整套藏着出生的→等整套恢复再验货", presentFacts{Pending: true, ExpectPresent: true, Foreground: false, SetHidden: true}, presentWait},
-		{"整套藏着且已在前台（不可能态）→藏优先，继续等", presentFacts{Pending: true, ExpectPresent: true, Foreground: true, SetHidden: true}, presentWait},
+		{"整套藏着且已在前台（不可能态）→藏优先，继续等", presentFacts{Pending: true, ExpectPresent: true, Foreground: true, AboveShell: true, SetHidden: true}, presentWait},
+		{"老板键藏着→新窗口绝不自己跳出来，等整套恢复", presentFacts{Pending: true, ExpectPresent: true, Foreground: false, BossHidden: true}, presentWait},
+		{"老板键藏着且事实称在台上（不可能态）→藏优先", presentFacts{Pending: true, ExpectPresent: true, Foreground: true, AboveShell: true, BossHidden: true}, presentWait},
+		// v0.54: immersion must NOT change the verdict either
+		// way -- presentation is owed the same with it on/off.
+		{"沉浸开+在台上→验货通过（与沉浸关同判）", presentFacts{Pending: true, ExpectPresent: true, Foreground: true, AboveShell: true, Immersed: true}, presentDone},
+		{"沉浸开+被盖住→照样补提（与沉浸关同判）", presentFacts{Pending: true, ExpectPresent: true, Foreground: true, AboveShell: false, Immersed: true}, presentRetry},
+		{"沉浸开+老板藏→照样等（与沉浸关同判）", presentFacts{Pending: true, ExpectPresent: true, Foreground: false, BossHidden: true, Immersed: true}, presentWait},
 	}
 	for _, c := range cases {
 		if got := decidePresentRetry(c.f); got != c.want {

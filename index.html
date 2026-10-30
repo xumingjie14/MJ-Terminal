@@ -423,6 +423,8 @@ a{color:#64d2ff}
 .g-f-zip{background:linear-gradient(180deg,#c9a06a,#8a6134)}
 .g-f-exe{background:linear-gradient(180deg,#48484f,#131316)}
 .g-f-other{background:linear-gradient(180deg,#aeaeb2,#636366)}
+.g-f-aud{background:linear-gradient(180deg,#bf5af2,#7d1fa8);font-size:26px}
+.g-f-vid{background:linear-gradient(180deg,#5e5ce6,#2a28b8);font-size:22px}
 .g-f-dir{background:rgba(255,255,255,.24);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);font-size:26px}
 #dropveil{position:fixed;inset:10px;z-index:2900;border:2.5px dashed rgba(140,210,255,.9);border-radius:22px;background:rgba(20,40,70,.35);display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:650;color:#fff;text-shadow:0 2px 8px rgba(0,0,0,.6);pointer-events:none}
 #dropveil.hidden{display:none}
@@ -687,6 +689,7 @@ updateStageUI();
 /* ----- windows ----- */
 function appIcon(a,size){
  if(a.id==='browser')return `<div class="appico g-browser"><div class="chrome-dot"></div></div>`;
+ if(a.id==='firefox')return ffDeskIconHTML();
  return `<div class="appico ${a.g}">${esc(a.glyph)}</div>`;
 }
 function makeWin(app,i){
@@ -975,7 +978,7 @@ function collectDeskEntries(){
     those modes for kind 'web'). Hidden wholesale by the
     filesOnDesktop setting; the files stay in Data/files. */
  const entries=[];
- APPS.forEach(a=>{ if(a.nodesk) return; entries.push({key:'app:'+a.id,el:mkDeskIcon('app:'+a.id,'app',appIcon(a),a.n,()=>openApp(a.id))}); });
+ APPS.forEach(a=>{ if(a.nodesk) return; entries.push({key:'app:'+a.id,el:mkDeskIcon('app:'+a.id,'app',appIcon(a),a.n,a.id==='firefox'?()=>launchFirefoxEntry():()=>openApp(a.id))}); });
  const inFolder=new Set(); LAYOUT.folders.forEach(f=>f.items.forEach(u=>inFolder.add(u)));
  WEBAPPS.filter(a=>!inFolder.has(a.url)).forEach(a=>{ entries.push({key:'web:'+a.url,el:mkDeskIcon('web:'+a.url,'web',webIconHTML(a),a.name,()=>openWebApp(a.url))}); });
  LAYOUT.folders.forEach(f=>{ const el=mkDeskIcon('folder:'+f.id,'folder',folderIconHTML(f),f.name,()=>openFolderPop(f.id,el),f.id); entries.push({key:'folder:'+f.id,el}); });
@@ -1641,6 +1644,39 @@ function prodIconHTML(c){
 async function loadProdApps(){
  try{const r=await api('/api/components');PRODAPPS=(r&&r.components)||[]}catch(e){PRODAPPS=[]}
 }
+/* v0.54: Firefox desktop parity. Firefox was always IN the
+   built-in APPS list (desktop / Dock / Launchpad / Spotlight /
+   recents included it), but as a plain emoji tile: no install
+   state, and a click-when-missing only opened its page. It now
+   gets the productivity components' treatment -- the real exe
+   icon once installed, a state badge fed by /api/firefox, and a
+   click-when-missing that starts the download (the Firefox page
+   is its progress surface, like 设置 → 组件 is for PRODAPPS). */
+let FFSTATE=null;
+async function loadFFState(){
+ try{ FFSTATE=await api('/api/firefox'); }catch(e){ FFSTATE=null; }
+}
+function ffBusy(c){ return c&&(c.phase==='downloading'||c.phase==='extracting'); }
+function ffPct(c){ if(!c||!c.size) return 0; return Math.max(0,Math.min(100,Math.floor((c.progress||0)*100/c.size))); }
+function ffDeskIconHTML(){
+ const c=FFSTATE||{};
+ const badge=!c.installed?`<span class="dlb">${ffBusy(c)?('下载 '+ffPct(c)+'%'):(c.phase==='error'?'下载失败':'未下载')}</span>`:'';
+ const img=c.installed?`<img alt="" src="/api/firefox/icon" onerror="this.remove()">`:'';
+ return `<div class="appico webapp${c.installed?'':' notin'}">F${img}${badge}</div>`;
+}
+async function launchFirefoxEntry(){
+ const c=FFSTATE;
+ if(c&&!c.installed){
+  if(ffBusy(c)){ openApp('firefox'); return; }
+  const r=await api('/api/firefox/download',{method:'POST'}).catch(()=>null);
+  if(r&&r.error){ alert(r.error); return; }
+  FFSTATE={...(c||{}),phase:'downloading'}; renderDesk();
+  toast('开始下载 Firefox，在 Firefox 页看进度');
+  openApp('firefox');
+  return;
+ }
+ openApp('firefox');
+}
 async function launchProdApp(id){
  const c=PRODAPPS.find(x=>x.id===id); if(!c) return;
  if(!c.installed){
@@ -1690,6 +1726,13 @@ function fileIconHTML(f){
      (webp/bmp), the img removes itself and the type tile shows. */
   return `<div class="appico fileico g-f-img"><span class="ext">${esc(ext)}</span><img src="/api/files/thumb?name=${encodeURIComponent(f.name)}" alt="" draggable="false" loading="lazy" onerror="this.remove()"></div>`;
  }
+ /* v0.54: media tiles -- a music note for audio, a play glyph
+    for video (the daemon's thumb endpoint only decodes still
+    images, so a video never has a thumbnail to reuse; if one
+    ever exists it would come through the image path above). */
+ const mg=fvMediaGroup(f);
+ if(mg==='music') return `<div class="appico fileico g-f-aud">♪</div>`;
+ if(mg==='video') return `<div class="appico fileico g-f-vid">▶</div>`;
  const g={pdf:'g-f-pdf',image:'g-f-img',text:'g-f-txt',csv:'g-f-csv',docx:'g-f-doc',xlsx:'g-f-xls',pptx:'g-f-ppt',zip:'g-f-zip',exe:'g-f-exe'}[f.kind]||'g-f-other';
  return `<div class="appico fileico ${g}"><span class="ext">${esc(ext||'文件')}</span></div>`;
 }
@@ -2225,15 +2268,35 @@ function bind(id){
    const savePhone=async()=>{ const r=await saveSetting({phoneMode:G('ds-pm').checked,phoneTriggerWidth:+G('ds-ptw').value||1200,phoneWidth:+G('ds-pw').value||400}); if(r&&r.error) alert('保存失败：'+r.error); };
    G('ds-pm').onchange=savePhone; G('ds-ptw').onchange=savePhone; G('ds-pw').onchange=savePhone;
   };
-  const paintNotify=()=>{
+  const paintNotify=async()=>{
    /* v0.47 设置 → 通知：macOS Notifications grammar -- one row
       per source, 允许通知 + 横幅 switches, both daemon settings
-      (notify_allow_<src> / notify_banner_<src>). */
+      (notify_allow_<src> / notify_banner_<src>).
+      v0.54: a second section, 应用通知 -- one row per installed
+      app (store apps, components incl. Firefox/OpenClaw, and the
+      desktop's web apps), keys notify_allow_app_<id> /
+      notify_banner_app_<id>, default on (absent = on). */
    const s=SETTINGS||SETDEF;
    const SRCS=[['sandbox','应用隔离'],['update','软件更新'],['servermon','服务器监控'],['node','节点'],['remote','远程协助'],['files','文件']];
-   G('set-main').innerHTML=`<div class="set-page"><div class="set-sec">通知</div><div class="set-desc">通知中心（点菜单栏右边的日期时间打开）里有两类东西：状态型的（隔离安装待登记、更新可用、服务器告警——状态在就一直在）和事件型的（装完了、断开了这类刚发生的事，留下来等你处理）。这里按来源逐个管：关掉「允许通知」，这个来源的事件不再记录、状态型也不再出现在通知中心（功能本身在各自页面照常）；关掉「横幅」只是不弹横幅，通知照样进通知中心。</div><div class="sm-card">${SRCS.map(([id,n])=>`<div class="sm-row"><span>${n}</span><span class="row"><span style="font-size:12px;opacity:.65">允许通知</span><label class="sm-sw"><input type="checkbox" id="nt-allow-${id}" ${s['notify_allow_'+id]!==false?'checked':''}><i></i></label><span style="font-size:12px;opacity:.65">横幅</span><label class="sm-sw"><input type="checkbox" id="nt-banner-${id}" ${s['notify_banner_'+id]!==false?'checked':''}><i></i></label></span></div>`).join('')}</div><p class="set-note">横幅是新事件发生时在桌面右上角滑入的小卡片，约 6 秒后自动消失，鼠标停在上面会等你。沉浸模式不拦横幅——它不是专注模式。</p></div>`;
+   const rowHTML=(idAttr,keyBase,name)=>`<div class="sm-row"><span>${esc(name)}</span><span class="row"><span style="font-size:12px;opacity:.65">允许通知</span><label class="sm-sw"><input type="checkbox" id="nt-allow-${idAttr}" ${s['notify_allow_'+keyBase]!==false?'checked':''}><i></i></label><span style="font-size:12px;opacity:.65">横幅</span><label class="sm-sw"><input type="checkbox" id="nt-banner-${idAttr}" ${s['notify_banner_'+keyBase]!==false?'checked':''}><i></i></label></span></div>`;
+   G('set-main').innerHTML=`<div class="set-page"><div class="set-sec">系统通知</div><div class="set-desc">通知中心（点菜单栏右边的日期时间打开）里有两类东西：状态型的（隔离安装待登记、更新可用、服务器告警——状态在就一直在）和事件型的（装完了、断开了这类刚发生的事，留下来等你处理）。这里按来源逐个管：关掉「允许通知」，这个来源的事件不再记录、状态型也不再出现在通知中心（功能本身在各自页面照常）；关掉「横幅」只是不弹横幅，通知照样进通知中心。</div><div class="sm-card">${SRCS.map(([id,n])=>rowHTML(id,id,n)).join('')}</div><p class="set-note">横幅是新事件发生时在桌面右上角滑入的小卡片，约 6 秒后自动消失，鼠标停在上面会等你。沉浸模式不拦横幅——它不是专注模式。</p><div class="set-sec">应用通知</div><div class="set-desc">你装的应用由终端机产生的事件（目前是安装完成）。默认都开；关掉某个应用，它的事就不再进通知中心。如实说明：网页自己在 Chrome 里发的通知走 Windows 通知中心，不在这里管，也管不到。</div><div class="sm-card" id="nt-apps"><div class="sm-row"><span>读取中…</span></div></div></div>`;
    const bindN=(elid,key)=>{ const el=G(elid); if(el) el.onchange=async e=>{ const r=await saveSetting({[key]:e.target.checked}); if(r&&r.error){ alert('保存失败：'+r.error); e.target.checked=!e.target.checked; } }; };
    SRCS.forEach(([id])=>{ bindN('nt-allow-'+id,'notify_allow_'+id); bindN('nt-banner-'+id,'notify_banner_'+id); });
+   /* The installed-app list: store apps + components (incl.
+      Firefox and OpenClaw) + the desktop's web apps. Web-app
+      notify ids are a slug of the site URL (daemon validation
+      only allows [a-z0-9-]); collisions get a numeric suffix. */
+   const rows=[], usedIds=new Set();
+   const pushRow=(id,name)=>{ let k=id,i=2; while(usedIds.has(k)) k=id+'-'+(i++); usedIds.add(k); rows.push({id:k,name}); };
+   (typeof STOREAPPS!=='undefined'?STOREAPPS:[]).forEach(a=>pushRow('store-'+a.id,a.name));
+   (typeof PRODAPPS!=='undefined'?PRODAPPS:[]).filter(c=>c.installed).forEach(c=>pushRow('prod-'+c.id,c.name));
+   try{ const ff=await api('/api/firefox'); if(ff&&ff.installed) pushRow('firefox','Firefox'); }catch(e){}
+   try{ const oc=await api('/api/openclaw/status'); if(oc&&oc.installed) pushRow('openclaw','小龙虾 OpenClaw'); }catch(e){}
+   const webSlug=a=>{ let h=''; try{ const u=new URL(a.url); h=(u.hostname+u.pathname).toLowerCase(); }catch(e){ h=(a.name||'').toLowerCase(); } return 'web-'+(h.replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,44)||'app'); };
+   (typeof WEBAPPS!=='undefined'?WEBAPPS:[]).forEach(a=>pushRow(webSlug(a),a.name));
+   const card=G('nt-apps'); if(!card) return;
+   card.innerHTML=rows.length?rows.map(r=>rowHTML('app-'+r.id,'app_'+r.id,r.name)).join(''):'<div class="sm-row"><span>还没有已安装的应用</span></div>';
+   rows.forEach(r=>{ bindN('nt-allow-app-'+r.id,'notify_allow_app_'+r.id); bindN('nt-banner-app-'+r.id,'notify_banner_app_'+r.id); });
   };
   const paintNetwork=async()=>{
    const s=SETTINGS||SETDEF;
@@ -2456,7 +2519,7 @@ function bind(id){
   const paintAbout=async()=>{
    G('set-main').innerHTML=`<div class="set-page"><div class="set-sec">关于</div><div class="sm-card" id="ab-card"><div class="sm-row"><span>读取中…</span></div></div><div class="set-sec">出问题了？</div><div class="set-desc">先去「控制台」看红色报错，或导出诊断包发出来定位。</div><div class="row"><button class="btn gray" id="ab-console">打开控制台</button><a class="btn gray" href="/api/diag/export" style="text-decoration:none">导出诊断包</a></div></div>`;
    G('ab-console').onclick=()=>openApp('console');
-   try{ const si=await api('/api/system'); const u=await storageUsageOnce(); const card=G('ab-card'); if(card){ const rows={版本:'v'+si.version,系统:si.os+' / '+si.arch,电脑名:si.hostname,'CPU 核数':si.numCPU,程序目录:si.exeDir,数据目录:si.dataDir,文件夹总占用:fmtB(u.totalBytes)}; card.innerHTML=Object.entries(rows).map(([k,v])=>`<div class="sm-row"><span>${k}</span><span class="set-val">${esc(String(v))}</span></div>`).join(''); } }catch(e){}
+   try{ const si=await api('/api/system'); const u=await storageUsageOnce(); const card=G('ab-card'); if(card){ const rows={版本:'v'+si.version,系统:si.os+' / '+si.arch,电脑名:si.hostname,'CPU 核数':si.numCPU,程序目录:si.exeDir,数据目录:si.dataDir,文件夹总占用:fmtB(u.totalBytes)}; if(si.dataFallback) rows['⚠ 数据不在程序文件夹']='程序文件夹不可写，数据暂存在这台电脑的 LocalAppData 里——壁纸、导入的图片、组件图标等搬家时不会跟随。把程序文件夹放到可写位置（如桌面）再打开即可恢复便携。'; card.innerHTML=Object.entries(rows).map(([k,v])=>`<div class="sm-row"><span>${k}</span><span class="set-val">${esc(String(v))}</span></div>`).join(''); } }catch(e){}
   };
   const paintUpdate=()=>{
    if(updIv){ clearInterval(updIv); updIv=null; }
@@ -2541,6 +2604,11 @@ function bind(id){
    let ffTimer=null;
    const paintFF=async()=>{
      const r=await api('/api/firefox');
+     /* v0.54: keep the desktop tile's state source in sync, and
+        repaint the desktop when the installed bit flips (the
+        tile gains its real icon + loses the 未下载 badge). */
+     const wasIn=!!(FFSTATE&&FFSTATE.installed); FFSTATE=r;
+     if(!!r.installed!==wasIn&&typeof renderDesk==='function') renderDesk();
      const info=document.getElementById('ffinfo'), prog=document.getElementById('ffprog'), dl=document.getElementById('ffdl');
      if(!info) { if(ffTimer) clearInterval(ffTimer); return; }
      let t;
@@ -3291,14 +3359,24 @@ const BANNER_HOLD_MS=6000; // banner dwell before auto-dismiss
 const NC_SRCNAMES={sandbox:'应用隔离',update:'软件更新',servermon:'服务器监控',node:'节点',remote:'远程协助',files:'文件'};
 
 /* === ncgroup pure (node-testable) === */
-/* Stack recorded events by source (the manual's grouping):
-   groups are ordered by their newest event, items inside a
-   group stay newest-first (the daemon lists newest-first). */
+/* v0.54: events carry a category -- 'system' for the six
+   built-in sources, 'app' for events about a user-installed app
+   (which also carry appId/appName). Anything without a category
+   (recorded before v0.54) reads as system. */
+function ncEventCategory(e){ return (e&&e.category==='app')?'app':'system'; }
+/* The stack a event belongs to: system events stack by source;
+   app events stack per app (key 'app:<appId>'). */
+function ncGroupKey(e){ return ncEventCategory(e)==='app' ? 'app:'+((e&&e.appId)||'') : ((e&&e.source)||''); }
+/* Stack recorded events (the manual's grouping): groups are
+   ordered by their newest event, items inside a group stay
+   newest-first (the daemon lists newest-first). A group carries
+   its key, its category, and (for app groups) the app's name. */
 function ncGroupEvents(events){
- const groups=[], bySrc={};
+ const groups=[], byKey={};
  for(const e of events||[]){
-  let g=bySrc[e.source];
-  if(!g){ g={source:e.source,items:[]}; bySrc[e.source]=g; groups.push(g); }
+  const key=ncGroupKey(e);
+  let g=byKey[key];
+  if(!g){ g={source:e.source,key,category:ncEventCategory(e),appId:e.appId||'',name:e.appName||'',items:[]}; byKey[key]=g; groups.push(g); }
   g.items.push(e);
  }
  return groups;
@@ -3496,24 +3574,34 @@ async function paintNC(){
  const now=new Date();
  let h=`<div id="nc-date">${now.toLocaleDateString('zh-CN',{weekday:'long',month:'long',day:'numeric'})}</div>`;
  const status=data.status||[], events=data.events||[];
+ /* v0.54: the panel splits into 系统通知 (status items + the
+    six built-in sources' stacks) and 应用通知 (events about
+    user-installed apps, stacked per app). */
+ const evCard=(e0,srcName)=>`<div class="ncard" data-nev="${e0.id}" data-nroute="${esc(e0.route||'')}"><span class="nx" data-nx="${e0.id}">✕</span><div class="n-src">${esc(srcName)}</div><div class="n-title">${esc(e0.title)}</div>${e0.body?`<div class="n-body">${esc(e0.body)}</div>`:''}<span class="n-time">${fmtNTime(e0.time)}</span></div>`;
+ const groupHTML=g=>{
+  const srcName=g.category==='app'?(g.name||'应用'):(NC_SRCNAMES[g.source]||g.source);
+  if(g.items.length===1) return evCard(g.items[0],srcName);
+  if(ncExpandedSrc.has(g.key)){
+   return `<div class="nstack"><button class="n-clear" data-nclear="${esc(g.key)}">全部清除</button>${g.items.map(e0=>evCard(e0,srcName)).join('')}<div class="nc-showless" data-nless="${esc(g.key)}">Show less</div></div>`;
+  }
+  const e0=g.items[0];
+  return `<div class="nstack"><button class="n-clear" data-nclear="${esc(g.key)}">全部清除</button><div class="npeek"></div><div class="ncard" data-nexpand="${esc(g.key)}"><div class="n-src">${esc(srcName)}<span class="n-count">${g.items.length}</span></div><div class="n-title">${esc(e0.title)}</div>${e0.body?`<div class="n-body">${esc(e0.body)}</div>`:''}<span class="n-time">${fmtNTime(e0.time)}</span></div></div>`;
+ };
+ const sysEvents=events.filter(e=>ncEventCategory(e)!=='app'), appEvents=events.filter(e=>ncEventCategory(e)==='app');
  if(ncEditMode){
   h+='<div class="nc-sec">编辑小部件</div>'+ncWidgetsEditHTML();
  } else {
   if(!status.length&&!events.length) h+='<div class="nc-empty">没有通知</div>';
-  for(const it of status){
-   h+=`<div class="ncard" data-nroute="${esc(it.route||'')}" style="cursor:pointer"><div class="n-src">${esc(NC_SRCNAMES[it.source]||it.source)}</div><div class="n-title">${esc(it.title)}</div>${it.body?`<div class="n-body">${esc(it.body)}</div>`:''}<div class="n-act"><button data-nact="${esc(it.route||'')}">${esc(it.action||'打开')}</button></div></div>`;
-  }
-  for(const g of ncGroupEvents(events)){
-   const srcName=NC_SRCNAMES[g.source]||g.source;
-   if(g.items.length===1){
-    const e0=g.items[0];
-    h+=`<div class="ncard" data-nev="${e0.id}" data-nroute="${esc(e0.route||'')}"><span class="nx" data-nx="${e0.id}">✕</span><div class="n-src">${esc(srcName)}</div><div class="n-title">${esc(e0.title)}</div>${e0.body?`<div class="n-body">${esc(e0.body)}</div>`:''}<span class="n-time">${fmtNTime(e0.time)}</span></div>`;
-   } else if(ncExpandedSrc.has(g.source)){
-    h+=`<div class="nstack"><button class="n-clear" data-nclear="${g.source}">全部清除</button>${g.items.map(e0=>`<div class="ncard" data-nev="${e0.id}" data-nroute="${esc(e0.route||'')}"><span class="nx" data-nx="${e0.id}">✕</span><div class="n-src">${esc(srcName)}</div><div class="n-title">${esc(e0.title)}</div>${e0.body?`<div class="n-body">${esc(e0.body)}</div>`:''}<span class="n-time">${fmtNTime(e0.time)}</span></div>`).join('')}<div class="nc-showless" data-nless="${g.source}">Show less</div></div>`;
-   } else {
-    const e0=g.items[0];
-    h+=`<div class="nstack"><button class="n-clear" data-nclear="${g.source}">全部清除</button><div class="npeek"></div><div class="ncard" data-nexpand="${g.source}"><div class="n-src">${esc(srcName)}<span class="n-count">${g.items.length}</span></div><div class="n-title">${esc(e0.title)}</div>${e0.body?`<div class="n-body">${esc(e0.body)}</div>`:''}<span class="n-time">${fmtNTime(e0.time)}</span></div></div>`;
+  if(status.length||sysEvents.length){
+   h+='<div class="nc-sec">系统通知</div>';
+   for(const it of status){
+    h+=`<div class="ncard" data-nroute="${esc(it.route||'')}" style="cursor:pointer"><div class="n-src">${esc(NC_SRCNAMES[it.source]||it.source)}</div><div class="n-title">${esc(it.title)}</div>${it.body?`<div class="n-body">${esc(it.body)}</div>`:''}<div class="n-act"><button data-nact="${esc(it.route||'')}">${esc(it.action||'打开')}</button></div></div>`;
    }
+   for(const g of ncGroupEvents(sysEvents)) h+=groupHTML(g);
+  }
+  if(appEvents.length){
+   h+='<div class="nc-sec">应用通知</div>';
+   for(const g of ncGroupEvents(appEvents)) h+=groupHTML(g);
   }
   h+='<div class="nc-sec">小部件</div>'+ncWidgetsHTML(data,nodeR,coreR);
  }
@@ -3527,7 +3615,7 @@ async function paintNC(){
  scroll.querySelectorAll('[data-nexpand]').forEach(c=>c.onclick=()=>{ ncExpandedSrc.add(c.dataset.nexpand); paintNC(); });
  scroll.querySelectorAll('[data-nless]').forEach(el=>el.onclick=()=>{ ncExpandedSrc.delete(el.dataset.nless); paintNC(); });
  scroll.querySelectorAll('[data-nx]').forEach(x=>x.onclick=e=>{ e.stopPropagation(); ncDismiss(x.dataset.nx); });
- scroll.querySelectorAll('[data-nclear]').forEach(b=>b.onclick=async e=>{ e.stopPropagation(); await api('/api/notify/clear-source',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source:b.dataset.nclear})}).catch(()=>{}); ncExpandedSrc.delete(b.dataset.nclear); paintNC(); });
+ scroll.querySelectorAll('[data-nclear]').forEach(b=>b.onclick=async e=>{ e.stopPropagation(); const k=b.dataset.nclear; const body=k.startsWith('app:')?{source:'app',app:k.slice(4)}:{source:k}; await api('/api/notify/clear-source',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).catch(()=>{}); ncExpandedSrc.delete(k); paintNC(); });
  scroll.querySelectorAll('[data-wdg]').forEach(el=>el.onclick=()=>{ const r=el.dataset.wdg; if(r) routeJump(r); });
  scroll.querySelectorAll('[data-wshow]').forEach(el=>el.onchange=()=>ncWidgetEdit(el.dataset.wshow,'show',el.checked));
  scroll.querySelectorAll('[data-wmove]').forEach(b=>b.onclick=()=>ncWidgetEdit(b.dataset.wmove,'move',+b.dataset.dir));
@@ -3580,7 +3668,7 @@ function dismissBannerEl(el){ if(!el||el.classList.contains('b-out')) return; el
 function showBanner(ev){
  const el=document.createElement('div');
  el.className='banner glasspanel b-in';
- el.innerHTML=`<span class="nx">✕</span><div class="n-src" style="font-size:11.5px;opacity:.65">${esc(NC_SRCNAMES[ev.source]||ev.source)}</div><div class="n-title" style="font-size:13.5px;font-weight:600;margin-top:1px">${esc(ev.title)}</div>${ev.body?`<div class="n-body" style="font-size:12.5px;opacity:.8;margin-top:2px;line-height:1.45">${esc(ev.body)}</div>`:''}`;
+ el.innerHTML=`<span class="nx">✕</span><div class="n-src" style="font-size:11.5px;opacity:.65">${esc(ev.category==='app'?(ev.appName||'应用'):(NC_SRCNAMES[ev.source]||ev.source))}</div><div class="n-title" style="font-size:13.5px;font-weight:600;margin-top:1px">${esc(ev.title)}</div>${ev.body?`<div class="n-body" style="font-size:12.5px;opacity:.8;margin-top:2px;line-height:1.45">${esc(ev.body)}</div>`:''}`;
  bannersEl.appendChild(el);
  while(bannersEl.children.length>3) bannersEl.firstElementChild.remove();
  requestAnimationFrame(()=>requestAnimationFrame(()=>el.classList.remove('b-in')));
@@ -3598,7 +3686,7 @@ function showBanner(ev){
 })();
 
 openApp('home');
-(async()=>{ await Promise.all([loadLayout(),loadWebApps(),loadStoreApps(),loadBoxApps(),loadProdApps(),loadDeskFiles(),settingsReady]); renderDesk(); restoreSession(); })();
+(async()=>{ await Promise.all([loadLayout(),loadWebApps(),loadStoreApps(),loadBoxApps(),loadProdApps(),loadFFState(),loadDeskFiles(),settingsReady]); renderDesk(); restoreSession(); })();
 </script>
 <div id="lockscreen">
   <div class="lk-card" id="lk-card">
@@ -3700,12 +3788,31 @@ function lpFilterKeys(entries,q){
 /* === fv pure (node-testable) === */
 /* The Finder's smart groups over the Data/files library. kind
    comes from the daemon's fileKindOf; the library is a single
-   flat layer, so groups are by TYPE, not by folder. */
+   flat layer, so groups are by TYPE, not by folder.
+   v0.54: 音乐/视频 groups classify by EXTENSION (the daemon's
+   fileKindOf leaves media at 'other'); media still flows into
+   全部/最近 like everything else. */
 const FV_GROUPS=[
  {id:'all',n:'全部文件'},{id:'recent',n:'最近导入'},{id:'image',n:'图片'},
+ {id:'music',n:'音乐'},{id:'video',n:'视频'},
  {id:'doc',n:'文档'},{id:'sheet',n:'表格'},{id:'zip',n:'压缩包'},{id:'other',n:'其他'}
 ];
+const FV_AUDIO_EXTS=['mp3','flac','wav','m4a','aac','ogg','opus','aiff','aif','ape','wma','mid','midi'];
+const FV_VIDEO_EXTS=['mp4','mkv','webm','mov','avi','m4v','wmv','flv','mpg','mpeg','3gp','ts','m2ts'];
+function fvExtOf(f){
+ if(f&&f.ext) return String(f.ext).toLowerCase();
+ const n=(f&&f.name)||''; const i=n.lastIndexOf('.');
+ return i>0?n.slice(i+1).toLowerCase():'';
+}
+function fvMediaGroup(f){
+ const e=fvExtOf(f);
+ if(FV_AUDIO_EXTS.indexOf(e)>=0) return 'music';
+ if(FV_VIDEO_EXTS.indexOf(e)>=0) return 'video';
+ return '';
+}
 function fvGroupOf(f){
+ const mg=fvMediaGroup(f);
+ if(mg) return mg;
  switch(f&&f.kind){
   case 'image': return 'image';
   case 'pdf': case 'text': case 'docx': case 'pptx': return 'doc';
@@ -3765,6 +3872,9 @@ function vaultLockedNow(){ return !!(window.__vault&&window.__vault.locked); }
 function fvFmtSize(n){ n=+n||0; if(n>=1073741824) return (n/1073741824).toFixed(2)+' GB'; if(n>=1048576) return (n/1048576).toFixed(1)+' MB'; if(n>=1024) return (n/1024).toFixed(1)+' KB'; return n+' B'; }
 function fvFmtTime(ms){ if(!ms) return '—'; const d=new Date(ms); return d.toLocaleDateString('zh-CN')+' '+d.toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',hour12:false}); }
 function fvKindName(kind){ return {image:'图片',pdf:'PDF 文档',text:'文本',csv:'表格',docx:'Word 文档',xlsx:'Excel 表格',pptx:'PPT 演示',zip:'压缩包',exe:'程序',dir:'文件夹',other:'文件'}[kind]||'文件'; }
+/* v0.54: the kind label for a FILE (media classify by extension,
+   the daemon kind stays 'other' for them). */
+function fvKindLabel(f){ const mg=fvMediaGroup(f); if(mg==='music') return '音乐'; if(mg==='video') return '视频'; return fvKindName(f&&f.kind); }
 
 /* ----- recents （最近打开）: one ledger for Spotlight, fed by
    wrapping the same open entry points the desktop uses, so a
@@ -3950,7 +4060,7 @@ let lpIsOpen=false, lpPage=0, lpDrag=null, lpWheelAt=0;
 function lpEntries(){
  const byKey={}, out=[];
  const push=(key,name,iconHTML,open)=>{ byKey[key]={key,name,iconHTML,open}; };
- APPS.forEach(a=>{ if(!a.nodesk) push('app:'+a.id,a.n,appIcon(a),()=>openApp(a.id)); });
+ APPS.forEach(a=>{ if(!a.nodesk) push('app:'+a.id,a.n,appIcon(a),a.id==='firefox'?()=>launchFirefoxEntry():()=>openApp(a.id)); });
  const inFolder=new Set(); LAYOUT.folders.forEach(f=>f.items.forEach(u=>inFolder.add(u)));
  WEBAPPS.filter(a=>!inFolder.has(a.url)).forEach(a=>push('web:'+a.url,a.name,webIconHTML(a),()=>openWebApp(a.url)));
  LAYOUT.folders.forEach(f=>push('folder:'+f.id,f.name,folderIconHTML(f),el=>openFolderPop(f.id,el)));
@@ -4133,7 +4243,7 @@ function spotCatalog(){
  const rec=spotRecentGet();
  const apps=lpEntries().filter(e=>e.key.indexOf('folder:')!==0)
   .map(e=>({key:e.key,name:e.name,icon:e.iconHTML,run:()=>e.open()}));
- const files=DESKFILES.map(f=>({key:'file:'+f.path,name:f.name,icon:fileIconHTML(f),sub:fvKindName(f.kind),run:()=>openDeskFile(f.path,f.kind)}));
+ const files=DESKFILES.map(f=>({key:'file:'+f.path,name:f.name,icon:fileIconHTML(f),sub:fvKindLabel(f),run:()=>openDeskFile(f.path,f.kind)}));
  const sets=SPOT_SETPAGES.map(([id,n])=>({key:'set:'+id,name:n,icon:'<div class="appico g-sys">⚙️</div>',sub:'设置',run:()=>{ openApp('sys'); const go=()=>{ if(window.sysGoto) window.sysGoto(id); }; go(); setTimeout(go,150); }}));
  const nodes=(spotNodesCache||[]).map(n=>({key:'node:'+n.target,name:n.name,icon:'<div class="appico g-core">🚀</div>',sub:'节点',run:async()=>{ const r=await api('/api/nodepro/select',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({target:n.target})}).catch(()=>null); if(r&&r.error) alert('切换失败：'+r.error); else { toast('已切换到 '+n.name); pollNode(); } }}));
  const acts=[];
@@ -4290,7 +4400,7 @@ function paintFvBody(){
   body.innerHTML='<table class="fv-tab"><thead><tr>'
    +'<th data-k="name">名称'+arrow('name')+'</th><th data-k="size">大小'+arrow('size')+'</th><th data-k="kind">类型'+arrow('kind')+'</th><th data-k="mtime">导入时间'+arrow('mtime')+'</th>'
    +'</tr></thead><tbody>'
-   +visible.map(f=>'<tr data-fvrow data-p="'+esc(f.path)+'" class="'+(FV.sel.has(f.path)?'sel':'')+'"><td>'+esc(f.name)+'</td><td>'+(f.dir?'—':fvFmtSize(f.size))+'</td><td>'+fvKindName(f.kind)+'</td><td>'+fvFmtTime(f.mtime)+'</td></tr>').join('')
+   +visible.map(f=>'<tr data-fvrow data-p="'+esc(f.path)+'" class="'+(FV.sel.has(f.path)?'sel':'')+'"><td>'+esc(f.name)+'</td><td>'+(f.dir?'—':fvFmtSize(f.size))+'</td><td>'+fvKindLabel(f)+'</td><td>'+fvFmtTime(f.mtime)+'</td></tr>').join('')
    +'</tbody></table>';
   body.querySelectorAll('th[data-k]').forEach(th=>th.onclick=()=>{
    const k=th.dataset.k;
@@ -4375,7 +4485,7 @@ function paintFvPrev(){
   ? '<img class="fv-thumb" src="/api/files/thumb?name='+encodeURIComponent(f.name)+'" alt="">'
   : fileIconHTML(f);
  pv.innerHTML=thumb+'<div class="fv-pname">'+esc(f.name)+'</div>'
-  +'<div class="fv-pmeta">大小：'+(f.dir?'—':fvFmtSize(f.size))+'<br>类型：'+fvKindName(f.kind)+(f.ext?('（.'+esc(f.ext)+'）'):'')+'<br>导入时间：'+fvFmtTime(f.mtime)+'</div>'
+  +'<div class="fv-pmeta">大小：'+(f.dir?'—':fvFmtSize(f.size))+'<br>类型：'+fvKindLabel(f)+(f.ext?('（.'+esc(f.ext)+'）'):'')+'<br>导入时间：'+fvFmtTime(f.mtime)+'</div>'
   +'<div class="fv-pbtns"><button class="btn" id="fvp-open">打开</button><button class="btn gray" id="fvp-exp">导出到电脑</button><button class="btn gray" id="fvp-ren">重命名…</button><button class="btn red" id="fvp-del">删除</button></div>';
  $50('fvp-open').onclick=()=>openDeskFile(f.path,f.kind);
  $50('fvp-exp').onclick=()=>exportDeskFile(f);

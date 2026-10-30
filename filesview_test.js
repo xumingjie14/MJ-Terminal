@@ -12,8 +12,8 @@ const assert = require('assert');
 const html = fs.readFileSync(__dirname + '/index.html', 'utf8');
 const m = html.match(/\/\* === fv pure \(node-testable\) === \*\/([\s\S]*?)\/\* === end fv pure === \*\//);
 assert(m, 'fv pure block not found in index.html');
-const { FV_GROUPS, fvGroupOf, fvInGroup, fvSortList, fvVisible, fvToggleSel, fvRangeSel, FV_RECENT_CAP } = new Function(
-  m[1] + '\nreturn { FV_GROUPS, fvGroupOf, fvInGroup, fvSortList, fvVisible, fvToggleSel, fvRangeSel, FV_RECENT_CAP };'
+const { FV_GROUPS, fvGroupOf, fvInGroup, fvSortList, fvVisible, fvToggleSel, fvRangeSel, FV_RECENT_CAP, fvMediaGroup, fvExtOf } = new Function(
+  m[1] + '\nreturn { FV_GROUPS, fvGroupOf, fvInGroup, fvSortList, fvVisible, fvToggleSel, fvRangeSel, FV_RECENT_CAP, fvMediaGroup, fvExtOf };'
 )();
 
 const F = (name, kind, size, mtime) => ({ name, path: name, kind, size, mtime, ext: name.split('.').pop() });
@@ -77,5 +77,29 @@ const before = files.map(f => f.name).join(',');
 fvVisible(files, 'all', '', 'size', 1);
 fvSortList(files, 'mtime', -1);
 assert.strictEqual(files.map(f => f.name).join(','), before, 'source array untouched');
+
+// --- v0.54: media groups classify by extension (daemon kind
+// stays 'other' for media; the group layer owns the split) ---
+assert(FV_GROUPS.some(g => g.id === 'music' && g.n === '音乐'), 'sidebar has 音乐');
+assert(FV_GROUPS.some(g => g.id === 'video' && g.n === '视频'), 'sidebar has 视频');
+for (const e of ['mp3', 'flac', 'wav', 'm4a', 'aac', 'ogg', 'opus', 'aiff']) {
+  assert.strictEqual(fvGroupOf(F('s.' + e, 'other', 1, 1)), 'music', e + ' -> music');
+}
+for (const e of ['mp4', 'mkv', 'webm', 'mov', 'avi', 'm4v']) {
+  assert.strictEqual(fvGroupOf(F('v.' + e, 'other', 1, 1)), 'video', e + ' -> video');
+}
+assert.strictEqual(fvGroupOf(F('S.MP3', 'other', 1, 1)), 'music', 'extension match is case-insensitive');
+// ext may be absent (zip sub-listings): fall back to the name.
+assert.strictEqual(fvMediaGroup({ name: 'clip.mkv', kind: 'other' }), 'video', 'name fallback when ext missing');
+assert.strictEqual(fvExtOf({ name: 'noext', kind: 'other' }), '', 'no extension -> empty');
+// media files still live in 全部/最近 and filter in every view
+// (fvVisible is the single filter all three views consume).
+const media = [F('song.mp3', 'other', 10, 500), F('clip.mp4', 'other', 20, 600), F('a.pdf', 'pdf', 30, 700)];
+assert.deepStrictEqual(fvVisible(media, 'music', '', 'name', 1).map(f => f.name), ['song.mp3'], 'music group filters');
+assert.deepStrictEqual(fvVisible(media, 'video', '', 'name', 1).map(f => f.name), ['clip.mp4'], 'video group filters');
+assert.strictEqual(fvVisible(media, 'all', '', 'name', 1).length, 3, 'media still in 全部');
+assert.strictEqual(fvVisible(media, 'recent', '', 'mtime', -1).length, 3, 'media still in 最近');
+assert(!fvInGroup(F('song.mp3', 'other', 1, 1), 'other'), 'an mp3 is music now, not 其他');
+assert(fvInGroup(F('song.mp3', 'other', 1, 1), 'music'), 'mp3 in music');
 
 console.log('filesview_test: all assertions passed');

@@ -78,7 +78,21 @@ type notifyEvent struct {
 	Title  string `json:"title"`
 	Body   string `json:"body,omitempty"`
 	Route  string `json:"route,omitempty"` // view-side jump target: an app id, or "setpage:<page>"
+	// v0.54: the 系统/应用 split the user asked for. Category is
+	// "system" for the six built-in sources and "app" for events
+	// about a user-installed app (store app / component /
+	// Firefox install completions), which also carry the app's
+	// id + display name. Events recorded before v0.54 have no
+	// category on disk; list() reads them back as "system".
+	Category string `json:"category,omitempty"`
+	AppID    string `json:"appId,omitempty"`
+	AppName  string `json:"appName,omitempty"`
 }
+
+// notifySrcApp is the Source value on app-category events (the
+// per-app identity lives in AppID/AppName; Source stays a fixed
+// bucket so dedupe/clear plumbing keeps one shape).
+const notifySrcApp = "app"
 
 type notifyFile struct {
 	Version int              `json:"version"`
@@ -169,27 +183,39 @@ func (st *notifyStore) saveLocked() {
 // inside the dedupe window. Returns the stored event and whether
 // it was actually recorded. The rolling cap drops the oldest.
 func (st *notifyStore) record(source, key, title, body, route string, now time.Time) (notifyEvent, bool) {
+	return st.recordEvent(notifyEvent{
+		Source: source, Key: key, Title: title, Body: body, Route: route,
+	}, source+"\x00"+key, now)
+}
+
+// recordApp is record() for an app-category event: the dedupe
+// bucket includes the app id, so two different apps finishing an
+// install in the same minute never dedupe each other away.
+func (st *notifyStore) recordApp(appID, appName, key, title, body, route string, now time.Time) (notifyEvent, bool) {
+	return st.recordEvent(notifyEvent{
+		Source: notifySrcApp, Key: key, Title: title, Body: body, Route: route,
+		Category: "app", AppID: appID, AppName: appName,
+	}, notifySrcApp+"\x00"+appID+"\x00"+key, now)
+}
+
+func (st *notifyStore) recordEvent(ev notifyEvent, dedupeKey string, now time.Time) (notifyEvent, bool) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	st.loadLocked()
-	dk := source + "\x00" + key
-	if key != "" {
-		if last, ok := st.dedupe[dk]; ok && now.UnixMilli()-last < notifyDedupeSecs*1000 {
+	if ev.Key != "" {
+		if last, ok := st.dedupe[dedupeKey]; ok && now.UnixMilli()-last < notifyDedupeSecs*1000 {
 			return notifyEvent{}, false
 		}
 	}
 	st.seq++
-	ev := notifyEvent{
-		ID:     fmt.Sprintf("n%d", st.seq),
-		Time:   now.UnixMilli(),
-		Source: source, Key: key, Title: title, Body: body, Route: route,
-	}
+	ev.ID = fmt.Sprintf("n%d", st.seq)
+	ev.Time = now.UnixMilli()
 	st.events = append([]notifyEvent{ev}, st.events...)
 	if len(st.events) > notifyMaxEvents {
 		st.events = st.events[:notifyMaxEvents]
 	}
-	if key != "" {
-		st.dedupe[dk] = ev.Time
+	if ev.Key != "" {
+		st.dedupe[dedupeKey] = ev.Time
 	}
 	st.saveLocked()
 	return ev, true
@@ -201,7 +227,36 @@ func (st *notifyStore) list() []notifyEvent {
 	st.loadLocked()
 	out := make([]notifyEvent, len(st.events))
 	copy(out, st.events)
+	// Migration read: events stored before the 系统/应用 split
+	// carry no category; they are system events by definition.
+	for i := range out {
+		if out[i].Category == "" {
+			out[i].Category = "system"
+		}
+	}
 	return out
+}
+
+// clearApp removes one app's recorded events (Notification
+// Center's per-app stack clear). Returns how many were removed.
+func (st *notifyStore) clearApp(appID string) int {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	st.loadLocked()
+	kept := st.events[:0]
+	n := 0
+	for _, e := range st.events {
+		if e.Category == "app" && e.AppID == appID {
+			n++
+		} else {
+			kept = append(kept, e)
+		}
+	}
+	if n > 0 {
+		st.events = kept
+		st.saveLocked()
+	}
+	return n
 }
 
 func (st *notifyStore) dismiss(id string) bool {
@@ -288,6 +343,37 @@ func postNotify(source, key, title, body, route string) {
 		}
 		logf("notify", "info", "通知 [%s] %s", notifySourceName(source), title)
 		if notifyBanner(s, source) {
+			notifyPushBanner(ev)
+		}
+	}()
+}
+
+// postAppNotify is postNotify for app-category events (v0.54):
+// something a user-installed app did -- today: a store app, a
+// productivity component, Firefox or OpenClaw finishing its
+// install. The per-app switches in 设置 → 通知 (notify_allow_app_
+// <id> / notify_banner_app_<id>, default on) gate it exactly
+// like the per-source ones gate postNotify.
+//
+// Honest boundary, also stated in 设置 and the release notes:
+// this governs only events the TERMINAL itself generates about
+// its apps. A web page's own notifications inside Chrome belong
+// to the Windows notification center; the daemon cannot see or
+// gate them.
+func postAppNotify(appID, appName, key, title, body, route string) {
+	go func() {
+		defer func() { _ = recover() }()
+		s := settingsGet()
+		if !notifyAppAllowed(s, appID) {
+			logf("notify", "info", "应用通知已被设置关闭，不记录：%s（%s）", appName, title)
+			return
+		}
+		ev, ok := notifySt.recordApp(appID, appName, key, title, body, route, time.Now())
+		if !ok {
+			return // deduped inside 10 minutes
+		}
+		logf("notify", "info", "通知 [应用·%s] %s", appName, title)
+		if notifyAppBanner(s, appID) {
 			notifyPushBanner(ev)
 		}
 	}()
@@ -458,9 +544,17 @@ func notifyClearSourceHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct {
 		Source string `json:"source"`
+		App    string `json:"app"` // v0.54: with source="app", clears one app's stack
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Source == "" {
 		writeJSON(w, map[string]any{"error": "参数不对"})
+		return
+	}
+	if body.Source == notifySrcApp && body.App != "" {
+		if n := notifySt.clearApp(body.App); n > 0 {
+			logf("notify", "info", "通知已清除（应用 %s 整组 %d 条）", body.App, n)
+		}
+		writeJSON(w, map[string]any{"ok": true})
 		return
 	}
 	if n := notifySt.clearSource(body.Source); n > 0 {

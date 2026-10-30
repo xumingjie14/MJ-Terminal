@@ -65,6 +65,14 @@ func platformRaiseBackdrop(hwnd uint64, shell uint64) bool {
 	return false
 }
 
+// v0.54: z-order verification (presentSweep) and the isolated-
+// Chrome DWM frame: off Windows there is no z-order to check, so
+// "above" reads true (verification falls back to foreground
+// alone) and the frame ops are inert.
+func platformWindowAbove(hwnd uint64, other uint64) bool { return true }
+func platformApplyChromeFrame(hwnd uint64) uint          { return 0 }
+func platformRestoreChromeFrame(hwnd uint64)             {}
+
 // v0.45 immersion ops (immerse.go): no host windows off Windows,
 // so nothing is ever immersed, marked or fullscreened.
 

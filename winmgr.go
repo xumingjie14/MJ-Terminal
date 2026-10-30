@@ -75,9 +75,11 @@ type extWindow struct {
 	// v0.38: birth-presentation verification (winset.go). A window
 	// whose birth context said it should be on stage is marked
 	// pending; the patrol verifies a beat later that it really is
-	// foreground, and retries the shared raise exactly once if not.
+	// on stage (v0.54: foreground AND above the desktop view AND
+	// not minimized), and retries the shared raise a bounded
+	// number of times if not.
 	presentPending bool
-	presentRetried bool
+	presentRetries int
 	presentExpect  bool
 	// browser marks windows owned by a browser the daemon launched
 	// (isolated Chrome / Firefox component, incl. windows the patrol
@@ -1252,8 +1254,220 @@ func patrolTick() {
 	// own app, rejoins the hidden set here).
 	grpEnforceHidden()
 
+	// v0.54: keep the isolated-Chrome DWM frame book honest --
+	// frame newly eligible windows, restore the ones that left.
+	chromeFrameSweep(byPID, shellPIDs)
+
 	// v0.45: immersion reconcile + the standing fail-visible
 	// check -- anything immersed that left the registry during
 	// this tick is restored to the host taskbar at once.
 	immerseSweep()
+}
+
+// ---------- v0.54: isolated-Chrome frame unification ----------
+//
+// The registry half of the DWM frame work (the platform half is
+// platformApplyChromeFrame / platformRestoreChromeFrame). Only
+// windows of the browser the DAEMON launched for the isolated
+// profile are eligible; the desktop view itself never is, and
+// neither is any window whose process belongs to the shell view's
+// own family (the shell is usually Edge -- the same image name as
+// a fallback isolated browser, so the PID family is the guard,
+// not the name alone). Applied at settle (chromeFrameApplyFor),
+// kept honest by the patrol (chromeFrameSweep), restored when a
+// booked window leaves the registry alive and for every booked
+// window on daemon exit (chromeFrameRestoreAll, called from
+// prepareWindowsForDaemonExit). Every transition logs under
+// module winmgr.
+
+// chromeFrameMask bits report which attributes a platform apply
+// actually landed, so the sweep can log honestly (border+corner
+// are the visible parts on Win11; the caption colour may not
+// show on Chrome's self-drawn frame).
+const (
+	chromeFrameCorner uint = 1 << iota
+	chromeFrameBorder
+	chromeFrameCaption
+	chromeFrameText
+)
+
+type chromeFrameFacts struct {
+	Browser      bool   // registry entry belongs to a daemon-launched browser
+	Shell        bool   // the entry IS the desktop view
+	ShellPID     bool   // the window's PID is in the shell view's process family
+	ImageBase    string // the window process's image base name (lowercase)
+	IsolatedBase string // the isolated browser's image base name (lowercase); "" = unknown
+}
+
+// chromeFrameEligible is the pure verdict (unit-tested): an
+// isolated-browser window gets the terminal's frame; everything
+// else keeps the frame its own app chose.
+func chromeFrameEligible(f chromeFrameFacts) bool {
+	if !f.Browser || f.Shell || f.ShellPID || f.IsolatedBase == "" {
+		return false
+	}
+	return f.ImageBase == f.IsolatedBase &&
+		(f.ImageBase == "chrome.exe" || f.ImageBase == "msedge.exe")
+}
+
+var (
+	chromeFrameMu     sync.Mutex
+	chromeFrameBook   = map[uint64]bool{} // HWNDs we have framed
+	chromeFrameNoSupp bool                // the "OS accepted nothing" line is logged
+)
+
+func isolatedBrowserBase() string {
+	p := findChrome()
+	if p == "" {
+		return ""
+	}
+	return strings.ToLower(filepath.Base(p))
+}
+
+func chromeFrameFactsFor(e *extWindow, imageBase string, shellPIDs map[uint32]bool, isoBase string) chromeFrameFacts {
+	return chromeFrameFacts{
+		Browser:      e.browser,
+		Shell:        e.Shell,
+		ShellPID:     e.pid != 0 && shellPIDs[e.pid],
+		ImageBase:    imageBase,
+		IsolatedBase: isoBase,
+	}
+}
+
+// chromeFrameNoteLocked records one apply outcome in the console:
+// full/partial applications say which parts landed; a zero mask
+// (unsupported OS -- the Win10 case) is logged once per process,
+// not once per window, and leaves the seeded dark theme as the
+// delivered layer. Caller holds chromeFrameMu.
+func chromeFrameNoteLocked(hwnd uint64, mask uint, app string) {
+	if mask == 0 {
+		if !chromeFrameNoSupp {
+			chromeFrameNoSupp = true
+			logf("winmgr", "warn", "隔离 Chrome 窗口框：DWM 颜色/圆角属性未被系统接受（多为 Windows 10），已降级——仅保留配置里的深色主题播种")
+		}
+		return
+	}
+	var parts []string
+	if mask&chromeFrameBorder != 0 {
+		parts = append(parts, "边框色")
+	}
+	if mask&chromeFrameCaption != 0 {
+		parts = append(parts, "标题栏色")
+	}
+	if mask&chromeFrameText != 0 {
+		parts = append(parts, "标题文字色")
+	}
+	if mask&chromeFrameCorner != 0 {
+		parts = append(parts, "圆角")
+	}
+	logf("winmgr", "info", "隔离 Chrome 窗口已套用终端深色框（%s）：%s", strings.Join(parts, "、"), app)
+}
+
+// chromeFrameApplyFor frames one window at settle time when it
+// is eligible and not yet booked.
+func chromeFrameApplyFor(hwnd uint64) {
+	iso := isolatedBrowserBase()
+	if iso == "" {
+		return
+	}
+	extMu.Lock()
+	e, ok := extWins[hwnd]
+	if !ok {
+		extMu.Unlock()
+		return
+	}
+	shellPIDs := map[uint32]bool{}
+	for _, x := range extWins {
+		if x.Shell && x.pid != 0 {
+			shellPIDs[x.pid] = true
+		}
+	}
+	pid, app := e.pid, e.App
+	facts := chromeFrameFactsFor(e, "", shellPIDs, iso)
+	extMu.Unlock()
+	for _, p := range platformProcessSnapshot() {
+		if p.PID == pid {
+			facts.ImageBase = strings.ToLower(filepath.Base(p.ImagePath))
+			break
+		}
+	}
+	if !chromeFrameEligible(facts) {
+		return
+	}
+	chromeFrameMu.Lock()
+	defer chromeFrameMu.Unlock()
+	if chromeFrameBook[hwnd] {
+		return
+	}
+	mask := platformApplyChromeFrame(hwnd)
+	chromeFrameBook[hwnd] = true
+	chromeFrameNoteLocked(hwnd, mask, app)
+}
+
+// chromeFrameSweep is the patrol pass: frame eligible windows
+// that settled before the book knew them (or whose facts only
+// became readable later), and restore + unbook windows that left
+// the registry while still alive (an unclaim must hand the
+// window its own frame back).
+func chromeFrameSweep(byPID map[uint32]procFact, shellPIDs map[uint32]bool) {
+	iso := isolatedBrowserBase()
+	if iso == "" {
+		return
+	}
+	extMu.Lock()
+	type ent struct {
+		h    uint64
+		f    chromeFrameFacts
+		app  string
+		live bool
+	}
+	ents := make([]ent, 0, len(extWins))
+	registered := make(map[uint64]bool, len(extWins))
+	for h, e := range extWins {
+		registered[h] = true
+		img := ""
+		if pf, ok := byPID[e.pid]; ok {
+			img = strings.ToLower(filepath.Base(pf.ImagePath))
+		}
+		ents = append(ents, ent{h, chromeFrameFactsFor(e, img, shellPIDs, iso), e.App, true})
+	}
+	extMu.Unlock()
+	chromeFrameMu.Lock()
+	defer chromeFrameMu.Unlock()
+	for h := range chromeFrameBook {
+		if !registered[h] {
+			if platformWindowExists(h) {
+				platformRestoreChromeFrame(h)
+				logf("winmgr", "info", "隔离 Chrome 窗口已离册，终端深色框已还原为系统默认")
+			}
+			delete(chromeFrameBook, h)
+		}
+	}
+	for _, en := range ents {
+		if chromeFrameBook[en.h] || !chromeFrameEligible(en.f) {
+			continue
+		}
+		mask := platformApplyChromeFrame(en.h)
+		chromeFrameBook[en.h] = true
+		chromeFrameNoteLocked(en.h, mask, en.app)
+	}
+}
+
+// chromeFrameRestoreAll hands every booked window its own frame
+// back. Called from prepareWindowsForDaemonExit before the
+// process goes (winset.go's exit safety line).
+func chromeFrameRestoreAll() {
+	chromeFrameMu.Lock()
+	defer chromeFrameMu.Unlock()
+	n := 0
+	for h := range chromeFrameBook {
+		if platformWindowExists(h) {
+			platformRestoreChromeFrame(h)
+			n++
+		}
+		delete(chromeFrameBook, h)
+	}
+	if n > 0 {
+		logf("winmgr", "info", "开窗礼仪：守护进程退出前已还原 %d 个隔离 Chrome 窗口的边框样式", n)
+	}
 }
