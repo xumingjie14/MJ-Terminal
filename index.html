@@ -152,6 +152,7 @@ table.fv-tab{width:100%;border-collapse:collapse;font-size:13px;color:#fff}
 .lk-form input::placeholder{color:rgba(255,255,255,.55)}
 .lk-form button{padding:8px 16px;border-radius:999px;border:none;background:rgba(255,255,255,.85);color:#111;font-size:14px;cursor:pointer}
 .lk-err{color:#ffb4ae;font-size:13px;min-height:20px;margin-top:10px}
+.lk-lasterr{display:none;color:#ffd9a8;background:rgba(255,159,10,.14);border:1px solid rgba(255,159,10,.35);border-radius:10px;padding:8px 12px;font-size:12.5px;line-height:1.55;margin-top:10px;text-align:left;word-break:break-word}
 .lk-prog{margin-top:16px}
 .lk-bar{height:6px;border-radius:3px;background:rgba(255,255,255,.22);overflow:hidden}
 .lk-bar i{display:block;height:100%;width:0;background:#fff;border-radius:3px;transition:width .3s ease}
@@ -3606,6 +3607,7 @@ openApp('home');
     <div class="lk-sub" id="lk-sub">输入密码解锁</div>
     <form class="lk-form" id="lk-form"><input type="password" id="lk-pw" placeholder="密码" autocomplete="off"><button type="submit" id="lk-btn">解锁</button></form>
     <div class="lk-err" id="lk-err"></div>
+    <div class="lk-lasterr" id="lk-lasterr"></div>
     <div class="lk-prog" id="lk-prog" style="display:none"><div class="lk-bar"><i id="lk-bar-i"></i></div><div class="lk-progtxt" id="lk-progtxt"></div></div>
     <div class="lk-off" id="lk-off">关机</div>
   </div>
@@ -4404,7 +4406,7 @@ window.__bindFiles=function(){
    shutdown endpoints and shares `api`/`SETTINGS` with the desktop
    script. */
 (function(){
- var LK={shown:false,busy:false};
+ var LK={shown:false,busy:false,ackErr:''};
  function $(id){ return document.getElementById(id); }
  function vapi(path,opts){ return api(path,opts).catch(function(){ return null; }); }
  function phaseText(st){
@@ -4419,6 +4421,17 @@ window.__bindFiles=function(){
    var working=(st.phase==='sealing'||st.phase==='unlocking');
    form.style.display=working?'none':'';
    prog.style.display=working?'':'none';
+   /* v0.53: a failed unlock restore explains itself right here
+      (status.lastError) -- while locked there is no other place
+      the reason could be seen. It stays up until the next unlock
+      attempt (submit acknowledges the standing text), and a new
+      attempt resets the acknowledgement when its job starts, so
+      even an identical new failure is shown again. */
+   var le=$('lk-lasterr');
+   if(working) LK.ackErr='';
+   var msg=st.lastError||'';
+   if(msg&&msg!==LK.ackErr){ le.textContent=msg; le.style.display='block'; }
+   else { le.textContent=''; le.style.display='none'; }
    if(working&&st.progressTotal>0){
      var pct=Math.min(100,Math.round((st.progress||0)*100/st.progressTotal));
      $('lk-bar-i').style.width=pct+'%';
@@ -4438,6 +4451,10 @@ window.__bindFiles=function(){
    ev.preventDefault(); if(LK.busy) return;
    var pw=$('lk-pw').value; if(!pw) return;
    LK.busy=true; $('lk-err').textContent='';
+   /* Clear the standing restore error for this attempt: the new
+      result (success, or a fresh lastError) replaces it. */
+   LK.ackErr=(window.__vault&&window.__vault.lastError)||'';
+   var le0=$('lk-lasterr'); le0.textContent=''; le0.style.display='none';
    var r=await vapi('/api/vault/unlock',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pw})});
    LK.busy=false;
    if(!r||r.error){

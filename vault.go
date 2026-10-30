@@ -677,34 +677,113 @@ func vaultPruneEmptyDirs(root string) {
 	}
 }
 
+// vaultRestoreSpaceMargin is the small headroom the restore
+// pre-flight wants beyond the largest remaining shard.
+const vaultRestoreSpaceMargin = 16 << 20
+
+// vaultFreeSpaceBytes reports the bytes available to this process
+// on the volume holding a directory. A var so tests can inject a
+// tiny volume without filling a real disk.
+var vaultFreeSpaceBytes = diskFreeSpaceBytes
+
+// vaultSpaceError is the restore pre-flight's named refusal: the
+// volume cannot hold even the largest remaining shard.
+type vaultSpaceError struct {
+	Need int64 // bytes the restore wants free (largest shard + margin)
+	Free int64 // bytes actually available
+}
+
+func (e *vaultSpaceError) Error() string {
+	return fmt.Sprintf("恢复最大的一片数据需要约 %s 可用空间，当前只剩 %s，还差约 %s",
+		fmtBytes(e.Need), fmtBytes(e.Free), fmtBytes(e.Need-e.Free))
+}
+
+// vaultRestoreErrText phrases a restore failure for the lock
+// screen (status -> lastError): user language first, the raw
+// error kept alongside.
+func vaultRestoreErrText(err error) string {
+	var se *vaultSpaceError
+	if errors.As(err, &se) {
+		return "恢复失败：磁盘空间不足（" + err.Error() + "）。请先腾出磁盘空间，再重新输入密码解锁。"
+	}
+	return "恢复失败：" + err.Error()
+}
+
 // vaultRestoreTree decrypts every shard in meta back into
-// dataRoot. Before writing, each top-level entry covered by the
-// shards has its live counterpart removed: anything sitting in
-// Data while sealed can only be post-seal residue (e.g. the
-// throwaway lock-screen browser profile), and the sealed copy is
-// the truth. Shards are deleted only after ALL of them restored
-// cleanly; a failure leaves meta untouched so unlock can retry.
+// dataRoot, committing ONE shard at a time -- the same discipline
+// the seal side uses. As soon as a shard is fully restored it is
+// dropped from the manifest (persisted) and its file deleted, so
+// a failure mid-restore leaves only the remaining shards behind
+// and a retry resumes where it stopped instead of starting over.
+// The peak extra disk space a restore needs is therefore about
+// ONE shard (~128 MiB), not a whole second copy of the sealed
+// data. (The pre-v0.53 restore deleted shards only after ALL of
+// them had been restored, so ciphertext and plaintext coexisted
+// for the whole run: on a volume with less free space than the
+// sealed total, every unlock attempt died at the same percentage
+// forever.)
+//
+// Two guards around the writes:
+//
+//   - The prepare step (wiping the live top-level counterparts of
+//     shard-covered entries: anything sitting in Data while sealed
+//     can only be post-seal residue, and the sealed copy is the
+//     truth) runs ONLY on a provably first attempt of a COMPLETED
+//     seal -- meta.Sealed set AND the remaining shards still
+//     adding up to meta.TotalBytes. After an interrupted seal
+//     (Sealed false), the not-yet-sealed remainder of the top
+//     directory being sealed lives ONLY in Data: wiping it would
+//     destroy it permanently, so the step is skipped entirely and
+//     shard-covered files are simply overwritten per file
+//     (O_TRUNC in vaultDecryptShard). After a partial restore the
+//     remaining shards no longer add up to TotalBytes -- the
+//     already-restored files likewise live only in Data now, and
+//     a retry must not wipe them either.
+//   - A free-space pre-flight (after prepare): if the volume
+//     cannot hold the largest remaining shard, restore refuses up
+//     front with a named error instead of dying halfway.
 func vaultRestoreTree(dataRoot, vaultRoot string, key []byte, meta *vaultMeta, progress func(done, total int64)) error {
 	var total int64
 	for _, sm := range meta.Shards {
 		total += sm.Bytes
 	}
-	// Prepare top-level counterparts.
-	prepared := map[string]bool{}
-	for _, sm := range meta.Shards {
-		hdr, _, err := vaultReadShardHeader(filepath.Join(vaultRoot, sm.Name))
-		if err != nil {
-			return fmt.Errorf("读分片 %s 的目录失败：%w", sm.Name, err)
-		}
-		for _, fe := range hdr.Files {
-			top := strings.SplitN(fe.Path, "/", 2)[0]
-			if prepared[top] {
-				continue
+	// Prepare top-level counterparts -- first attempt of a
+	// completed seal only (see the header comment).
+	firstAttempt := meta.TotalBytes <= 0 || total >= meta.TotalBytes
+	if meta.Sealed && firstAttempt {
+		prepared := map[string]bool{}
+		for _, sm := range meta.Shards {
+			hdr, _, err := vaultReadShardHeader(filepath.Join(vaultRoot, sm.Name))
+			if err != nil {
+				return fmt.Errorf("读分片 %s 的目录失败：%w", sm.Name, err)
 			}
-			prepared[top] = true
-			live := filepath.Join(dataRoot, filepath.FromSlash(top))
-			if live != dataRoot {
-				_ = os.RemoveAll(live)
+			for _, fe := range hdr.Files {
+				top := strings.SplitN(fe.Path, "/", 2)[0]
+				if prepared[top] {
+					continue
+				}
+				prepared[top] = true
+				live := filepath.Join(dataRoot, filepath.FromSlash(top))
+				if live != dataRoot {
+					_ = os.RemoveAll(live)
+				}
+			}
+		}
+	}
+	// Free-space pre-flight: while a shard restores, its plaintext
+	// is written out while its ciphertext still sits on disk, so
+	// the largest remaining shard is the true requirement. If the
+	// volume cannot hold even that, do not start.
+	if len(meta.Shards) > 0 {
+		var maxShard int64
+		for _, sm := range meta.Shards {
+			if sm.Bytes > maxShard {
+				maxShard = sm.Bytes
+			}
+		}
+		if free, ferr := vaultFreeSpaceBytes(dataRoot); ferr == nil {
+			if need := maxShard + vaultRestoreSpaceMargin; int64(free) < need {
+				return &vaultSpaceError{Need: need, Free: int64(free)}
 			}
 		}
 	}
@@ -715,15 +794,31 @@ func vaultRestoreTree(dataRoot, vaultRoot string, key []byte, meta *vaultMeta, p
 		}
 	}
 	report()
-	for _, sm := range meta.Shards {
+	// Snapshot the work list: meta.Shards shrinks as shards commit.
+	pending := append([]vaultShardMeta(nil), meta.Shards...)
+	for _, sm := range pending {
 		if err := vaultDecryptShard(dataRoot, vaultRoot, sm, key, func(n int64) {
 			done += n
 			report()
 		}); err != nil {
 			return err
 		}
-	}
-	for _, sm := range meta.Shards {
+		// This shard is fully back as plaintext: commit it the
+		// seal-side way -- record first, delete after. Persist the
+		// manifest WITHOUT this shard, and only then remove the
+		// shard file: a manifest entry whose file is missing would
+		// be fatal to a retry, while an orphaned shard file not in
+		// the manifest is inert.
+		kept := make([]vaultShardMeta, 0, len(meta.Shards))
+		for _, x := range meta.Shards {
+			if x.Name != sm.Name {
+				kept = append(kept, x)
+			}
+		}
+		meta.Shards = kept
+		if err := vaultSaveMeta(vaultRoot, meta); err != nil {
+			return fmt.Errorf("记录保险库清单失败：%w", err)
+		}
 		_ = os.Remove(filepath.Join(vaultRoot, sm.Name))
 	}
 	meta.Shards = nil
@@ -751,6 +846,7 @@ var vaultSt = struct {
 	total    int64
 	partial  bool // shards exist AND plaintext files remain (interrupted seal/restore)
 	detected bool
+	lastErr  string // why the last unlock restore failed, in user language (lock screen renders it)
 }{
 	phase: vaultPhaseOff,
 }
@@ -859,8 +955,9 @@ func vaultStatusMap() map[string]any {
 		"phase":   vaultSt.phase,
 		"locked": vaultSt.phase == vaultPhaseGate || vaultSt.phase == vaultPhaseSealed ||
 			vaultSt.phase == vaultPhaseSealing || vaultSt.phase == vaultPhaseUnlocking,
-		"partial": vaultSt.partial,
-		"hasKey":  vaultSt.key != nil,
+		"partial":   vaultSt.partial,
+		"hasKey":    vaultSt.key != nil,
+		"lastError": vaultSt.lastErr,
 	}
 	if vaultSt.meta != nil {
 		m["shards"] = len(vaultSt.meta.Shards)
@@ -877,6 +974,17 @@ func vaultStatusMap() map[string]any {
 func vaultSetProgress(done, total int64) {
 	vaultSt.Lock()
 	vaultSt.done, vaultSt.total = done, total
+	vaultSt.Unlock()
+}
+
+// vaultSetLastErr records why an unlock restore failed, in user
+// language. The lock screen renders it from the status response:
+// while locked, the log file is sealed away inside Data and the
+// diagnostics endpoint is behind the gate, so without this field
+// a restore failure is completely invisible on the machine itself.
+func vaultSetLastErr(s string) {
+	vaultSt.Lock()
+	vaultSt.lastErr = s
 	vaultSt.Unlock()
 }
 
@@ -1129,6 +1237,7 @@ func vaultUnlockHandler(w http.ResponseWriter, r *http.Request) {
 	vaultSetKey(master)
 	if len(meta.Shards) == 0 {
 		// Gate mode: data is plaintext, nothing to decrypt.
+		vaultSetLastErr("")
 		vaultSetPhase(vaultPhaseUnlocked)
 		logf("vault", "info", "保险库已解锁（密码验证通过）")
 		if n := vaultFailedUnlocks.Swap(0); n > 0 {
@@ -1145,9 +1254,16 @@ func vaultUnlockHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"ok": true, "unlocking": true})
 	go func() {
 		metaCopy := *meta
+		// A fresh attempt answers the previous failure: clear the
+		// standing error now; a new failure below replaces it.
+		vaultSetLastErr("")
 		err := vaultRestoreTree(dataDir(), vaultDir(), master, &metaCopy, vaultSetProgress)
 		if err != nil {
 			logf("vault", "error", "保险库解锁恢复失败：%v", err)
+			// The lock screen must SAY why it fell back to the
+			// password prompt -- a log line alone is invisible
+			// while locked (log file sealed, diag endpoint gated).
+			vaultSetLastErr(vaultRestoreErrText(err))
 			vaultWipeKey()
 			vaultSetPhase(vaultPhaseSealed)
 			return
