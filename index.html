@@ -884,10 +884,28 @@ function restoreSession(){
  if(n) api('/api/shell/restored',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({wins:n})}).catch(()=>{});
 }
 addEventListener('beforeunload',()=>{ try{ localStorage.setItem(SESS_KEY,JSON.stringify(snapshotSession())); }catch(e){} });
+/* v0.55: FFSTATE is declared HERE, ahead of the Dock builder loop
+   below -- that loop runs during initial script evaluation and calls
+   appIcon() for every app, and since v0.54 appIcon('firefox') reads
+   FFSTATE (via ffDeskIconHTML). In v0.54 the declaration sat ~770
+   lines later, down in the Firefox section: the loop hit the
+   temporal dead zone, the ReferenceError aborted the whole first
+   script block mid-evaluation, every later let/const (LAYOUT,
+   DESKORDER, ...) stayed uninitialized forever, the boot sequence
+   never ran, and the desktop + Launchpad painted nothing. The state
+   is still loaded by loadFFState() and consumed by ffDeskIconHTML()
+   / paintFF in the Firefox section; only the declaration moved. */
+let FFSTATE=null;
+function dockIconHTML(a){
+ /* One app's icon must never be able to abort script evaluation or
+    a paint: fall back to its plain glyph tile and log. */
+ try{ return appIcon(a); }
+ catch(e){ console.error('[mj-dock] 图标构建失败，已降级为默认图标：'+a.id,e); return `<div class="appico ${a.g}">${esc(a.glyph)}</div>`; }
+}
 APPS.forEach(a=>{
  if(a.nodesk) return; /* file viewers (v0.32): windows only, no Dock icon */
  const it=document.createElement('div');it.className='ditem';
- it.innerHTML=`<span class="dlabel">${a.n}</span><button class="dockbtn">${appIcon(a)}</button><span class="ddot" id="ddot-${a.id}"></span>`;
+ it.innerHTML=`<span class="dlabel">${a.n}</span><button class="dockbtn">${dockIconHTML(a)}</button><span class="ddot" id="ddot-${a.id}"></span>`;
  it.querySelector('.dockbtn').onclick=()=>openApp(a.id);
  dockEl.appendChild(it);
 });
@@ -968,6 +986,14 @@ let DESKORDER=[];
 let deskOrderReady=false;
 let deskNormalized=false;
 function deskCell(i){ return cellPosFor(i,innerWidth,innerHeight,DRAG_PITCH) }
+function safeDeskEntry(key,build){
+ /* v0.55: one bad entry (a malformed app record, an icon builder
+    tripping over unexpected data) is skipped and logged -- it must
+    never take the whole desktop list down with it. */
+ try{ const el=build(); if(el) return {key,el}; }
+ catch(e){ console.error('[mj-desk] 图标构建失败，已跳过：'+key,e); }
+ return null;
+}
 function collectDeskEntries(){
  /* The baseline enumeration, in the historical source order. Used
     for set membership and as the stable tie-break; the PAINTING
@@ -978,18 +1004,21 @@ function collectDeskEntries(){
     those modes for kind 'web'). Hidden wholesale by the
     filesOnDesktop setting; the files stay in Data/files. */
  const entries=[];
- APPS.forEach(a=>{ if(a.nodesk) return; entries.push({key:'app:'+a.id,el:mkDeskIcon('app:'+a.id,'app',appIcon(a),a.n,a.id==='firefox'?()=>launchFirefoxEntry():()=>openApp(a.id))}); });
+ const pushEn=en=>{ if(en) entries.push(en); };
+ APPS.forEach(a=>{ if(a.nodesk) return; pushEn(safeDeskEntry('app:'+a.id,()=>mkDeskIcon('app:'+a.id,'app',appIcon(a),a.n,a.id==='firefox'?()=>launchFirefoxEntry():()=>openApp(a.id)))); });
  const inFolder=new Set(); LAYOUT.folders.forEach(f=>f.items.forEach(u=>inFolder.add(u)));
- WEBAPPS.filter(a=>!inFolder.has(a.url)).forEach(a=>{ entries.push({key:'web:'+a.url,el:mkDeskIcon('web:'+a.url,'web',webIconHTML(a),a.name,()=>openWebApp(a.url))}); });
- LAYOUT.folders.forEach(f=>{ const el=mkDeskIcon('folder:'+f.id,'folder',folderIconHTML(f),f.name,()=>openFolderPop(f.id,el),f.id); entries.push({key:'folder:'+f.id,el}); });
- STOREAPPS.forEach(a=>{ entries.push({key:'store:'+a.id,el:mkDeskIcon('store:'+a.id,'native',storeIconHTML(a),a.name,()=>launchStoreApp(a.id))}); });
- BOXAPPS.forEach(a=>{ entries.push({key:'box:'+a.id,el:mkDeskIcon('box:'+a.id,'native',storeIconHTML(a),a.name,()=>launchBoxApp(a.id))}); });
- PRODAPPS.forEach(c=>{ entries.push({key:'prod:'+c.id,el:mkDeskIcon('prod:'+c.id,'native',prodIconHTML(c),c.name,()=>launchProdApp(c.id))}); });
+ WEBAPPS.filter(a=>!inFolder.has(a.url)).forEach(a=>{ pushEn(safeDeskEntry('web:'+a.url,()=>mkDeskIcon('web:'+a.url,'web',webIconHTML(a),a.name,()=>openWebApp(a.url)))); });
+ LAYOUT.folders.forEach(f=>{ pushEn(safeDeskEntry('folder:'+f.id,()=>{ const el=mkDeskIcon('folder:'+f.id,'folder',folderIconHTML(f),f.name,()=>openFolderPop(f.id,el),f.id); return el; })); });
+ STOREAPPS.forEach(a=>{ pushEn(safeDeskEntry('store:'+a.id,()=>mkDeskIcon('store:'+a.id,'native',storeIconHTML(a),a.name,()=>launchStoreApp(a.id)))); });
+ BOXAPPS.forEach(a=>{ pushEn(safeDeskEntry('box:'+a.id,()=>mkDeskIcon('box:'+a.id,'native',storeIconHTML(a),a.name,()=>launchBoxApp(a.id)))); });
+ PRODAPPS.forEach(c=>{ pushEn(safeDeskEntry('prod:'+c.id,()=>mkDeskIcon('prod:'+c.id,'native',prodIconHTML(c),c.name,()=>launchProdApp(c.id)))); });
  if(!SETTINGS||SETTINGS.filesOnDesktop!==false){
   DESKFILES.forEach(f=>{
-   const el=mkDeskIcon('file:'+f.name,'file',fileIconHTML(f),f.name,()=>openDeskFile(f.path,f.kind));
-   el.oncontextmenu=ev=>{ ev.preventDefault(); ev.stopPropagation(); showFileCtx(ev.clientX,ev.clientY,f); };
-   entries.push({key:'file:'+f.name,el});
+   pushEn(safeDeskEntry('file:'+f.name,()=>{
+    const el=mkDeskIcon('file:'+f.name,'file',fileIconHTML(f),f.name,()=>openDeskFile(f.path,f.kind));
+    el.oncontextmenu=ev=>{ ev.preventDefault(); ev.stopPropagation(); showFileCtx(ev.clientX,ev.clientY,f); };
+    return el;
+   }));
   });
  }
  return entries;
@@ -1074,8 +1103,15 @@ function deskAssertNoOverlap(tag){
  if(bad.length) console.error('[mj-desk] icon overlap self-check failed ('+tag+'): '+bad.join('; '));
 }
 function renderDesk(){
- const entries=collectDeskEntries();
- reconcileDeskOrder(entries);
+ /* v0.55: the paint chain degrades, never blanks. Per-entry build
+    failures are already contained by safeDeskEntry; if collecting
+    or reconciling still fails wholesale, log it and paint what we
+    have in source order rather than leaving an empty desktop. */
+ let entries=[];
+ try{ entries=collectDeskEntries(); }
+ catch(e){ console.error('[mj-desk] 名单构建失败，桌面降级为空名单绘制',e); }
+ try{ reconcileDeskOrder(entries); }
+ catch(e){ console.error('[mj-desk] 顺序调和失败，按来源顺序绘制',e); DESKORDER=entries.map(x=>x.key); deskOrderReady=true; }
  const byKey=new Map(entries.map(e=>[e.key,e]));
  iconsEl.innerHTML='';
  DESKORDER.forEach((k,i)=>{
@@ -1651,8 +1687,10 @@ async function loadProdApps(){
    gets the productivity components' treatment -- the real exe
    icon once installed, a state badge fed by /api/firefox, and a
    click-when-missing that starts the download (the Firefox page
-   is its progress surface, like 设置 → 组件 is for PRODAPPS). */
-let FFSTATE=null;
+   is its progress surface, like 设置 → 组件 is for PRODAPPS).
+   FFSTATE itself is declared much earlier, ahead of the Dock
+   builder loop (see the v0.55 note there); this section only
+   loads and consumes it. */
 async function loadFFState(){
  try{ FFSTATE=await api('/api/firefox'); }catch(e){ FFSTATE=null; }
 }
@@ -3686,7 +3724,7 @@ function showBanner(ev){
 })();
 
 openApp('home');
-(async()=>{ await Promise.all([loadLayout(),loadWebApps(),loadStoreApps(),loadBoxApps(),loadProdApps(),loadFFState(),loadDeskFiles(),settingsReady]); renderDesk(); restoreSession(); })();
+(async()=>{ try{ await Promise.allSettled([loadLayout(),loadWebApps(),loadStoreApps(),loadBoxApps(),loadProdApps(),loadFFState(),loadDeskFiles(),settingsReady]); renderDesk(); restoreSession(); }catch(e){ console.error('[mj-boot] 启动序列失败',e); } })();
 </script>
 <div id="lockscreen">
   <div class="lk-card" id="lk-card">
@@ -4060,13 +4098,17 @@ let lpIsOpen=false, lpPage=0, lpDrag=null, lpWheelAt=0;
 function lpEntries(){
  const byKey={}, out=[];
  const push=(key,name,iconHTML,open)=>{ byKey[key]={key,name,iconHTML,open}; };
- APPS.forEach(a=>{ if(!a.nodesk) push('app:'+a.id,a.n,appIcon(a),a.id==='firefox'?()=>launchFirefoxEntry():()=>openApp(a.id)); });
+ /* v0.55: same containment as the desktop -- one entry's icon
+    builder failing degrades that entry to a placeholder tile,
+    never the whole Launchpad list. */
+ const pushSafe=(key,name,buildIcon,open)=>{ let h; try{ h=buildIcon(); }catch(e){ console.error('[mj-lp] 图标构建失败，已降级：'+key,e); h='<div class="appico g-sys">?</div>'; } push(key,name,h,open); };
+ APPS.forEach(a=>{ if(!a.nodesk) pushSafe('app:'+a.id,a.n,()=>appIcon(a),a.id==='firefox'?()=>launchFirefoxEntry():()=>openApp(a.id)); });
  const inFolder=new Set(); LAYOUT.folders.forEach(f=>f.items.forEach(u=>inFolder.add(u)));
- WEBAPPS.filter(a=>!inFolder.has(a.url)).forEach(a=>push('web:'+a.url,a.name,webIconHTML(a),()=>openWebApp(a.url)));
- LAYOUT.folders.forEach(f=>push('folder:'+f.id,f.name,folderIconHTML(f),el=>openFolderPop(f.id,el)));
- STOREAPPS.forEach(a=>push('store:'+a.id,a.name,storeIconHTML(a),()=>launchStoreApp(a.id)));
- BOXAPPS.forEach(a=>push('box:'+a.id,a.name,storeIconHTML(a),()=>launchBoxApp(a.id)));
- PRODAPPS.forEach(c=>push('prod:'+c.id,c.name,prodIconHTML(c),()=>launchProdApp(c.id)));
+ WEBAPPS.filter(a=>!inFolder.has(a.url)).forEach(a=>pushSafe('web:'+a.url,a.name,()=>webIconHTML(a),()=>openWebApp(a.url)));
+ LAYOUT.folders.forEach(f=>pushSafe('folder:'+f.id,f.name,()=>folderIconHTML(f),el=>openFolderPop(f.id,el)));
+ STOREAPPS.forEach(a=>pushSafe('store:'+a.id,a.name,()=>storeIconHTML(a),()=>launchStoreApp(a.id)));
+ BOXAPPS.forEach(a=>pushSafe('box:'+a.id,a.name,()=>storeIconHTML(a),()=>launchBoxApp(a.id)));
+ PRODAPPS.forEach(c=>pushSafe('prod:'+c.id,c.name,()=>prodIconHTML(c),()=>launchProdApp(c.id)));
  DESKORDER.forEach(k=>{ if(byKey[k]) out.push(byKey[k]); });
  Object.keys(byKey).forEach(k=>{ if(!out.some(e=>e.key===k)) out.push(byKey[k]); });
  return out;
@@ -4093,7 +4135,9 @@ function lpPageGo(d){
  if(np!==lpPage){ lpPage=np; paintLP(); }
 }
 function paintLP(){
- const vis=lpVisible();
+ let vis;
+ try{ vis=lpVisible(); }
+ catch(e){ console.error('[mj-lp] 名单构建失败',e); lpPagesEl.innerHTML='<div class="lp-empty">名单加载失败，详情看控制台</div>'; lpDotsEl.innerHTML=''; return; }
  const dims=lpDims(innerWidth,innerHeight);
  const pages=lpPageCount(vis.length,innerWidth,innerHeight);
  if(lpPage>=pages) lpPage=pages-1;
