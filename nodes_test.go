@@ -124,9 +124,15 @@ func TestBuildCoreConfigModes(t *testing.T) {
 	if len(rs) != 1 || rs[0] != "geoip-cn" || rules[3]["outbound"] != "direct" {
 		t.Errorf("geoip-cn rule wrong: %v", rules[3])
 	}
-	// Local rule_set definitions carry absolute paths.
+	// Local rule_set definitions carry absolute paths. The builder
+	// joins with filepath.Join, so the expectation must be built
+	// with the same primitive: a literal "/tmp/rs/geosite-cn.srs"
+	// is only what Join produces on Unix (on Windows the same call
+	// yields `\tmp\rs\geosite-cn.srs`).
 	defs := cfg["route"].(map[string]any)["rule_set"].([]map[string]any)
-	if len(defs) != 2 || defs[0]["path"] != "/tmp/rs/geosite-cn.srs" {
+	if len(defs) != 2 ||
+		defs[0]["tag"] != "geosite-cn" || defs[0]["path"] != filepath.Join(in.RuleSetDir, "geosite-cn.srs") ||
+		defs[1]["tag"] != "geoip-cn" || defs[1]["path"] != filepath.Join(in.RuleSetDir, "geoip-cn.srs") {
 		t.Errorf("rule_set defs wrong: %v", defs)
 	}
 	// Global/direct modes carry no route rules and no sets.
