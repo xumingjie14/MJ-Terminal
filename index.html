@@ -2412,13 +2412,43 @@ function bind(id){
   const paintGeneral=()=>{
    const s=SETTINGS||SETDEF;
    const opts=[[0,'不自动'],[15,'15 分钟'],[30,'30 分钟'],[60,'60 分钟']];
-   G('set-main').innerHTML=`<div class="set-page"><div class="set-sec">守护进程</div><div class="set-desc">节点没在运行、也没人操作时，守护进程多久后自动退出。节点或小龙虾在跑时不会自动退出。改完立刻生效。</div><div class="sm-card"><div class="sm-row"><span>空闲自动退出</span><span class="sm-seg" id="gn-idle">${opts.map(([v,n])=>`<button data-v="${v}" class="${s.idleExitMinutes===v?'on':''}">${n}</button>`).join('')}</span></div></div><div class="set-sec">全局召唤热键</div><div class="set-desc">在任何界面（包括游戏里）按一下这个键，终端机整套唤回并打开聚焦搜索；保险库锁定时唤出的是密码屏。热键由守护进程向系统注册，退出终端机即注销，不留常驻。</div><div class="sm-card"><div class="sm-row"><span>召唤热键</span><span class="sm-seg" id="gn-hotkey">${['F8','F9','F7','off'].map(k=>`<button data-k="${k}" class="${(s.summonHotkey||'F8')===k?'on':''}">${k==='off'?'关闭':k}</button>`).join('')}</span></div><div class="sm-row"><span>注册状态</span><span class="set-val" id="gn-hk-state">读取中…</span></div></div><p class="set-note">状态显示「被占用」说明这个键已被别的程序抢注（游戏、录屏、输入法常见），换 F9 / F7 或关闭即可；改键即时重新注册，不用重启。</p><div class="set-sec">退出</div><div class="set-desc">关掉桌面窗口只是隐藏，后台和节点继续跑；再双击 MJ-System.exe 回来。真正断开只有点这个「退出系统」。个人数据都在 EXE 旁的 Data 文件夹，用完带走或删掉即可。</div><div class="sm-card"><div class="sm-row"><span>退出时关闭打开的应用</span><label class="sm-sw"><input type="checkbox" id="gn-closeapps" ${s.exitClosesApps!==false?'checked':''}><i></i></label></div></div><p class="set-note">开启时，从设置退出、托盘退出或顶栏「关机」，会先请终端机打开的应用（隔离浏览器、商店应用、盒内应用）自己关，等几秒还不退的才结束进程，不留后台。更新交接不关应用；空闲自动退出也不关——除非启用了保险库（上锁前必须先关应用）。</p><div class="row"><button class="btn red" id="gn-quit">退出系统（停节点 + 关后台）</button></div></div>`;
+   G('set-main').innerHTML=`<div class="set-page"><div class="set-sec">守护进程</div><div class="set-desc">节点没在运行、也没人操作时，守护进程多久后自动退出。节点或小龙虾在跑时不会自动退出。改完立刻生效。</div><div class="sm-card"><div class="sm-row"><span>空闲自动退出</span><span class="sm-seg" id="gn-idle">${opts.map(([v,n])=>`<button data-v="${v}" class="${s.idleExitMinutes===v?'on':''}">${n}</button>`).join('')}</span></div></div><div class="set-sec">老板键（全局热键）</div><div class="set-desc">终端机的窗口在最前面时按一下，整套窗口立刻隐藏（守护进程和节点继续在后台运行）；在其他任何界面（包括游戏里）按一下，终端机马上回到最前面并打开聚焦搜索。隐藏之后，再按一次这个键、或点系统托盘里的终端机图标，就能回来。保险库锁定时唤出的是密码屏。热键由守护进程向系统注册，退出终端机即注销，不留常驻。</div><div class="sm-card"><div class="sm-row"><span>老板键</span><span class="row"><span class="sm-seg" id="gn-hotkey">${['F8','F9','F7','F6','F12','off'].map(k=>`<button data-k="${k}" class="${(s.summonHotkey||'F8')===k?'on':''}">${k==='off'?'关闭':k}</button>`).join('')}</span><button class="btn gray" id="gn-hk-rec">自定义…</button></span></div><div class="sm-row"><span>当前按键</span><span class="set-val" id="gn-hk-cur">${esc(s.summonHotkey||'F8')}</span></div><div class="sm-row"><span>注册状态</span><span class="set-val" id="gn-hk-state">读取中…</span></div></div><p class="set-note">「自定义…」点开后直接按想要的新组合：单个 F1–F12 可以，字母/数字要加 Ctrl / Alt / Shift（裸字母会吃掉正常打字），Win 键组合不能用。状态显示「被占用」说明这个组合已被别的程序抢注（游戏、录屏、输入法常见），设置不会回滚，但这个键暂时按不动，换一个即可；改键即时重新注册，不用重启。</p><div class="set-sec">退出</div><div class="set-desc">关掉桌面窗口只是隐藏，后台和节点继续跑；再双击 MJ-System.exe 回来。真正断开只有点这个「退出系统」。个人数据都在 EXE 旁的 Data 文件夹，用完带走或删掉即可。</div><div class="sm-card"><div class="sm-row"><span>退出时关闭打开的应用</span><label class="sm-sw"><input type="checkbox" id="gn-closeapps" ${s.exitClosesApps!==false?'checked':''}><i></i></label></div></div><p class="set-note">开启时，从设置退出、托盘退出或顶栏「关机」，会先请终端机打开的应用（隔离浏览器、商店应用、盒内应用）自己关，等几秒还不退的才结束进程，不留后台。更新交接不关应用；空闲自动退出也不关——除非启用了保险库（上锁前必须先关应用）。</p><div class="row"><button class="btn red" id="gn-quit">退出系统（停节点 + 关后台）</button></div></div>`;
    G('gn-idle').querySelectorAll('button').forEach(b=>b.onclick=async()=>{ const r=await saveSetting({idleExitMinutes:+b.dataset.v}); if(r&&r.error){ alert('保存失败：'+r.error); return; } G('gn-idle').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); });
-   /* v0.50: summon hotkey row -- segmented key choice + the
-      daemon's live registration state (GET /api/hotkey/status). */
-   const hkPaint=async()=>{ const el=G('gn-hk-state'); if(!el) return; try{ const st=await api('/api/hotkey/status'); if(!document.getElementById('gn-hk-state')) return; el.textContent=st.key==='off'?'已关闭':(!st.supported?'当前平台不支持':(st.registered?('已注册（'+st.key+'）'):('未注册：'+(st.note||'未知原因')))); }catch(e){ el.textContent='读取失败'; } };
+   /* v0.50/v0.52: boss-key row -- preset keys + a "自定义…"
+      recorder + the daemon's live registration state
+      (GET /api/hotkey/status, three-state since v0.52). */
+   const hkPaint=async()=>{ const el=G('gn-hk-state'); if(!el) return; try{ const st=await api('/api/hotkey/status'); if(!document.getElementById('gn-hk-state')) return; const cur=G('gn-hk-cur'); if(cur&&st.key) cur.textContent=st.key; el.textContent=st.status==='off'?'已关闭':(st.status==='unsupported'?'当前平台不支持':(st.status==='registered'?('已注册（'+st.key+'）'):(st.status==='busy'?('被占用（'+st.key+'）：'+(st.note||'已被其他程序注册')):('未注册：'+(st.note||'未知原因'))))); }catch(e){ el.textContent='读取失败'; } };
    hkPaint(); setTimeout(hkPaint,600);
-   G('gn-hotkey').querySelectorAll('button').forEach(b=>b.onclick=async()=>{ const r=await saveSetting({summonHotkey:b.dataset.k}); if(r&&r.error){ alert('保存失败：'+r.error); return; } G('gn-hotkey').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); setTimeout(hkPaint,350); });
+   const hkMarkSeg=()=>{ const cur=(SETTINGS&&SETTINGS.summonHotkey)||'F8'; G('gn-hotkey').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x.dataset.k===cur)); const c=G('gn-hk-cur'); if(c) c.textContent=cur; };
+   G('gn-hotkey').querySelectorAll('button').forEach(b=>b.onclick=async()=>{ const r=await saveSetting({summonHotkey:b.dataset.k}); if(r&&r.error){ alert('保存失败：'+r.error); return; } hkMarkSeg(); setTimeout(hkPaint,350); });
+   /* Recorder: capture the next keydown as the new combo. The
+      daemon remains the authority (its parser validates and
+      names any rejection); the checks mirrored here only save
+      a round trip for the obvious cases. Esc cancels. */
+   const hkRec=G('gn-hk-rec');
+   hkRec.onclick=()=>{
+    if(hkRec.dataset.rec==='1') return;
+    hkRec.dataset.rec='1'; const oldLabel=hkRec.textContent; hkRec.textContent='按下组合键…（Esc 取消）';
+    const done=()=>{ hkRec.dataset.rec=''; hkRec.textContent=oldLabel; document.removeEventListener('keydown',cap,true); };
+    const cap=async e=>{
+     if(e.key==='Escape'){ e.preventDefault(); done(); return; }
+     if(['Control','Shift','Alt','Meta'].includes(e.key)) return; /* wait for the primary key */
+     e.preventDefault(); e.stopPropagation();
+     if(e.metaKey){ alert('不能用 Win 键组合（系统保留，视图也录不到）'); done(); return; }
+     let key='';
+     if(/^F([1-9]|1[0-2])$/.test(e.key)) key=e.key;
+     else if(e.key&&e.key.length===1&&/[a-zA-Z0-9]/.test(e.key)) key=e.key.toUpperCase();
+     else { alert('这个键不能用作老板键（可用 F1–F12、字母、数字）'); done(); return; }
+     const mods=[]; if(e.ctrlKey) mods.push('Ctrl'); if(e.altKey) mods.push('Alt'); if(e.shiftKey) mods.push('Shift');
+     if(!mods.length&&!/^F/.test(key)){ alert('裸字母/数字键会吃掉正常打字，请加 Ctrl / Alt / Shift 一起按'); done(); return; }
+     const combo=mods.concat([key]).join('+');
+     done();
+     const r=await saveSetting({summonHotkey:combo});
+     if(r&&r.error){ alert('保存失败：'+r.error); return; }
+     hkMarkSeg(); setTimeout(hkPaint,350);
+    };
+    document.addEventListener('keydown',cap,true);
+   };
    G('gn-quit').onclick=async()=>{ await api('/api/shutdown',{method:'POST'}); document.body.innerHTML='<div style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;font-size:20px;color:#fff;text-shadow:0 2px 10px #000">已退出，节点和后台都停了</div>'; };
    G('gn-closeapps').onchange=async e=>{ const r=await saveSetting({exitClosesApps:e.target.checked}); if(r&&r.error){ alert('保存失败：'+r.error); e.target.checked=!e.target.checked; } };
   };

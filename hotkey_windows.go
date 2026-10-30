@@ -2,15 +2,20 @@
 
 package main
 
-// ---------- v0.50: global summon hotkey, Windows half ----------
+// ---------- global hotkey (boss key), Windows half ----------
 //
 // RegisterHotKey on a dedicated OS thread behind a message-only
 // window -- the same shape as the tray (tray_windows.go), whose
 // window/message plumbing this file reuses. The registration is
 // process-wide and needs no hook DLL; the OS delivers WM_HOTKEY
-// to our window. Unmodified function keys only (the setting is
-// F8 / F9 / F7 / off), with MOD_NOREPEAT so holding the key down
-// does not summon repeatedly.
+// to our window. v0.52: the registration carries the combo's
+// Ctrl/Alt/Shift modifiers (hotkey.go), still with
+// MOD_NOREPEAT so holding the key down does not fire
+// repeatedly. A delivered press runs bossKeyPress
+// SYNCHRONOUSLY in the window procedure -- the hide / raise is
+// a handful of Win32 calls and must be on screen within the
+// press, not after a goroutine hop (only the dead-view
+// creation fallback leaves the thread, inside bosskey.go).
 //
 // Exit hygiene: the daemon never explicitly unregisters at exit
 // because every exit path ends in os.Exit -- and Windows drops a
@@ -42,18 +47,21 @@ const (
 )
 
 var (
-	hkStart  sync.Once
-	hkHWND   atomic.Uintptr
-	hkWantVK atomic.Uint32 // desired virtual-key code; 0 = off
-	hkRegVK  uint32        // currently registered vk (hotkey thread only)
+	hkStart    sync.Once
+	hkHWND     atomic.Uintptr
+	hkWantMods atomic.Uint32 // desired modifier bits; with hkWantVK
+	hkWantVK   atomic.Uint32 // desired virtual-key code; 0 = off
+	hkRegMods  uint32        // currently registered pair (hotkey thread only)
+	hkRegVK    uint32
 )
 
-// hotkeyPlatformApply pushes the configured key toward the OS:
-// store the wish, start the thread on first use, and wake it to
-// re-register when it is already running.
-func hotkeyPlatformApply() {
-	key := settingSummonHotkey()
-	if key == "off" {
+// hotkeyPlatformApply pushes the configured combo toward the
+// OS: store the wish, start the thread on first use, and wake
+// it to re-register when it is already running.
+func hotkeyPlatformApply(combo hotkeyCombo) {
+	if combo.Off {
+		hotkeyConflict.Store(false)
+		hkWantMods.Store(0)
 		hkWantVK.Store(0)
 		if h := hkHWND.Load(); h != 0 {
 			procPostMessageW.Call(h, hkReconfigMsg, 0, 0)
@@ -62,7 +70,8 @@ func hotkeyPlatformApply() {
 		}
 		return
 	}
-	hkWantVK.Store(hotkeyVK[key])
+	hkWantMods.Store(combo.Mods)
+	hkWantVK.Store(combo.VK)
 	hkStart.Do(func() { go hotkeyThread() })
 	if h := hkHWND.Load(); h != 0 {
 		procPostMessageW.Call(h, hkReconfigMsg, 0, 0)
@@ -71,32 +80,36 @@ func hotkeyPlatformApply() {
 	// wish once the window exists (same contract as the tray).
 }
 
-// hkApplyRegistration reconciles the OS registration with
-// hkWantVK. Hotkey thread only.
+// hkApplyRegistration reconciles the OS registration with the
+// wanted (modifiers, vk) pair. Hotkey thread only.
 func hkApplyRegistration(hwnd uintptr) {
-	want := hkWantVK.Load()
-	if hkRegVK != 0 && hkRegVK != want {
+	wantMods, wantVK := hkWantMods.Load(), hkWantVK.Load()
+	if hkRegVK != 0 && (hkRegVK != wantVK || hkRegMods != wantMods) {
 		procUnregisterHotKey.Call(hwnd, hkID)
-		hkRegVK = 0
+		hkRegVK, hkRegMods = 0, 0
 	}
-	if want == 0 {
+	if wantVK == 0 {
+		hotkeyConflict.Store(false)
 		hotkeySetResult(false, "")
 		return
 	}
-	if hkRegVK == want {
+	if hkRegVK == wantVK && hkRegMods == wantMods {
 		return // already registered as wished
 	}
-	r, _, errno := procRegisterHotKey.Call(hwnd, hkID, modNoRepeat, uintptr(want))
+	r, _, errno := procRegisterHotKey.Call(hwnd, hkID, modNoRepeat|uintptr(wantMods), uintptr(wantVK))
 	if r == 0 {
-		hkRegVK = 0
+		hkRegVK, hkRegMods = 0, 0
 		if errno != nil && errno.(syscall.Errno) == errHotkeyBusy {
-			hotkeySetResult(false, "该键已被其他程序占用（游戏、录屏或输入法常见），请改用备选键或关闭")
+			hotkeyConflict.Store(true)
+			hotkeySetResult(false, "该组合已被其他程序占用（游戏、录屏或输入法常见），请换一个组合或关闭")
 		} else {
+			hotkeyConflict.Store(false)
 			hotkeySetResult(false, "系统拒绝注册（错误 "+errnoText(errno)+"）")
 		}
 		return
 	}
-	hkRegVK = want
+	hkRegVK, hkRegMods = wantVK, wantMods
+	hotkeyConflict.Store(false)
 	hotkeySetResult(true, "")
 }
 
@@ -118,7 +131,12 @@ func makeHKWndProc() uintptr {
 		switch uint32(msg) {
 		case wmHotkey:
 			if wParam == hkID {
-				go hotkeySummon()
+				// v0.52: synchronous on purpose -- the boss
+				// key's hide / raise is direct Win32 work and
+				// lands within the press (bosskey.go). Only
+				// the dead-view creation fallback backgrounds
+				// itself, inside bossSummon.
+				bossKeyPress()
 			}
 			return 0
 		case hkReconfigMsg:

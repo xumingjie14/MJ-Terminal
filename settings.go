@@ -158,12 +158,15 @@ type mjSettings struct {
 	NodeTestURL        string `json:"nodeTestURL"`
 	NodeTestTimeoutMs  int    `json:"nodeTestTimeoutMs"`
 	NodeClashAPI       bool   `json:"nodeClashAPI"`
-	// v0.50: the global summon hotkey (hotkey.go). One unmodified
-	// function key registered with the host OS so the terminal can
-	// be recalled from anywhere: "F8" (default) / "F9" / "F7" /
-	// "off". Changing it re-registers immediately; a key another
-	// program already owns leaves the daemon unregistered and the
-	// Settings page shows the conflict state (GET /api/hotkey/status).
+	// The boss key (hotkey.go / bosskey.go): a combo string
+	// registered with the host OS -- "F8" (default), "Ctrl+F8",
+	// "Alt+Q", "Ctrl+Shift+F9", or "off". The v0.50 values
+	// (F8 / F9 / F7 / off) are modifier-less combos and migrate
+	// unchanged; sanitizeSettings canonicalizes through
+	// parseHotkeyCombo. Changing it re-registers immediately; a
+	// combo another program already owns leaves the daemon
+	// unregistered (the setting is NOT rolled back) and the
+	// Settings page shows 「被占用」 (GET /api/hotkey/status).
 	SummonHotkey string `json:"summonHotkey"`
 	// v0.51: which office component suite opens office documents
 	// by default ("onlyoffice" / "libreoffice"). The file-open
@@ -225,8 +228,6 @@ func defaultSettings() mjSettings {
 }
 
 var officeSuites = map[string]bool{"onlyoffice": true, "libreoffice": true}
-
-var summonHotkeys = map[string]bool{"F8": true, "F9": true, "F7": true, "off": true}
 
 var nodeStartModes = map[string]bool{"last": true, "rule": true, "global": true, "direct": true}
 
@@ -420,7 +421,13 @@ func sanitizeSettings(s mjSettings) mjSettings {
 	if s.NodeTestTimeoutMs < 1000 || s.NodeTestTimeoutMs > 15000 {
 		s.NodeTestTimeoutMs = d.NodeTestTimeoutMs
 	}
-	if !summonHotkeys[s.SummonHotkey] {
+	// v0.52: the boss-key value canonicalizes through the combo
+	// parser -- legacy F7 / F8 / F9 / off pass through as-is,
+	// "ctrl+f8" becomes "Ctrl+F8", and anything the parser
+	// rejects falls back to the F8 default.
+	if c, err := canonicalHotkey(s.SummonHotkey); err == nil {
+		s.SummonHotkey = c
+	} else {
 		s.SummonHotkey = d.SummonHotkey
 	}
 	if !officeSuites[s.DefaultOfficeSuite] {
@@ -830,12 +837,17 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 					changed = append(changed, boolLog("nodeClashAPI", v))
 				}
 			case "summonHotkey":
+				// v0.52: any valid boss-key combo (hotkey.go's
+				// parser is the single rulebook); a rejection
+				// carries the parser's named reason verbatim.
 				var v string
-				if json.Unmarshal(val, &v) != nil || !summonHotkeys[v] {
-					fail = "summonHotkey 须为 F8 / F9 / F7 / off"
-				} else if v != next.SummonHotkey {
-					next.SummonHotkey = v
-					changed = append(changed, "summonHotkey = "+v)
+				if json.Unmarshal(val, &v) != nil {
+					fail = "summonHotkey 必须是字符串"
+				} else if c, err := canonicalHotkey(v); err != nil {
+					fail = "summonHotkey 不可用：" + err.Error()
+				} else if c != next.SummonHotkey {
+					next.SummonHotkey = c
+					changed = append(changed, "summonHotkey = "+c)
 				}
 			case "defaultOfficeSuite":
 				var v string

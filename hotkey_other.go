@@ -11,8 +11,9 @@ package main
 
 const hotkeyPlatformSupported = false
 
-func hotkeyPlatformApply() {
-	if settingSummonHotkey() == "off" {
+func hotkeyPlatformApply(combo hotkeyCombo) {
+	hotkeyConflict.Store(false)
+	if combo.Off {
 		hotkeySetResult(false, "")
 		return
 	}

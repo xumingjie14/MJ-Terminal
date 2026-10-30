@@ -116,6 +116,28 @@ func TestStepSetVis(t *testing.T) {
 			setVisStep{Next: visShown}},
 		{"显示中+新桌面打开→无操作", visShown, evShellOpened, on,
 			setVisStep{Next: visShown}},
+		// v0.52 boss key: its own gesture -- independent of the
+		// minimize / close-to-tray switches, parks the tray icon
+		// as the return anchor, and leaves via the same restore
+		// events as the tray state.
+		{"显示中+老板键→老板藏且停靠托盘", visShown, evBossKeyHide, on,
+			setVisStep{Next: visHiddenBoss, HideSet: true, TrayDelta: 1}},
+		{"显示中+老板键（两个联动开关全关）→照样老板藏", visShown, evBossKeyHide, setVisSwitches{},
+			setVisStep{Next: visHiddenBoss, HideSet: true, TrayDelta: 1}},
+		{"老板藏+恢复请求（热键/托盘）→整套回来且撤图标", visHiddenBoss, evRestoreAll, on,
+			setVisStep{Next: visShown, RestoreSet: true, TrayDelta: -1}},
+		{"老板藏+双击EXE开出新桌面→整套回来且撤图标", visHiddenBoss, evShellOpened, on,
+			setVisStep{Next: visShown, RestoreSet: true, TrayDelta: -1}},
+		{"老板藏+桌面死亡（崩溃）→转托盘藏（集合不恢复、图标不重复停靠）", visHiddenBoss, evShellClosed, on,
+			setVisStep{Next: visHiddenTray}},
+		{"老板藏+最小化事件（无意义）→保持", visHiddenBoss, evShellMinimized, on,
+			setVisStep{Next: visHiddenBoss}},
+		{"老板藏+再次老板键事件（决策层不会发）→保持", visHiddenBoss, evBossKeyHide, on,
+			setVisStep{Next: visHiddenBoss}},
+		{"最小化藏+老板键（单窗被手动恢复且在前台）→转老板藏且停靠托盘", visHiddenMinimize, evBossKeyHide, on,
+			setVisStep{Next: visHiddenBoss, HideSet: true, TrayDelta: 1}},
+		{"托盘藏+老板键事件（决策层不会发）→保持", visHiddenTray, evBossKeyHide, on,
+			setVisStep{Next: visHiddenTray}},
 	}
 	for _, c := range cases {
 		if got := stepSetVis(c.cur, c.ev, c.sw); got != c.want {

@@ -137,6 +137,14 @@ const (
 	visShown setVisState = iota
 	visHiddenMinimize
 	visHiddenTray
+	// v0.52: the boss key hid the whole set while one of our
+	// windows was foreground (bosskey.go). Distinct from the tray
+	// state in origin only -- the icon is parked and the same
+	// evRestoreAll / evShellOpened gestures bring the set back --
+	// because the exit and patrol bookkeeping must treat all
+	// three hidden states alike, and the boss key must be able
+	// to tell "I hid this" from "the view was closed".
+	visHiddenBoss
 )
 
 type setVisEvent int
@@ -147,6 +155,7 @@ const (
 	evShellClosed                // the shell window is gone (user closed the view)
 	evShellOpened                // a (new) desktop view registered
 	evRestoreAll                 // tray click / Stage Manager click / switch rescued off
+	evBossKeyHide                // v0.52: boss key pressed while our window is foreground
 )
 
 type setVisSwitches struct {
@@ -180,11 +189,27 @@ func stepSetVis(cur setVisState, ev setVisEvent, sw setVisSwitches) setVisStep {
 			if sw.CloseToTray {
 				return setVisStep{Next: visHiddenTray, HideSet: true, TrayDelta: 1}
 			}
+		case evBossKeyHide:
+			// v0.52: the boss key is its own gesture -- it does
+			// NOT ride on the minimize / close-to-tray switches.
+			// The tray icon parks unconditionally: it is the
+			// anchor the Settings copy promises ("点托盘图标
+			// 即可回来") while the set is boss-hidden.
+			return setVisStep{Next: visHiddenBoss, HideSet: true, TrayDelta: 1}
 		}
 	case visHiddenMinimize:
 		switch ev {
 		case evShellRestored, evRestoreAll, evShellOpened:
 			return setVisStep{Next: visShown, RestoreSet: true}
+		case evBossKeyHide:
+			// v0.52 corner: the shell is minimized and the set
+			// lent to it, but a window the user had minimized
+			// individually beforehand was restored by hand and
+			// is foreground -- the boss key must still hide
+			// what is up. The set's home moves to the boss
+			// state (and its tray anchor); grpHidden keeps the
+			// minimize-lent windows booked throughout.
+			return setVisStep{Next: visHiddenBoss, HideSet: true, TrayDelta: 1}
 		case evShellClosed:
 			if sw.CloseToTray {
 				return setVisStep{Next: visHiddenTray, TrayDelta: 1}
@@ -197,6 +222,17 @@ func stepSetVis(cur setVisState, ev setVisEvent, sw setVisSwitches) setVisStep {
 		switch ev {
 		case evRestoreAll, evShellOpened:
 			return setVisStep{Next: visShown, RestoreSet: true, TrayDelta: -1}
+		}
+	case visHiddenBoss:
+		switch ev {
+		case evRestoreAll, evShellOpened:
+			return setVisStep{Next: visShown, RestoreSet: true, TrayDelta: -1}
+		case evShellClosed:
+			// The view died while boss-hidden (crash / killed):
+			// the set stays hidden, the parked icon stays, only
+			// the "home" moves to tray semantics. grpHidden is
+			// untouched -- restore still returns the set.
+			return setVisStep{Next: visHiddenTray}
 		}
 	}
 	return stay
@@ -221,6 +257,14 @@ func grpIsHidden() bool {
 	grpMu.Lock()
 	defer grpMu.Unlock()
 	return grpVis != visShown
+}
+
+// grpIsBossHidden reports whether the set is currently tucked
+// away by the boss key specifically (v0.52).
+func grpIsBossHidden() bool {
+	grpMu.Lock()
+	defer grpMu.Unlock()
+	return grpVis == visHiddenBoss
 }
 
 // shellHWND returns the desktop view's window handle: the tracked
@@ -353,10 +397,10 @@ func grpApplyEvent(ev setVisEvent) {
 	switch {
 	case step.TrayDelta > 0:
 		platformTraySetVisible(true)
-		logf("winmgr", "info", "开窗礼仪：桌面关闭，整套窗口已退到系统托盘（点托盘图标或双击程序恢复）")
+		logf("winmgr", "info", "开窗礼仪：整套窗口已隐藏，托盘图标已停靠（点托盘图标或双击程序恢复）")
 	case step.TrayDelta < 0:
 		platformTraySetVisible(false)
-		logf("winmgr", "info", "开窗礼仪：已离开托盘隐藏状态")
+		logf("winmgr", "info", "开窗礼仪：整套窗口已恢复显示，托盘图标已撤下")
 	}
 }
 
@@ -925,20 +969,18 @@ func doBirthPlacement(hwnd uint64) bool {
 
 // ---------- tray hooks (called from tray_windows.go) ----------
 
-// onTrayIconRestore is the tray icon's click: the whole set comes
-// back, and the desktop view reopens through the daemon's own
-// openshell endpoint (the same path a double-click on the EXE
-// takes, proxy decision included).
+// onTrayIconRestore is the tray icon's click: the whole set
+// comes back and the desktop view is raised DIRECTLY by the
+// daemon when it is alive (v0.52 -- the boss key's summon shares
+// this exact path, see bosskey.go). Only a genuinely dead view
+// still takes the openshell creation door, proxy decision
+// included.
 func onTrayIconRestore() {
 	grpApplyEvent(evRestoreAll)
-	if daemonPort <= 0 {
+	if bossRaiseViewDirect() {
 		return
 	}
-	client := &http.Client{Timeout: 12 * time.Second}
-	resp, err := client.Post(daemonURLForPort(daemonPort)+"api/openshell", "application/json", nil)
-	if err == nil {
-		_ = resp.Body.Close()
-	}
+	go openShellViaHTTP()
 }
 
 // onTrayIconExit quits the daemon through /api/shutdown itself --
