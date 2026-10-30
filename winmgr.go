@@ -991,6 +991,53 @@ func extWinFocusHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"ok": true})
 }
 
+// extWinPost is the shared shape of the Stage Manager card
+// actions (v0.56 test2: the strip's per-window right-click menu
+// -- 切换到该窗口 is extWinFocusHandler; these two are its
+// siblings): decode {"hwnd": N}, verify the window is alive,
+// act, log in the winmgr module.
+func extWinPost(w http.ResponseWriter, r *http.Request, act func(hwnd uint64) bool, verb string) {
+	var body struct {
+		HWND uint64 `json:"hwnd"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.HWND == 0 {
+		writeJSON(w, map[string]any{"error": "参数不对"})
+		return
+	}
+	if _, alive := platformWindowTitle(body.HWND); !alive {
+		extMu.Lock()
+		delete(extWins, body.HWND)
+		extMu.Unlock()
+		writeJSON(w, map[string]any{"error": "这个窗口已经关了"})
+		return
+	}
+	extMu.Lock()
+	label := ""
+	if e, ok := extWins[body.HWND]; ok {
+		label = e.App
+	}
+	extMu.Unlock()
+	if !act(body.HWND) {
+		writeJSON(w, map[string]any{"error": verb + "失败"})
+		return
+	}
+	logf("winmgr", "info", "台前调度卡片菜单：%s窗口（%s）", verb, label)
+	writeJSON(w, map[string]any{"ok": true})
+}
+
+// extWinMinimizeHandler serves POST /api/extwin/minimize.
+func extWinMinimizeHandler(w http.ResponseWriter, r *http.Request) {
+	extWinPost(w, r, platformMinimizeWindow, "最小化")
+}
+
+// extWinCloseHandler serves POST /api/extwin/close: the plain
+// WM_CLOSE path (the window's own X-button request -- the app
+// may still prompt or refuse, exactly as when its user clicks
+// the X).
+func extWinCloseHandler(w http.ResponseWriter, r *http.Request) {
+	extWinPost(w, r, platformCloseWindow, "关闭")
+}
+
 // extWinNote is a tiny helper for log lines in platform files; as of
 // v0.22 they go into the diagnostics hub like everything else.
 func extWinNote(format string, args ...any) {

@@ -1531,6 +1531,9 @@ func webAppSaveHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	for i, a := range list {
 		if a.URL == u {
+			if a.Name != name {
+				logf("browser", "info", "网站应用改名：%s → %s（网址不变）", a.Name, name)
+			}
 			list[i].Name = name
 			saveWebApps(list)
 			writeJSON(w, map[string]any{"ok": true, "apps": list})
@@ -2104,6 +2107,8 @@ func runServer(portFlag int, isDaemon bool) {
 	mux.HandleFunc("/api/appopen", openWebAppHandler)
 	mux.HandleFunc("/api/extwin", extWinListHandler)
 	mux.HandleFunc("/api/extwin/focus", extWinFocusHandler)
+	mux.HandleFunc("/api/extwin/minimize", extWinMinimizeHandler)
+	mux.HandleFunc("/api/extwin/close", extWinCloseHandler)
 	mux.HandleFunc("/api/ssh", sshListHandler)
 	mux.HandleFunc("/api/ssh/save", sshSaveHandler)
 	mux.HandleFunc("/api/ssh/keydel", sshKeyDelHandler)

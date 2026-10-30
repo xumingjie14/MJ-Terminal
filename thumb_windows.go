@@ -19,6 +19,10 @@ import (
 	"unsafe"
 )
 
+// thumbSupported: this platform can capture window previews
+// (the !windows stub in winmgr_other.go declares it false).
+const thumbSupported = true
+
 var (
 	gdi32 = syscall.NewLazyDLL("gdi32.dll")
 

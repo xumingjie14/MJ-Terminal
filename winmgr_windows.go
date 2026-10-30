@@ -627,6 +627,18 @@ func platformCloseWindow(hwnd uint64) bool {
 	return r != 0
 }
 
+// platformMinimizeWindow minimizes a window (SW_MINIMIZE) --
+// the Stage Manager card menu's 最小化 (v0.56 test2). Plain
+// ShowWindow, no hooks.
+func platformMinimizeWindow(hwnd uint64) bool {
+	h := uintptr(hwnd)
+	if r, _, _ := procIsWindow.Call(h); r == 0 {
+		return false
+	}
+	r, _, _ := procShowWindow.Call(h, 6) // SW_MINIMIZE
+	return r != 0
+}
+
 // platformRestoreShellWindow un-minimizes the desktop view (the
 // user asked for the set back, e.g. via a Stage Manager click).
 func platformRestoreShellWindow(hwnd uint64) {

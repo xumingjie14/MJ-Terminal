@@ -189,6 +189,49 @@ function baseData() {
   assert.strictEqual(probe.sortManual.join('|'), 'web:https://github.com|app:term|store:vlc', 'manual sort is a pass-through');
   assert.strictEqual(probe.firstAfterSort, 'app:sys', 'renderDesk applies the freq sort to DESKORDER');
 
+  /* ----- v0.56 test2 additions -----
+     * the unified GLYPHS set renders (one stroke language,
+       currentColor) and ctxItemHTML paints item icons;
+     * Stage preview cards use the FETCH loader (no <img src>
+       at the thumb endpoint -- the test1 first-404 blacklist
+       design is gone) and thumbBad windows fall to identity;
+     * the web-app item menu carries 重命名 (item 6) next to
+       调整窗口; browser/app tiles reference the right icon
+       routes (real Chrome icon / self-drawn set). */
+  const probe2 = vm.runInContext(`(function(){
+    const out = {};
+    out.glyphNames = ['folderplus','import','switch','minimize','closex','lock','rocket','gear','stage','wifi','battery','rename','trash','window'].filter(n => !GLYPHS[n]);
+    const g = glyph('lock', 16);
+    out.glyphSVG = g.includes('<svg') && g.includes('currentColor') && g.includes('viewBox="0 0 24 24"');
+    out.ctxIcon = ctxItemHTML({act:'x', label:'打开', icon:'open'}).includes('ctxic');
+    out.ctxNoIcon = !ctxItemHTML({act:'x', label:'打开'}).includes('ctxic');
+    const win1 = {hwnd: 111, title: 'Chat — X', app: 'Chrome', ikind: 'chrome', url: 'https://x.com'};
+    out.prevCard = extCardHTML(win1, true);
+    thumbBad.add(222);
+    out.badCard = extCardHTML({hwnd: 222, title: 'T', app: 'A', ikind: ''}, true);
+    WEBAPPS = [{name: '旧名', url: 'https://x.com'}];
+    showItemCtx(10, 10, 'web:https://x.com');
+    out.webMenu = ctxEl.innerHTML;
+    out.browserIcon = appIcon(APPS.find(a => a.id === 'browser'));
+    out.homeIcon = appIcon(APPS.find(a => a.id === 'home'));
+    out.imgviewIcon = appIcon(APPS.find(a => a.id === 'imgview'));
+    out.cc = ccTile('stage', true, 'stage', '台前调度', '开');
+    return out;
+  })()`, sandbox);
+
+  assert.strictEqual(probe2.glyphNames.join('|'), '', 'every chrome glyph name the menus/CC/menubar use exists in GLYPHS');
+  assert(probe2.glyphSVG, 'glyph() emits a currentColor 24-grid svg');
+  assert(probe2.ctxIcon && probe2.ctxNoIcon, 'ctxItemHTML renders the icon span only when the item carries one');
+  assert(probe2.prevCard.includes('class="ethumb"'), 'preview card renders the (src-less) thumb img the fetch loader fills');
+  assert(!probe2.prevCard.includes('/api/extwin/thumb?hwnd='), 'preview card must NOT hard-code the thumb URL as img src (test1 regression)');
+  assert(!probe2.badCard.includes('ethumb'), 'a thumbBad window renders the identity card, no preview attempt');
+  assert(probe2.webMenu.includes('重命名'), 'web-app item menu carries 重命名 (test2 item 6)');
+  assert(probe2.webMenu.includes('调整窗口'), 'web-app item menu keeps 调整窗口');
+  assert(probe2.browserIcon.includes('/api/chrome/icon'), 'browser tile uses Chrome real icon route');
+  assert(probe2.homeIcon.includes('/api/appicon/home'), 'built-in tile uses the embedded self-drawn set route');
+  assert(probe2.imgviewIcon.includes('<svg'), 'viewer apps render drawn glyphs, not emoji');
+  assert(probe2.cc.includes('<svg'), 'Control Center tiles render drawn glyphs');
+
   console.log('desk56_test: all assertions passed');
   process.exit(0);
 })().catch(e => { console.error('desk56_test FAILED:', e && e.stack || e); process.exit(1); });

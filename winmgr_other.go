@@ -59,8 +59,9 @@ func platformHideWindow(hwnd uint64) bool    { return false }
 func platformShowBackWindow(hwnd uint64) bool {
 	return false
 }
-func platformRestoreShellWindow(hwnd uint64) {}
-func platformCloseWindow(hwnd uint64) bool   { return false }
+func platformRestoreShellWindow(hwnd uint64)  {}
+func platformCloseWindow(hwnd uint64) bool    { return false }
+func platformMinimizeWindow(hwnd uint64) bool { return false }
 func platformRaiseBackdrop(hwnd uint64, shell uint64) bool {
 	return false
 }
@@ -91,6 +92,8 @@ func platformExitShellFullscreen(hwnd uint64, style int32, rect [4]int32, zoomed
 // v0.56: Stage Manager preview capture (thumb.go) -- no host
 // windows off Windows, so captures always fail and the strip
 // uses identity cards.
+const thumbSupported = false
+
 func platformCaptureWindowPNG(hwnd uint64, maxW int) ([]byte, error) {
 	return nil, errNoCapture
 }

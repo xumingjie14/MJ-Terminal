@@ -170,7 +170,7 @@ table.fv-tab{width:100%;border-collapse:collapse;font-size:13px;color:#fff}
 .cc-tile .cc-ico{display:inline-flex;width:30px;height:30px;border-radius:50%;background:#636366;color:#fff;align-items:center;justify-content:center;font-size:15px;vertical-align:top}
 .cc-tile.on .cc-ico{background:#0a84ff}
 .cc-tile .cc-tx{display:inline-block;margin-left:9px;vertical-align:top;max-width:calc(100% - 44px)}
-.cc-tile .cc-name{font-size:13.5px;font-weight:600;line-height:30px}
+.cc-tile .cc-name{font-size:13px;letter-spacing:-.2px;font-weight:600;line-height:30px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cc-tile .cc-sub{font-size:12px;opacity:.75;margin-top:2px;line-height:1.35}
 .cc-tile .cc-chev{position:absolute;right:10px;top:50%;transform:translateY(-50%);opacity:.55;font-size:13px;padding:6px}
 .cc-list{margin-top:10px;border-top:1px solid rgba(255,255,255,.12);padding-top:6px}
@@ -254,7 +254,9 @@ table.fv-tab{width:100%;border-collapse:collapse;font-size:13px;color:#fff}
 /* ---------- desktop context menu & folder popup ---------- */
 #ctxmenu{position:fixed;z-index:3000;min-width:184px;padding:6px;border-radius:12px;background:rgba(32,32,40,.78);backdrop-filter:blur(24px) saturate(170%);-webkit-backdrop-filter:blur(24px) saturate(170%);border:1px solid rgba(255,255,255,.22);box-shadow:0 16px 44px rgba(0,0,0,.5);color:#fff}
 #ctxmenu.hidden{display:none}
-.ctxitem{padding:8px 12px;border-radius:8px;font-size:13.5px;cursor:pointer}
+.ctxitem{padding:8px 12px;border-radius:8px;font-size:13.5px;cursor:pointer;display:flex;align-items:center;gap:2px}
+.ctxitem .ctxic{display:inline-flex;width:23px;flex:none;opacity:.92}
+.ctxitem .ctxic .gly{vertical-align:0}
 .ctxitem:hover{background:rgba(120,160,255,.35)}
 /* folder open state (v0.31): macOS Launchpad folder form -- the
    desktop dims and blurs behind a centered panel; the title renames
@@ -274,16 +276,25 @@ table.fv-tab{width:100%;border-collapse:collapse;font-size:13px;color:#fff}
 .fp-empty{grid-column:1/5;text-align:center;padding:16px 6px}
 .icon:hover{background:rgba(255,255,255,.10)}
 .icon.sel{background:rgba(120,160,255,.30);border-color:rgba(255,255,255,.35)}
-.appico{width:54px;height:54px;margin:0 auto;border-radius:13px;display:flex;align-items:center;justify-content:center;font-size:27px;box-shadow:0 6px 16px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.35);position:relative}
+.appico{width:54px;height:54px;margin:0 auto;border-radius:13px;display:flex;align-items:center;justify-content:center;font-size:27px;box-shadow:0 4px 14px rgba(0,0,0,.30);position:relative}
+/* v0.56 test2 (icon alignment): ONE presentation for all real
+   artwork -- built-in art, brand icons, favicons, exe icons.
+   The artwork fills its squircle edge-to-edge under the tile's
+   own radius; there is no container background, padding or
+   inner frame under it (test1's white padded box is gone), and
+   the tile's single soft shadow above is the only shadow in
+   the system. The letter fallback hides itself the moment a
+   real image is present (and returns if the image fails). */
+.appico:has(>img) .icolet{display:none}
+.gly{display:inline-block;vertical-align:-2.5px;flex:none}
 .icon .n{font-size:12px;margin-top:5px;line-height:1.25;text-shadow:0 1px 5px rgba(0,0,0,.8);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .g-home{background:linear-gradient(180deg,#5ec2ff,#0a62d6)}
 .g-term{background:linear-gradient(180deg,#4a4a52,#101014);font-family:ui-monospace,Consolas,monospace;font-size:21px;color:#7dff8a}
 .g-files{background:linear-gradient(180deg,#ffe9a8,#f5b301)}
 .g-core{background:linear-gradient(180deg,#bf5af2,#7d2ae8)}
 .appico.webapp{display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:700;color:#fff;background:linear-gradient(135deg,#0a84ff,#5e5ce6);text-shadow:0 1px 3px rgba(0,0,0,.3)}
-.appico.webapp img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;padding:7px;box-sizing:border-box;background:#f5f5f7;border-radius:inherit}
+.appico.webapp img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:inherit}
 .appico.webapp.mini{width:26px;height:26px;font-size:14px;border-radius:7px;margin:0;flex:none}
-.appico.webapp.mini img{padding:3px}
 .g-firefox{background:linear-gradient(160deg,#ff7139 0%,#e22865 55%,#9059ff 100%)}
 .g-ssh{background:linear-gradient(180deg,#3ddc84,#0d5136)}
 .g-console{background:linear-gradient(180deg,#48484f,#131316);color:#ffb340;font-family:ui-monospace,Consolas,monospace}
@@ -443,7 +454,7 @@ table.gridtab td,table.gridtab th{white-space:nowrap;max-width:280px;overflow:hi
 .stcard{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.13);border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:7px}
 .stcard .sthead{display:flex;gap:10px;align-items:center}
 .stcard .sthead .appico{width:42px;height:42px;border-radius:10px;font-size:20px;margin:0;flex:none}
-.stcard .sthead .appico img{padding:5px}
+.stcard .sthead .appico img{border-radius:inherit}
 .stbadge{display:inline-block;padding:2px 8px;border-radius:99px;background:rgba(48,209,88,.20);border:1px solid rgba(48,209,88,.4);font-size:11px;color:#a9efbe}
 .stbar{height:6px;border-radius:99px;background:rgba(255,255,255,.14);overflow:hidden}
 .stbar i{display:block;height:100%;background:var(--accent);border-radius:99px;transition:width .3s}
@@ -513,7 +524,7 @@ table.gridtab td,table.gridtab th{white-space:nowrap;max-width:280px;overflow:hi
 /* ---------- v0.56 ---------- */
 :root{--deskico:54px}
 #icons .icon .appico{width:var(--deskico);height:var(--deskico);border-radius:calc(var(--deskico)*.24);font-size:calc(var(--deskico)*.5)}
-.appico .appArt{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;pointer-events:none}
+.appico .appArt{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:inherit;pointer-events:none}
 .dockbtn .appico .appArt,.lp-item .appico .appArt{padding:0}
 /* Stage Manager preview cards (item 1) */
 .extcard.prev{flex-direction:column;align-items:stretch;gap:6px;padding:6px;width:172px}
@@ -522,7 +533,7 @@ table.gridtab td,table.gridtab th{white-space:nowrap;max-width:280px;overflow:hi
 .extcard .ecap{display:flex;align-items:center;gap:6px;min-width:0;padding:0 2px 2px}
 .extcard .ecap b{font-size:11.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.92}
 .extcard .ecap .appico{width:20px;height:20px;border-radius:5px;font-size:11px;margin:0;flex:none}
-.extcard .extRealIcon{width:26px;height:26px;border-radius:6px;flex:none;object-fit:contain}
+.extcard .extRealIcon{width:26px;height:26px;border-radius:6px;flex:none;object-fit:cover}
 /* context-menu submenus (items 5 + 7) */
 .ctxitem.hasSub{position:relative;padding-right:22px}
 .ctxitem.hasSub::after{content:'›';position:absolute;right:10px;opacity:.65}
@@ -565,8 +576,8 @@ table.gridtab td,table.gridtab th{white-space:nowrap;max-width:280px;overflow:hi
   <span class="right">
     <span id="mb-remote" title="远程协助状态（点开设置查看）"><span id="mb-rdot"></span><span id="mb-rtxt">远程协助中</span></span>
     <span id="mb-node" title="节点状态"><span id="mb-dot"></span><span id="mb-nodetxt">节点</span></span>
-    <span id="mb-stage" title="台前调度：只显示当前应用">▦</span>
-    <span>📶</span><span>🔋</span>
+    <span id="mb-stage" title="台前调度：只显示当前应用"><svg class="gly" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.9"/><rect x="13" y="4" width="7" height="7" rx="1.9"/><rect x="4" y="13" width="7" height="7" rx="1.9"/><rect x="13" y="13" width="7" height="7" rx="1.9"/></svg></span>
+    <span title="网络"><svg class="gly" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.3 10a11.2 11.2 0 0 1 15.4 0M7 13.3a7.2 7.2 0 0 1 10 0M9.8 16.4a3.6 3.6 0 0 1 4.4 0"/><circle cx="12" cy="19.2" r="1.25" fill="currentColor" stroke="none"/></svg></span><span title="电池"><svg class="gly" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.8" y="8.3" width="16.7" height="7.8" rx="2.2"/><path d="M21.9 10.9v2.6"/><rect x="5.1" y="10.6" width="6" height="3.2" rx="1" fill="currentColor" stroke="none"/></svg></span>
     <span id="mb-spot" title="聚焦搜索（F5 或 Ctrl+Space）"><svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.6" fill="none" stroke="#fff" stroke-width="1.7"/><line x1="10.6" y1="10.6" x2="14.4" y2="14.4" stroke="#fff" stroke-width="1.9" stroke-linecap="round"/></svg></span>
     <span id="mb-cc" title="控制中心"><svg width="18" height="18" viewBox="0 0 20 20" aria-hidden="true"><rect x="1" y="2.6" width="18" height="6.4" rx="3.2" fill="rgba(255,255,255,.38)"/><circle cx="14.2" cy="5.8" r="2.7" fill="#fff"/><rect x="1" y="11" width="18" height="6.4" rx="3.2" fill="rgba(255,255,255,.38)"/><circle cx="5.8" cy="14.2" r="2.7" fill="#fff"/></svg></span>
     <span id="mb-priv" title="远程协助进行中"></span>
@@ -596,25 +607,25 @@ table.gridtab td,table.gridtab th{white-space:nowrap;max-width:280px;overflow:hi
 const APPS=[
  {id:'home',e:'',g:'g-home',glyph:'⌂',n:'工作站',art:1},
  {id:'term',e:'>_',g:'g-term',glyph:'>_',n:'终端',art:1},
- {id:'files',e:'🗂️',g:'g-files',glyph:'🗂️',n:'文件',art:1},
- {id:'browser',e:'',g:'g-browser',glyph:'',n:'谷歌浏览器',art:1},
- {id:'firefox',e:'🦊',g:'g-firefox',glyph:'🦊',n:'Firefox'},
- {id:'ssh',e:'🖥️',g:'g-ssh',glyph:'🖥️',n:'SSH',art:1},
- {id:'servermon',e:'🗄️',g:'g-servermon',glyph:'🗄️',n:'服务器',art:1},
+ {id:'files',e:'',g:'g-files',glyph:'',n:'文件',art:1},
+ {id:'browser',e:'',g:'g-browser',glyph:'',n:'谷歌浏览器'},
+ {id:'firefox',e:'',g:'g-firefox',glyph:'',n:'Firefox'},
+ {id:'ssh',e:'',g:'g-ssh',glyph:'',n:'SSH',art:1},
+ {id:'servermon',e:'',g:'g-servermon',glyph:'',n:'服务器',art:1},
  {id:'console',e:'≡',g:'g-console',glyph:'≡',n:'控制台',art:1},
- {id:'appstore',e:'🛍️',g:'g-store',glyph:'🛍️',n:'应用商店',art:1},
- {id:'openclaw',e:'🦞',g:'g-openclaw',glyph:'🦞',n:'小龙虾',art:1},
- {id:'core',e:'🚀',g:'g-core',glyph:'🚀',n:'节点',art:1},
- {id:'sys',e:'⚙️',g:'g-sys',glyph:'⚙️',n:'设置',art:1},
+ {id:'appstore',e:'',g:'g-store',glyph:'',n:'应用商店',art:1},
+ {id:'openclaw',e:'',g:'g-openclaw',glyph:'',n:'小龙虾',art:1},
+ {id:'core',e:'',g:'g-core',glyph:'',n:'节点',art:1},
+ {id:'sys',e:'',g:'g-sys',glyph:'',n:'设置',art:1},
  /* file viewers (v0.32): real windows in the same openApp system
     (so they join the Stage Manager like everything else), but they
     are viewers, not resident apps -- nodesk keeps them off the
     desktop icon grid and the Dock; file icons wake them. */
- {id:'imgview',e:'🖼️',g:'g-files',glyph:'🖼️',n:'图片',nodesk:true},
- {id:'textview',e:'📄',g:'g-sys',glyph:'≡',n:'文本',nodesk:true},
- {id:'gridview',e:'▦',g:'g-ssh',glyph:'▦',n:'表格',nodesk:true},
- {id:'ziplist',e:'🗂️',g:'g-files',glyph:'🗂️',n:'文件夹',nodesk:true},
- {id:'filepanel',e:'📄',g:'g-sys',glyph:'?',n:'打开文件',nodesk:true},
+ {id:'imgview',e:'',g:'g-files',glyph:'',n:'图片',nodesk:true,gkey:'image'},
+ {id:'textview',e:'',g:'g-sys',glyph:'',n:'文本',nodesk:true,gkey:'list'},
+ {id:'gridview',e:'',g:'g-ssh',glyph:'',n:'表格',nodesk:true,gkey:'grid'},
+ {id:'ziplist',e:'',g:'g-files',glyph:'',n:'文件夹',nodesk:true,gkey:'folder'},
+ {id:'filepanel',e:'',g:'g-sys',glyph:'',n:'打开文件',nodesk:true,gkey:'file'},
 ];
 const WALLPAPERS={
  tahoe:{n:'大湖',css:'radial-gradient(1100px 600px at 78% -10%,#ffb35c 0%,transparent 55%),radial-gradient(900px 700px at 12% 110%,#3b1d8f 0%,transparent 60%),linear-gradient(160deg,#1c6dd9 0%,#5b2ee5 52%,#b01e9e 100%)'},
@@ -629,6 +640,64 @@ let z=10, sysInfo=null, customWall=false;
 
 function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 async function api(p,opt){const r=await fetch(p,opt);let t=await r.text();try{return JSON.parse(t)}catch(e){return{raw:t}}}
+
+/* ----- unified chrome glyphs (v0.56 test2) -----
+   ONE self-drawn monochrome line-glyph set for ALL UI chrome
+   (menubar, context menus, Control Center, Settings sidebar,
+   Spotlight actions, notifications): SF-Symbols grammar --
+   24-grid, uniform 1.7 stroke, round caps/joins, currentColor.
+   This replaces the emoji and mixed-vendor glyphs the user
+   field-rejected on test1 ("整套设计风格都要统一高度一致").
+   Emoji remains only inside user content, never as chrome. */
+const GLYPHS={
+folder:'<path d="M3.5 7a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>',
+folderplus:'<path d="M3.5 7a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><path d="M12 10.8v5.4M9.3 13.5h5.4"/>',
+folderup:'<path d="M3.5 7a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><path d="M12 16.8v-5m0 0-2.3 2.3M12 11.8l2.3 2.3"/>',
+import:'<path d="M12 3.8v9.7m0 0 3.8-3.8M12 13.5 8.2 9.7"/><path d="M3.8 15.8v2.7A1.7 1.7 0 0 0 5.5 20.2h13a1.7 1.7 0 0 0 1.7-1.7v-2.7"/>',
+export:'<path d="M12 13.5V3.8m0 0L8.2 7.6M12 3.8l3.8 3.8"/><path d="M3.8 13.5v5a1.7 1.7 0 0 0 1.7 1.7h13a1.7 1.7 0 0 0 1.7-1.7v-5"/>',
+size:'<path d="M4 9.2V5.8A1.8 1.8 0 0 1 5.8 4h3.4M14.8 4h3.4A1.8 1.8 0 0 1 20 5.8v3.4M20 14.8v3.4a1.8 1.8 0 0 1-1.8 1.8h-3.4M9.2 20H5.8A1.8 1.8 0 0 1 4 18.2v-3.4"/>',
+sort:'<path d="M11 6h8.5M11 12h6M11 18h3.5"/><path d="M5.3 4.8v14.4m0 0L2.9 16.6m2.4 2.6 2.4-2.6"/>',
+refresh:'<path d="M19.6 12a7.6 7.6 0 1 1-2.2-5.4"/><path d="M19.9 3.6v3.8h-3.8"/>',
+palette:'<circle cx="12" cy="12" r="8.6"/><circle cx="9" cy="9.3" r="1.2" fill="currentColor" stroke="none"/><circle cx="14.9" cy="8.7" r="1.2" fill="currentColor" stroke="none"/><circle cx="15.6" cy="14.3" r="1.2" fill="currentColor" stroke="none"/><path d="M12 20.6c-1.2 0-1.8-.9-1.8-1.8 0-1.4 1.6-1.7 1.6-3.1"/>',
+open:'<path d="M9.5 4.8H6A1.8 1.8 0 0 0 4.2 6.6v11A1.8 1.8 0 0 0 6 19.4h11a1.8 1.8 0 0 0 1.8-1.8V14"/><path d="M13.8 4.5h5.5v5.5M19.2 4.6 11 12.8"/>',
+rename:'<path d="M4.2 19.8 5.4 15.6 16.9 4.1a2.15 2.15 0 0 1 3 3L8.4 18.6z"/><path d="M14.8 6.1l3 3"/>',
+trash:'<path d="M4.5 6.3h15M9.8 6V4.9A1 1 0 0 1 10.8 3.9h2.4a1 1 0 0 1 1 1.1V6M6.4 6.3l.9 11.9A1.8 1.8 0 0 0 9.1 20h5.8a1.8 1.8 0 0 0 1.8-1.8l.9-11.9"/><path d="M10.2 10.3v5.9M13.8 10.3v5.9"/>',
+window:'<rect x="4" y="5" width="16" height="14.5" rx="2"/><path d="M4 9.3h16"/><circle cx="6.9" cy="7.1" r=".95" fill="currentColor" stroke="none"/><circle cx="10.2" cy="7.1" r=".95" fill="currentColor" stroke="none"/>',
+eyeoff:'<path d="M4.6 5.9A13.6 13.6 0 0 0 3 12c1.7 3.4 5 5.5 9 5.5 1.5 0 2.9-.3 4.1-.9M10 4.9c.6-.1 1.3-.2 2-.2 4 0 7.3 2.1 9 5.5a13.4 13.4 0 0 1-2.4 3.1"/><path d="M4 4.2 20 19.8"/>',
+minimize:'<path d="M5.5 12h13"/>',
+closex:'<path d="M6 6l12 12M18 6 6 18"/>',
+switch:'<path d="M4 8.3 12 4l8 4.3-8 4.3z"/><path d="m4.6 13.2 7.4 4 7.4-4"/>',
+check:'<path d="m5 12.8 4.4 4.4L19 7.6"/>',
+checkcircle:'<circle cx="12" cy="12" r="8.6"/><path d="m8.4 12.4 2.6 2.6 4.8-5.2"/>',
+xcircle:'<circle cx="12" cy="12" r="8.6"/><path d="m9.2 9.2 5.6 5.6M14.8 9.2l-5.6 5.6"/>',
+warn:'<path d="M12 4.3 21.6 20H2.4z"/><path d="M12 9.8v4.4"/><circle cx="12" cy="16.9" r="1.15" fill="currentColor" stroke="none"/>',
+wifi:'<path d="M4.3 10a11.2 11.2 0 0 1 15.4 0M7 13.3a7.2 7.2 0 0 1 10 0M9.8 16.4a3.6 3.6 0 0 1 4.4 0"/><circle cx="12" cy="19.2" r="1.25" fill="currentColor" stroke="none"/>',
+battery:'<rect x="2.8" y="8.3" width="16.7" height="7.8" rx="2.2"/><path d="M21.9 10.9v2.6"/><rect x="5.1" y="10.6" width="6" height="3.2" rx="1" fill="currentColor" stroke="none"/>',
+stage:'<rect x="4" y="4" width="7" height="7" rx="1.9"/><rect x="13" y="4" width="7" height="7" rx="1.9"/><rect x="4" y="13" width="7" height="7" rx="1.9"/><rect x="13" y="13" width="7" height="7" rx="1.9"/>',
+rocket:'<path d="M12 3c2.9 1.9 4.5 5.2 4.5 8.6L12 16l-4.5-4.4C7.5 8.2 9.1 4.9 12 3z"/><circle cx="12" cy="9.3" r="1.9"/><path d="M7.6 13.4 4.8 17.2l3-.7M16.4 13.4l2.8 3.8-3-.7M10.4 18.9c.5 1.1 2.7 1.1 3.2 0"/>',
+half:'<circle cx="12" cy="12" r="8.6"/><path d="M12 3.4a8.6 8.6 0 0 1 0 17.2z" fill="currentColor" stroke="none"/>',
+dock:'<rect x="5.8" y="4.5" width="5" height="5" rx="1.4"/><rect x="13.2" y="4.5" width="5" height="5" rx="1.4"/><rect x="3.5" y="14" width="17" height="5.8" rx="2.4"/>',
+link:'<path d="M9.9 13.9a4.1 4.1 0 0 0 5.9.4l2.9-2.9a4.24 4.24 0 1 0-6-6l-1.6 1.6"/><path d="M14.1 10.1a4.1 4.1 0 0 0-5.9-.4l-2.9 2.9a4.24 4.24 0 1 0 6 6l1.6-1.6"/>',
+image:'<rect x="3.5" y="5" width="17" height="14.5" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="m5 17.5 5-4.7 3.4 3 2.4-2.3 3.7 3.6"/>',
+bell:'<path d="M6.2 16.3v-4.8a5.8 5.8 0 0 1 11.6 0v4.8l1.3 2.8a.65.65 0 0 1-.6.9H5.5a.65.65 0 0 1-.6-.9z"/><path d="M10.2 20.4a2 2 0 0 0 3.6 0"/>',
+globe:'<circle cx="12" cy="12" r="8.6"/><path d="M3.4 12h17.2M12 3.4c2.6 2.3 3.9 5.2 3.9 8.6s-1.3 6.3-3.9 8.6c-2.6-2.3-3.9-5.2-3.9-8.6s1.3-6.3 3.9-8.6z"/>',
+shapes:'<circle cx="8" cy="8" r="3.6"/><rect x="14" y="4.4" width="6.4" height="6.4" rx="1.6"/><path d="M8 13.8 11.8 20H4.2z"/><circle cx="16.9" cy="16.9" r="3.1"/>',
+box:'<path d="M12 3.4 20.2 7.6v8.8L12 20.6 3.8 16.4V7.6z"/><path d="m3.9 7.6 8.1 4.1 8.1-4.1M12 11.7v8.8"/>',
+stack:'<path d="m12 3.6 9 4.6-9 4.6-9-4.6z"/><path d="m4 12.4 8 4.1 8-4.1M4 16.4l8 4.1 8-4.1"/>',
+lock:'<rect x="5.3" y="10.4" width="13.4" height="9.7" rx="2.2"/><path d="M8.4 10.4V7.9a3.6 3.6 0 0 1 7.2 0v2.5"/><circle cx="12" cy="15.2" r="1.35" fill="currentColor" stroke="none"/>',
+gear:'<circle cx="12" cy="12" r="3.1"/><g><rect x="11" y="2.8" width="2" height="4.4" rx="1"/><rect x="11" y="2.8" width="2" height="4.4" rx="1" transform="rotate(45 12 12)"/><rect x="11" y="2.8" width="2" height="4.4" rx="1" transform="rotate(90 12 12)"/><rect x="11" y="2.8" width="2" height="4.4" rx="1" transform="rotate(135 12 12)"/><rect x="11" y="2.8" width="2" height="4.4" rx="1" transform="rotate(180 12 12)"/><rect x="11" y="2.8" width="2" height="4.4" rx="1" transform="rotate(225 12 12)"/><rect x="11" y="2.8" width="2" height="4.4" rx="1" transform="rotate(270 12 12)"/><rect x="11" y="2.8" width="2" height="4.4" rx="1" transform="rotate(315 12 12)"/></g><circle cx="12" cy="12" r="6.9"/>',
+info:'<circle cx="12" cy="12" r="8.6"/><path d="M12 11.2V16"/><circle cx="12" cy="7.9" r="1.25" fill="currentColor" stroke="none"/>',
+up:'<circle cx="12" cy="12" r="8.6"/><path d="M12 16.6v-9m0 0-4 4m4-4 4 4"/>',
+power:'<path d="M12 3.4v7.8"/><path d="M6.2 6.3a8.2 8.2 0 1 0 11.6 0"/>',
+list:'<path d="M8.6 6.4h11M8.6 12h11M8.6 17.6h11"/><circle cx="4.9" cy="6.4" r="1.15" fill="currentColor" stroke="none"/><circle cx="4.9" cy="12" r="1.15" fill="currentColor" stroke="none"/><circle cx="4.9" cy="17.6" r="1.15" fill="currentColor" stroke="none"/>',
+grid:'<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 9.3h16M4 14.6h16M9.3 4v16M14.6 4v16"/>',
+file:'<path d="M6.6 3.6h5.9L18 9.1v10.2a1.3 1.3 0 0 1-1.3 1.3H6.6a1.3 1.3 0 0 1-1.3-1.3V4.9a1.3 1.3 0 0 1 1.3-1.3z"/><path d="M12.3 3.8v5.4H18"/>',
+music:'<circle cx="7" cy="17.8" r="2.7"/><circle cx="17.4" cy="15.8" r="2.7"/><path d="M9.7 17.8V6.4L20.1 4.6v11.2"/>',
+app:'<rect x="4" y="4" width="16" height="16" rx="4.6"/><rect x="9.2" y="9.2" width="5.6" height="5.6" rx="1.7"/>',
+};
+function glyph(n,s){
+ return `<svg class="gly" width="${s||16}" height="${s||16}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${GLYPHS[n]||''}</svg>`;
+}
 
 /* ----- unified settings (v0.30): Data/settings.json via /api/settings -----
    Wallpaper choice and the Stage Manager switch used to live in this
@@ -747,13 +816,18 @@ updateStageUI();
 /* ----- windows ----- */
 function appIcon(a,size){
  if(a.id==='firefox')return ffDeskIconHTML();
- /* v0.56 item 6 (plan A): entries with art:1 wear the
-    macosicons.com artwork the daemon serves at /api/appicon/;
-    if the image fails it removes itself and the drawn tile
-    underneath shows -- the icon degrades, never breaks.
-    Provenance: icon-provenance.md at the repo root. */
- if(a.art)return `<div class="appico ${a.g}">${esc(a.glyph)}<img class="appArt" alt="" draggable="false" src="/api/appicon/${a.id}" onerror="this.remove()"></div>`;
- if(a.id==='browser')return `<div class="appico g-browser"><div class="chrome-dot"></div></div>`;
+ /* Built-in art (art:1): the SELF-DRAWN set the daemon serves
+    at /api/appicon/ (test2; test1's macosicons set was
+    field-rejected as incoherent). The artwork fills the tile
+    edge-to-edge; if the image fails it removes itself and the
+    plain gradient tile underneath shows -- the icon degrades,
+    never breaks. Provenance: icon-provenance.md. */
+ if(a.art)return `<div class="appico ${a.g}"><img class="appArt" alt="" draggable="false" src="/api/appicon/${a.id}" onerror="this.remove()"></div>`;
+ /* Chrome is a third-party brand icon: the daemon serves the
+    real thing at /api/chrome/icon; the drawn dot stays
+    underneath as the degradation path. */
+ if(a.id==='browser')return `<div class="appico g-browser"><div class="chrome-dot"></div><img class="appArt" alt="" draggable="false" src="/api/chrome/icon" onerror="this.remove()"></div>`;
+ if(a.gkey)return `<div class="appico ${a.g}" style="color:#fff">${glyph(a.gkey,27)}</div>`;
  return `<div class="appico ${a.g}">${esc(a.glyph)}</div>`;
 }
 function makeWin(app,i){
@@ -774,6 +848,10 @@ function makeWin(app,i){
  w.querySelector('.l-max').onclick=()=>zoomWin(w);
  w.querySelector('[data-a="close"]').onclick=()=>{w.classList.add('hidden');onWinClosed(app.id);syncDots()};
  w.addEventListener('pointerdown',()=>{ if(w.classList.contains('staged')) openApp(app.id); });
+ /* v0.56 test2 item 3: a STAGED window's right-click is the
+    stage menu (switch / close). A front window's right-click
+    stays the app's own -- never hijacked. */
+ w.addEventListener('contextmenu',ev=>{ if(!w.classList.contains('staged')) return; ev.preventDefault(); ev.stopPropagation(); showStageCtx(ev.clientX,ev.clientY,app); });
  w.querySelector('[data-a="min"]').onclick=()=>{w.classList.add('hidden');onWinClosed(app.id);syncDots()};
  winsEl.appendChild(w);return w;
 }
@@ -880,11 +958,38 @@ function updateStageUI(){
 /* v0.56 item 1: two card shapes, one setting (stageDisplay,
    default preview). Preview cards show the daemon's real
    window snapshot (PrintWindow on the host, /api/extwin/thumb);
-   a window whose snapshot fails drops to an identity card for
-   good (thumbBad) instead of retrying forever. Identity cards
-   lead with the cleaned page title and the real app icon --
-   never the old identical letter tiles for browser windows. */
+   identity cards lead with the cleaned page title and the
+   real app icon -- never the old identical letter tiles for
+   browser windows.
+   TEST2 rework (field report: preview never loaded): test1's
+   <img src> + onerror design was doomed -- the daemon answered
+   a window's FIRST request 404 (no frame cached yet) and the
+   view then blacklisted the window for the whole session, so
+   no preview ever appeared. The daemon now captures the first
+   frame synchronously, and the view loads previews with
+   fetch(): a refusal carries X-Thumb-Reason -- "minimized" is
+   transient (this round just shows identity; the next poll
+   retries), every other reason is sticky for the session
+   (thumbBad: no more requests for that window, no 404 spam). */
 const thumbBad=new Set();
+const thumbURLs=new Map(); /* hwnd -> {url, at} blob cache */
+async function loadThumb(img,hwnd){
+ if(typeof fetch!=='function') return;
+ const hit=thumbURLs.get(hwnd);
+ if(hit&&Date.now()-hit.at<6000){ img.src=hit.url; return; }
+ try{
+  const r=await fetch('/api/extwin/thumb?hwnd='+hwnd);
+  if(r.ok){
+   const u=URL.createObjectURL(await r.blob());
+   if(hit) URL.revokeObjectURL(hit.url);
+   thumbURLs.set(hwnd,{url:u,at:Date.now()});
+   img.src=u; return;
+  }
+  const reason=r.headers.get('X-Thumb-Reason')||'';
+  if(reason!=='minimized') thumbBad.add(hwnd);
+ }catch(e){ /* network hiccup: retry next poll, not sticky */ }
+ img.remove();
+}
 function extIconHTML(x){
  if(x.ikind==='firefox') return `<img class="extRealIcon" alt="" src="/api/firefox/icon" onerror="this.remove()">`;
  if(x.ikind==='chrome') return `<img class="extRealIcon" alt="" src="/api/chrome/icon" onerror="this.remove()">`;
@@ -893,9 +998,39 @@ function extIconHTML(x){
 function extCardHTML(x,preview){
  const title=cleanWinTitle(x.title)||x.app||'应用';
  if(preview&&!thumbBad.has(x.hwnd)){
-  return `<button class="extcard prev${x.active?' active':''}${x.minimized?' mini':''}" data-hwnd="${x.hwnd}"><img class="ethumb" alt="" src="/api/extwin/thumb?hwnd=${x.hwnd}&t=${Math.floor(Date.now()/3000)}" onerror="thumbBad.add(${x.hwnd});refreshExtStrip()"><span class="ecap">${extIconHTML(x)}<b>${esc(title)}</b></span></button>`;
+  return `<button class="extcard prev${x.active?' active':''}${x.minimized?' mini':''}" data-hwnd="${x.hwnd}"><img class="ethumb" alt=""><span class="ecap">${extIconHTML(x)}<b>${esc(title)}</b></span></button>`;
  }
  return `<button class="extcard${x.active?' active':''}${x.minimized?' mini':''}" data-hwnd="${x.hwnd}"><span class="actdot"></span>${extIconHTML(x)}<span class="et"><b>${esc(title)}</b><span>${esc(x.app||'')}</span></span></button>`;
+}
+/* v0.56 test2 item 3: right-click on a strip card -- the
+   per-window menu. External windows get the three operations
+   the winmgr honestly has (focus / minimize / WM_CLOSE). */
+function showExtCtx(x,y,hwnd){
+ const items=[
+  {act:'focus',label:'切换到该窗口',icon:'switch'},
+  {act:'min',label:'最小化',icon:'minimize'},
+  {act:'close',label:'关闭窗口',icon:'closex',danger:true},
+ ];
+ ctxOpen(items,x,y,async act=>{
+  const ep=act==='focus'?'focus':act==='min'?'minimize':'close';
+  await api('/api/extwin/'+ep,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hwnd})}).catch(()=>null);
+  setTimeout(refreshExtStrip,350);
+ });
+}
+/* Internal stages: while a window is shrunk into the strip it
+   supports exactly 切换到 (the same as clicking it) and 关闭
+   (the same as its red light). Nothing else is offered --
+   no fake entries. */
+function showStageCtx(x,y,app){
+ const items=[
+  {act:'front',label:'切换到',icon:'switch'},
+  {act:'close',label:'关闭',icon:'closex',danger:true},
+ ];
+ ctxOpen(items,x,y,act=>{
+  if(act==='front'){ openApp(app.id); return; }
+  const w=document.getElementById('win-'+app.id);
+  if(w){ w.classList.add('hidden'); onWinClosed(app.id); syncDots(); }
+ });
 }
 async function refreshExtStrip(){
  const box=document.getElementById('extstrip'); if(!box) return;
@@ -906,9 +1041,14 @@ async function refreshExtStrip(){
  const preview=!SETTINGS||SETTINGS.stageDisplay!=='identity';
  box.innerHTML=`<div class="extlab">外部应用 · 点一下切过去</div>`+list.map(x=>extCardHTML(x,preview)).join('');
  box.classList.remove('hidden');
- box.querySelectorAll('.extcard').forEach(c=>c.onclick=async()=>{
+ box.querySelectorAll('.extcard').forEach(c=>{
+  c.onclick=async()=>{
    const r=await api('/api/extwin/focus',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hwnd:Number(c.dataset.hwnd)})}).catch(()=>null);
    if(!r||r.error) refreshExtStrip(); /* window closed or focus failed: re-sync the strip */
+  };
+  c.oncontextmenu=ev=>{ ev.preventDefault(); ev.stopPropagation(); showExtCtx(ev.clientX,ev.clientY,Number(c.dataset.hwnd)); };
+  const img=c.querySelector('img.ethumb');
+  if(img) loadThumb(img,Number(c.dataset.hwnd));
  });
 }
 setInterval(refreshExtStrip,4000);
@@ -1001,7 +1141,7 @@ function faviconURL(u){try{return 'https://www.google.com/s2/favicons?domain='+n
 function webIconHTML(a,mini){
  const f=faviconURL(a.url);
  const img=f?`<img src="${f}" alt="" draggable="false" loading="lazy" onerror="this.remove()">`:'';
- return `<div class="appico webapp${mini?' mini':''}">${esc(webLetter(a.name))}${img}</div>`;
+ return `<div class="appico webapp${mini?' mini':''}"><span class="icolet">${esc(webLetter(a.name))}</span>${img}</div>`;
 }
 /* ----- desktop layout: free icon positions + folders (v0.12) ----- */
 let LAYOUT={pos:{},folders:[]};
@@ -1104,7 +1244,7 @@ function cleanWinTitle(t){
 }
 function folderIconHTML(f){
  const items=folderItems(f).map(k=>entryMeta(k)).filter(Boolean).slice(0,4);
- if(!items.length) return `<div class="appico folderico"><span class="fempty">📁</span></div>`;
+ if(!items.length) return `<div class="appico folderico"><span class="fempty" style="color:#fff">${glyph('folder',26)}</span></div>`;
  return `<div class="appico folderico">${items.map(m=>`<span class="fmini">${m.icon()}</span>`).join('')}</div>`;
 }
 function mkDeskIcon(key,kind,iconHTML,name,onOpen,fid){
@@ -1661,7 +1801,7 @@ function openFolderPop(fid,anchorEl,opts){
  /* v0.56: members resolve through entryMeta -- every kind
     renders and launches here exactly as on the desktop. */
  const metas=folderItems(f).map(k=>entryMeta(k)).filter(Boolean);
- pop.innerHTML=`<div class="fp-panel" id="fp-panel"><div class="fp-title" id="fp-title" title="点标题改名">${esc(f.name)}</div><div class="fp-grid" id="fp-grid">${metas.length?metas.map(m=>`<button class="fp-item" data-key="${esc(m.key)}">${m.icon()}<span>${esc(m.name)}</span></button>`).join(''):'<p class="mut fp-empty">空的：把桌面上的图标拖到这个文件夹上，或者点下面「添加」放进来。</p>'}</div><div class="fp-foot"><button id="fp-add">＋ 添加</button><button id="fp-imp">📥 导入文件</button></div></div>`;
+ pop.innerHTML=`<div class="fp-panel" id="fp-panel"><div class="fp-title" id="fp-title" title="点标题改名">${esc(f.name)}</div><div class="fp-grid" id="fp-grid">${metas.length?metas.map(m=>`<button class="fp-item" data-key="${esc(m.key)}">${m.icon()}<span>${esc(m.name)}</span></button>`).join(''):'<p class="mut fp-empty">空的：把桌面上的图标拖到这个文件夹上，或者点下面「添加」放进来。</p>'}</div><div class="fp-foot"><button id="fp-add">＋ 添加</button><button id="fp-imp">${glyph('import',13)} 导入文件</button></div></div>`;
  pop.classList.remove('hidden');
  pop.onclick=ev=>{ if(ev.target===pop) closeFolderPop(); };
  document.getElementById('fp-title').onclick=()=>startFolderTitleEdit();
@@ -1850,7 +1990,10 @@ function hideCtx(){ctxEl.classList.add('hidden')}
    per-item menus (item 5) via showItemCtx. */
 function ctxItemHTML(it){
  const sub=it.sub?`<div class="ctxSub">${it.sub.map(ctxItemHTML).join('')}</div>`:'';
- return `<div class="ctxitem${it.sub?' hasSub':''}" data-act="${it.act||''}" ${it.arg?`data-arg="${esc(it.arg)}"`:''} ${it.danger?'style="color:#ff9d97"':''}>${it.radio?`<i class="radio">${it.on?'✓':''}</i>`:''}${esc(it.label)}${sub}</div>`;
+ /* test2: every item may carry `icon` -- a name from the one
+    unified GLYPHS set. No emoji in menus, ever. */
+ const ic=it.icon?`<span class="ctxic">${glyph(it.icon,16)}</span>`:'';
+ return `<div class="ctxitem${it.sub?' hasSub':''}" data-act="${it.act||''}" ${it.arg?`data-arg="${esc(it.arg)}"`:''} ${it.danger?'style="color:#ff9d97"':''}>${it.radio?`<i class="radio">${it.on?'✓':''}</i>`:''}${ic}${esc(it.label)}${sub}</div>`;
 }
 function ctxOpen(x,y,items,onPick){
  ctxEl.innerHTML=items.map(it=>it.sep?'<div style="height:1px;background:rgba(255,255,255,.16);margin:5px 8px"></div>':ctxItemHTML(it)).join('');
@@ -1872,14 +2015,14 @@ function showCtx(x,y){
  const sizes=[['小',42],['标准',54],['大',68],['特大',84]].map(([n,v])=>({act:'size',arg:String(v),label:n+'（'+v+'）',radio:true,on:sz===v}));
  const sorts=[['manual','手动'],['name','名称'],['freq','最常用'],['kind','种类'],['added','添加日期']].map(([v,n])=>({act:'sort',arg:v,label:n,radio:true,on:(sm===v)||(v==='manual'&&sm==='manual')}));
  ctxOpen(x,y,[
-  {act:'nf',label:'📁  新建文件夹'},
-  {act:'imp',label:'📥  从电脑导入文件…'},
+  {act:'nf',label:'新建文件夹',icon:'folderplus'},
+  {act:'imp',label:'从电脑导入文件…',icon:'import'},
   {sep:true},
-  {label:'图标大小',sub:sizes},
-  {label:'排序方式',sub:sorts},
+  {label:'图标大小',icon:'size',sub:sizes},
+  {label:'排序方式',icon:'sort',sub:sorts},
   {sep:true},
-  {act:'rf',label:'⟳  刷新'},
-  {act:'ps',label:'🎨  个性化'},
+  {act:'rf',label:'刷新',icon:'refresh'},
+  {act:'ps',label:'个性化',icon:'palette'},
  ],(act,arg)=>{
   if(act==='nf') newFolder(x,y);
   else if(act==='imp') document.getElementById('deskimp').click();
@@ -1890,19 +2033,27 @@ function showCtx(x,y){
  });
 }
 /* Per-item menu content by entry kind + state (item 5). Web
-   apps: 打开 / 调整窗口▸（记忆·手机·桌面·全屏， persisted on the
-   entry, applied at next launch) / 卸载 -- deliberately NO
-   编辑. Store: 打开 / 卸载 (the store's own uninstall, data
-   warning included). Components & Firefox: 打开 / 卸载组件.
-   System apps: 打开 only. Folders: 打开 / 重命名 / 解散. */
+   apps: 打开 / 重命名…（test2 item 6: display name only, the
+   URL is untouched -- still deliberately NO full 编辑 form) /
+   调整窗口▸（记忆·手机·桌面·全屏， persisted on the entry,
+   applied at next launch) / 卸载. Store: 打开 / 卸载 (the
+   store's own uninstall, data warning included). Components
+   & Firefox: 打开 / 卸载组件. System apps: 打开 only (their
+   names are canonical -- no rename). Folders: 打开 / 重命名 /
+   解散. Imported files delegate to showFileCtx (which carries
+   重命名 for the real file). */
 function showItemCtx(x,y,key,kind,fid){
  const openIt=()=>{ const m=entryMeta(key); if(m){ recOpen(key); m.open(); } };
+ if(key.startsWith('file:')){
+  const f=DESKFILES.find(z=>'file:'+z.name===key);
+  if(f){ showFileCtx(x,y,f); return; }
+ }
  if(kind==='folder'||key.startsWith('folder:')){
   const f=folderById(fid||key.slice(7)); if(!f) return;
   ctxOpen(x,y,[
-   {act:'open',label:'打开'},
-   {act:'rename',label:'重命名…'},
-   {act:'dissolve',label:'解散文件夹',danger:true},
+   {act:'open',label:'打开',icon:'open'},
+   {act:'rename',label:'重命名…',icon:'rename'},
+   {act:'dissolve',label:'解散文件夹',icon:'folderup',danger:true},
   ],act=>{
    if(act==='open'){ const el=document.querySelector(`.icon[data-key="${CSS.escape(key)}"]`); openFolderPop(f.id,el); }
    else if(act==='rename'){ const el=document.querySelector(`.icon[data-key="${CSS.escape(key)}"]`); openFolderPop(f.id,el,{editTitle:true}); }
@@ -1922,11 +2073,20 @@ function showItemCtx(x,y,key,kind,fid){
   const cur=a.winmode||'memory';
   const modes=[['memory','记忆'],['phone','手机'],['desktop','桌面'],['fullscreen','全屏']].map(([v,n])=>({act:'winmode',arg:v,label:n,radio:true,on:cur===v}));
   ctxOpen(x,y,[
-   {act:'open',label:'打开'},
-   {label:'调整窗口',sub:modes},
-   {act:'uninstall',label:'卸载',danger:true},
+   {act:'open',label:'打开',icon:'open'},
+   {act:'rename',label:'重命名…',icon:'rename'},
+   {label:'调整窗口',icon:'window',sub:modes},
+   {act:'uninstall',label:'卸载',icon:'trash',danger:true},
   ],async(act,arg)=>{
    if(act==='open') openIt();
+   else if(act==='rename'){
+    const nn=prompt('网页应用的新名字（只改显示名，网址不变）',a.name);
+    if(!nn||!nn.trim()||nn.trim()===a.name) return;
+    const r=await api('/api/apps/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:a.url,name:nn.trim()})});
+    if(r&&r.error){ alert('改名失败：'+r.error); return; }
+    await loadWebApps(); renderDesk();
+    toast('已改名为「'+nn.trim()+'」');
+   }
    else if(act==='winmode'){
     const r=await api('/api/apps/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:a.url,winmode:arg})});
     if(r&&r.error){ alert(r.error); return; }
@@ -1946,7 +2106,7 @@ function showItemCtx(x,y,key,kind,fid){
  }
  if(key.startsWith('store:')){
   const a=STOREAPPS.find(s=>'store:'+s.id===key); if(!a) return;
-  ctxOpen(x,y,[{act:'open',label:'打开'},{act:'uninstall',label:'卸载',danger:true}],async act=>{
+  ctxOpen(x,y,[{act:'open',label:'打开',icon:'open'},{act:'uninstall',label:'卸载',icon:'trash',danger:true}],async act=>{
    if(act==='open') openIt();
    else if(act==='uninstall'){
     if(!confirm('卸载 '+a.name+'？\n便携应用的程序和数据都在同一个文件夹里，卸载会把 '+a.name+' 的本地数据（如聊天记录、配置）一起全部删掉，不可恢复。')) return;
@@ -1960,7 +2120,7 @@ function showItemCtx(x,y,key,kind,fid){
  }
  if(key.startsWith('prod:')){
   const c=PRODAPPS.find(p=>'prod:'+p.id===key); if(!c) return;
-  ctxOpen(x,y,[{act:'open',label:'打开'},{act:'uninstall',label:'卸载组件',danger:true}],async act=>{
+  ctxOpen(x,y,[{act:'open',label:'打开',icon:'open'},{act:'uninstall',label:'卸载组件',icon:'trash',danger:true}],async act=>{
    if(act==='open') openIt();
    else if(act==='uninstall'){
     if(!confirm('卸载 '+c.name+'？\n程序和它在组件目录里的数据会一起删掉，不可恢复。')) return;
@@ -1973,8 +2133,8 @@ function showItemCtx(x,y,key,kind,fid){
   return;
  }
  if(key==='app:firefox'){
-  const items=[{act:'open',label:'打开'}];
-  if(FFSTATE&&FFSTATE.installed) items.push({act:'uninstall',label:'卸载组件',danger:true});
+  const items=[{act:'open',label:'打开',icon:'open'}];
+  if(FFSTATE&&FFSTATE.installed) items.push({act:'uninstall',label:'卸载组件',icon:'trash',danger:true});
   ctxOpen(x,y,items,async act=>{
    if(act==='open') openIt();
    else if(act==='uninstall'){
@@ -1988,7 +2148,7 @@ function showItemCtx(x,y,key,kind,fid){
   return;
  }
  /* System apps and anything unlisted: 打开 only. */
- ctxOpen(x,y,[{act:'open',label:'打开'}],()=>openIt());
+ ctxOpen(x,y,[{act:'open',label:'打开',icon:'open'}],()=>openIt());
 }
 function newFolder(x,y){
  const id='f'+Date.now().toString(36);
@@ -1999,7 +2159,7 @@ function newFolder(x,y){
  if(tile) openFolderPop(id,tile);
 }
 document.addEventListener('contextmenu',ev=>{
- if(ev.target.closest('.win')||ev.target.closest('#dockwrap')||ev.target.closest('#menubar')||ev.target.closest('#folderpop')||ev.target.closest('#ctxmenu')||ev.target.closest('#launchpad')||ev.target.closest('#spotlight')||ev.target.closest('#mbdrop')) return;
+ if(ev.target.closest('.win')||ev.target.closest('#dockwrap')||ev.target.closest('#menubar')||ev.target.closest('#folderpop')||ev.target.closest('#ctxmenu')||ev.target.closest('#launchpad')||ev.target.closest('#spotlight')||ev.target.closest('#mbdrop')||ev.target.closest('#extstrip')) return;
  ev.preventDefault(); showCtx(ev.clientX,ev.clientY);
 });
 document.addEventListener('dragstart',ev=>{
@@ -2033,7 +2193,7 @@ async function loadWebApps(){
 /* ----- portable apps from the store (v0.24): desktop icons ----- */
 let STORECAT=[], STOREAPPS=[];
 function storeIconHTML(a){
- if(a&&a.icon) return `<div class="appico webapp">${esc(webLetter(a.name))}<img src="${esc(a.icon)}" alt="" draggable="false" loading="lazy" onerror="this.remove()"></div>`;
+ if(a&&a.icon) return `<div class="appico webapp"><span class="icolet">${esc(webLetter(a.name))}</span><img src="${esc(a.icon)}" alt="" draggable="false" loading="lazy" onerror="this.remove()"></div>`;
  return webIconHTML({name:a?a.name:'',url:(a&&a.homepage)||''});
 }
 async function loadStoreApps(){
@@ -2063,7 +2223,7 @@ function prodPct(c){ if(!c||!c.size) return 0; return Math.max(0,Math.min(100,Ma
 function prodIconHTML(c){
  const badge=!c.installed?`<span class="dlb">${prodBusy(c)?('下载 '+prodPct(c)+'%'):'未下载'}</span>`:'';
  const img=c.installed?`<img alt="" src="/api/components/icon?id=${encodeURIComponent(c.id)}" onerror="this.remove()">`:'';
- return `<div class="appico webapp${c.installed?'':' notin'}">${esc(c.name.replace(/[^A-Za-z]/g,'').slice(0,1)||c.name.slice(0,1))}${img}${badge}</div>`;
+ return `<div class="appico webapp${c.installed?'':' notin'}"><span class="icolet">${esc(c.name.replace(/[^A-Za-z]/g,'').slice(0,1)||c.name.slice(0,1))}</span>${img}${badge}</div>`;
 }
 async function loadProdApps(){
  try{const r=await api('/api/components');PRODAPPS=(r&&r.components)||[]}catch(e){PRODAPPS=[]}
@@ -2088,7 +2248,7 @@ function ffDeskIconHTML(){
  const c=FFSTATE||{};
  const badge=!c.installed?`<span class="dlb">${ffBusy(c)?('下载 '+ffPct(c)+'%'):(c.phase==='error'?'下载失败':'未下载')}</span>`:'';
  const img=c.installed?`<img alt="" src="/api/firefox/icon" onerror="this.remove()">`:'';
- return `<div class="appico webapp${c.installed?'':' notin'}">F${img}${badge}</div>`;
+ return `<div class="appico webapp${c.installed?'':' notin'}"><span class="icolet">F</span>${img}${badge}</div>`;
 }
 async function launchFirefoxEntry(){
  const c=FFSTATE;
@@ -2145,7 +2305,7 @@ async function loadDeskFiles(){
  try{ const r=await api('/api/files'); DESKFILES=r.files||[]; }catch(e){ DESKFILES=[]; }
 }
 function fileIconHTML(f){
- if(f.dir) return `<div class="appico fileico g-f-dir">📁</div>`;
+ if(f.dir) return `<div class="appico fileico g-f-dir" style="color:#fff">${glyph('folder',26)}</div>`;
  const ext=(f.ext||'').toUpperCase();
  if(f.kind==='image'&&['jpg','jpeg','png','gif'].includes(f.ext)){
   /* Real thumbnail from the daemon; if it cannot render one
@@ -2224,13 +2384,23 @@ document.getElementById('deskimp').addEventListener('change',e=>{ importFiles(e.
    stays in Data/files and in the Files app) and 删除文件 (the
    real delete, confirmed) are deliberately separate items. */
 function showFileCtx(x,y,f){
- ctxEl.innerHTML=`<div class="ctxitem" id="fc-open">打开</div><div class="ctxitem" id="fc-reveal">在「文件」中显示</div><div class="ctxitem" id="fc-rename">重命名…</div><div class="ctxitem" id="fc-export">导出到电脑（下载文件夹）</div><div class="ctxitem" id="fc-unpin">从桌面移除</div><div class="ctxitem" id="fc-del" style="color:#ff9d97">删除文件</div>`;
+ /* test2: painted by the shared ctxItemHTML (one component,
+    unified glyphs) instead of hand-rolled rows. */
+ ctxEl.innerHTML=[
+  {act:'fc-open',label:'打开',icon:'open'},
+  {act:'fc-reveal',label:'在「文件」中显示',icon:'folder'},
+  {act:'fc-rename',label:'重命名…',icon:'rename'},
+  {act:'fc-export',label:'导出到电脑（下载文件夹）',icon:'export'},
+  {act:'fc-unpin',label:'从桌面移除',icon:'eyeoff'},
+  {act:'fc-del',label:'删除文件',icon:'trash',danger:true},
+ ].map(ctxItemHTML).join('');
  ctxEl.classList.remove('hidden');
  ctxEl.style.left=Math.min(x,innerWidth-220)+'px';
  ctxEl.style.top=Math.min(y,innerHeight-260)+'px';
- document.getElementById('fc-open').onclick=()=>{ hideCtx(); recOpen('file:'+f.name); openDeskFile(f.path,f.kind); };
- document.getElementById('fc-reveal').onclick=()=>{ hideCtx(); openApp('files'); let n=0; const t=setInterval(()=>{ if((window.__filesReveal&&window.__filesReveal(f.path))||++n>12) clearInterval(t); },120); };
- document.getElementById('fc-unpin').onclick=()=>{
+ const fc=a=>ctxEl.querySelector(`[data-act="${a}"]`);
+ fc('fc-open').onclick=()=>{ hideCtx(); recOpen('file:'+f.name); openDeskFile(f.path,f.kind); };
+ fc('fc-reveal').onclick=()=>{ hideCtx(); openApp('files'); let n=0; const t=setInterval(()=>{ if((window.__filesReveal&&window.__filesReveal(f.path))||++n>12) clearInterval(t); },120); };
+ fc('fc-unpin').onclick=()=>{
   hideCtx();
   /* Icon only: the name goes on the layout's hidden list; the
      file itself stays in Data/files and in the Files app, and
@@ -2241,8 +2411,8 @@ function showFileCtx(x,y,f){
   saveLayout(); renderDesk();
   toast('已从桌面移除（文件还在「文件」里）');
  };
- document.getElementById('fc-export').onclick=()=>{ hideCtx(); exportDeskFile(f); };
- document.getElementById('fc-rename').onclick=async()=>{
+ fc('fc-export').onclick=()=>{ hideCtx(); exportDeskFile(f); };
+ fc('fc-rename').onclick=async()=>{
   hideCtx();
   const nn=prompt('新名字（不能带路径）',f.name);
   if(!nn||nn.trim()===f.name) return;
@@ -2251,7 +2421,7 @@ function showFileCtx(x,y,f){
   if(LAYOUT.pos['file:'+f.name]){ LAYOUT.pos['file:'+r.name]=LAYOUT.pos['file:'+f.name]; delete LAYOUT.pos['file:'+f.name]; }
   saveLayout(); await loadDeskFiles(); renderDesk();
  };
- document.getElementById('fc-del').onclick=async()=>{
+ fc('fc-del').onclick=async()=>{
   hideCtx();
   if(!confirm('删除终端桌面上的「'+f.name+'」？\n删的是终端里的副本（在 Data/files 里），电脑上的原文件不受影响。')) return;
   const r=await api('/api/files/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:f.name})});
@@ -2370,7 +2540,7 @@ async function openZipList(p){
  if(!box) return;
  if(!r||r.error){ box.textContent='打开失败：'+((r&&r.error)||'接口没回应'); return; }
  SUBLIST=r.files||[];
- box.innerHTML=SUBLIST.length?`<table>${SUBLIST.map(it=>`<tr class="file" data-p="${esc(it.path)}" data-k="${it.kind}" data-d="${it.dir}"><td>${it.dir?'📁':'📄'}</td><td>${esc(it.name)}</td><td>${it.dir?'':(it.size/1024).toFixed(1)+' KB'}</td></tr>`).join('')}</table>`:'（空文件夹）';
+ box.innerHTML=SUBLIST.length?`<table>${SUBLIST.map(it=>`<tr class="file" data-p="${esc(it.path)}" data-k="${it.kind}" data-d="${it.dir}"><td>${glyph(it.dir?'folder':'file',15)}</td><td>${esc(it.name)}</td><td>${it.dir?'':(it.size/1024).toFixed(1)+' KB'}</td></tr>`).join('')}</table>`:'（空文件夹）';
  box.querySelectorAll('tr.file').forEach(tr=>tr.ondblclick=()=>{
   if(tr.dataset.d==='true'){ toast('子文件夹先不在这里展开（它在 Data/files 里）'); return; }
   openDeskFile(tr.dataset.p,tr.dataset.k);
@@ -2571,8 +2741,8 @@ function render(id){
      virtual path: 文稿库 is a single-layer library. */
   b.innerHTML=`<div class="fv"><div class="fv-path">文稿库 <span style="opacity:.6">›</span> <b id="fv-crumb">全部文件</b><span style="opacity:.55;font-size:12px">　· 单层文稿库（Data/files），不是电脑上的文件夹</span></div><div class="fv-main"><div class="fv-side" id="fv-side"></div><div class="fv-center"><div class="fv-tools"><span class="seg" id="fv-viewseg"><button data-v="icon">图标</button><button data-v="list">列表</button><button data-v="cols">分栏</button></span><select class="fv-sorts" id="fv-sort" title="排序"><option value="name">名称</option><option value="size">大小</option><option value="kind">类型</option><option value="mtime">导入时间</option></select><button class="btn gray" id="fv-import">导入…</button><input class="fv-q" id="fv-q" type="text" placeholder="搜索当前分组" autocomplete="off"></div><div class="fv-body" id="fv-body"></div></div><div class="fv-prev" id="fv-prev"></div></div></div>`;
  }
- if(id==='browser') b.innerHTML=`<h3>谷歌浏览器（独立窗口）</h3><p class="mut" style="margin-top:8px">这个浏览器和公用电脑自己的浏览器是分开的：独立档案存在 EXE 旁边的 Data 文件夹，历史、Cookie、登录都在你自己的档案里。<br><b style="color:#fff">走节点打开时，只有这个窗口的流量走节点</b>，不会改这台电脑的系统代理。</p><div class="row" style="margin-top:14px"><input class="txt" id="burl" value="https://www.google.com"></div><div class="row" style="margin-top:10px"><button class="btn" id="bproxy">🚀 走节点打开 Chrome</button><button class="btn gray" id="bdirect">直连打开 Chrome</button><button class="btn gray" id="btest">代理自检</button></div><p style="margin-top:12px"><span class="tag" id="bstatus">连不上时先点「代理自检」，它会告诉你卡在哪一步</span></p><hr style="border-color:rgba(255,255,255,.14);margin:18px 0"><h3>网站应用（钉到桌面）</h3><p class="mut" style="margin-top:6px">下面的网站已经钉在桌面右侧，点开就是<b style="color:#fff">应用化的干净窗口</b>：没有地址栏、没有标签页，像打开一个 App，自动走节点（全局加速开着时）。适合 X、YouTube 这种固定要去的网站。</p><div id="walist" class="mut" style="margin-top:10px">加载中…</div><div class="row" style="margin-top:12px"><input class="txt" id="waname" placeholder="名字，如 GitHub" style="max-width:150px"><input class="txt" id="waurl" placeholder="网址，如 https://github.com"></div><div class="row" style="margin-top:8px"><button class="btn" id="waadd">＋ 钉到桌面</button><span class="tag" id="wastatus"></span></div><hr style="border-color:rgba(255,255,255,.14);margin:18px 0"><h3>谷歌云同步（换电脑不丢登录）</h3><p class="mut" style="margin-top:6px">Chrome 的登录搬不了家（被那台电脑的 Windows 账户锁着），但<b style="color:#fff">开启谷歌同步</b>后，换一台电脑打开终端机，在隔离 Chrome 里登一次谷歌，密码、书签、历史就会同步回来，各网站的登录基本点一下就恢复。同步的开关在 Chrome 里面，下面这个按钮会直接把同步设置页在隔离 Chrome 中打开。</p><div class="row" style="margin-top:10px"><button class="btn" id="bsync">打开同步设置</button><span class="tag" id="bsyncst">打开后在 Chrome 里点「开启同步」并登录谷歌账户</span></div>`;
- if(id==='firefox') b.innerHTML=`<h3>Firefox（系统内浏览器 · 登录可搬家）</h3><p class="mut" style="margin-top:8px">这是装在咱们系统里面的 Firefox，用自己的档案（EXE 旁 Data/FirefoxProfile）。和 Chrome 不一样，<b style="color:#fff">Firefox 的登录、Cookie、历史都锁在档案自己身上</b>：把文件夹带到另一台电脑打开，登录状态样，这是专门用来装需要登录的网站的浏览器。建议进 Firefox 后给档案设一个<b style="color:#fff">主密码</b>（设置 → 隐私与安全 → 主密码），文件夹在别人手里也解不开。宿主机自己的 Firefox 与它互不相干。</p><p style="margin-top:12px"><span class="tag" id="ffinfo">组件状态读取中…</span></p><div class="row" style="margin-top:10px"><button class="btn" id="ffdl">下载 Firefox 组件</button><span class="tag" id="ffprog"></span></div><div class="row" style="margin-top:14px"><input class="txt" id="ffurl" placeholder="网址（留空开主页），如 https://github.com"></div><div class="row" style="margin-top:10px"><button class="btn" id="ffopen">🚀 走节点打开</button><button class="btn gray" id="ffopenapp">应用化打开（走节点）</button><button class="btn gray" id="ffopend">直连打开</button></div><div id="ffconflict" style="display:none;margin-top:12px;padding:10px 12px;border-radius:10px;background:rgba(255,159,10,.14);border:1px solid rgba(255,159,10,.45)"><p style="font-size:13px;line-height:1.6" id="ffconflict-t"></p><div class="row" style="margin-top:8px"><button class="btn" id="ffrestart">重启并切换</button><span class="mut" style="font-size:12px">会关掉现在的 Firefox 窗口再重开；标签页按 Firefox 的会话恢复回来。</span></div></div><p class="mut" style="margin-top:10px">应用化＝隐藏标签栏和地址栏的干净窗口。Firefox 是单进程浏览器：<b style="color:#fff">普通/应用化在进程启动那一刻就定死了</b>，开着的时候再点另一种打开不会生效——页面会提示冲突，点「重启并切换」一键处理。</p><p style="margin-top:8px"><span class="tag" id="ffstatus"></span></p>`;
+ if(id==='browser') b.innerHTML=`<h3>谷歌浏览器（独立窗口）</h3><p class="mut" style="margin-top:8px">这个浏览器和公用电脑自己的浏览器是分开的：独立档案存在 EXE 旁边的 Data 文件夹，历史、Cookie、登录都在你自己的档案里。<br><b style="color:#fff">走节点打开时，只有这个窗口的流量走节点</b>，不会改这台电脑的系统代理。</p><div class="row" style="margin-top:14px"><input class="txt" id="burl" value="https://www.google.com"></div><div class="row" style="margin-top:10px"><button class="btn" id="bproxy">走节点打开 Chrome</button><button class="btn gray" id="bdirect">直连打开 Chrome</button><button class="btn gray" id="btest">代理自检</button></div><p style="margin-top:12px"><span class="tag" id="bstatus">连不上时先点「代理自检」，它会告诉你卡在哪一步</span></p><hr style="border-color:rgba(255,255,255,.14);margin:18px 0"><h3>网站应用（钉到桌面）</h3><p class="mut" style="margin-top:6px">下面的网站已经钉在桌面右侧，点开就是<b style="color:#fff">应用化的干净窗口</b>：没有地址栏、没有标签页，像打开一个 App，自动走节点（全局加速开着时）。适合 X、YouTube 这种固定要去的网站。</p><div id="walist" class="mut" style="margin-top:10px">加载中…</div><div class="row" style="margin-top:12px"><input class="txt" id="waname" placeholder="名字，如 GitHub" style="max-width:150px"><input class="txt" id="waurl" placeholder="网址，如 https://github.com"></div><div class="row" style="margin-top:8px"><button class="btn" id="waadd">＋ 钉到桌面</button><span class="tag" id="wastatus"></span></div><hr style="border-color:rgba(255,255,255,.14);margin:18px 0"><h3>谷歌云同步（换电脑不丢登录）</h3><p class="mut" style="margin-top:6px">Chrome 的登录搬不了家（被那台电脑的 Windows 账户锁着），但<b style="color:#fff">开启谷歌同步</b>后，换一台电脑打开终端机，在隔离 Chrome 里登一次谷歌，密码、书签、历史就会同步回来，各网站的登录基本点一下就恢复。同步的开关在 Chrome 里面，下面这个按钮会直接把同步设置页在隔离 Chrome 中打开。</p><div class="row" style="margin-top:10px"><button class="btn" id="bsync">打开同步设置</button><span class="tag" id="bsyncst">打开后在 Chrome 里点「开启同步」并登录谷歌账户</span></div>`;
+ if(id==='firefox') b.innerHTML=`<h3>Firefox（系统内浏览器 · 登录可搬家）</h3><p class="mut" style="margin-top:8px">这是装在咱们系统里面的 Firefox，用自己的档案（EXE 旁 Data/FirefoxProfile）。和 Chrome 不一样，<b style="color:#fff">Firefox 的登录、Cookie、历史都锁在档案自己身上</b>：把文件夹带到另一台电脑打开，登录状态样，这是专门用来装需要登录的网站的浏览器。建议进 Firefox 后给档案设一个<b style="color:#fff">主密码</b>（设置 → 隐私与安全 → 主密码），文件夹在别人手里也解不开。宿主机自己的 Firefox 与它互不相干。</p><p style="margin-top:12px"><span class="tag" id="ffinfo">组件状态读取中…</span></p><div class="row" style="margin-top:10px"><button class="btn" id="ffdl">下载 Firefox 组件</button><span class="tag" id="ffprog"></span></div><div class="row" style="margin-top:14px"><input class="txt" id="ffurl" placeholder="网址（留空开主页），如 https://github.com"></div><div class="row" style="margin-top:10px"><button class="btn" id="ffopen">走节点打开</button><button class="btn gray" id="ffopenapp">应用化打开（走节点）</button><button class="btn gray" id="ffopend">直连打开</button></div><div id="ffconflict" style="display:none;margin-top:12px;padding:10px 12px;border-radius:10px;background:rgba(255,159,10,.14);border:1px solid rgba(255,159,10,.45)"><p style="font-size:13px;line-height:1.6" id="ffconflict-t"></p><div class="row" style="margin-top:8px"><button class="btn" id="ffrestart">重启并切换</button><button class="btn" id="ffforce" style="display:none;background:#ff453a">强制结束并切换</button><span class="mut" style="font-size:12px">会关掉现在的 Firefox 窗口再重开；标签页按 Firefox 的会话恢复回来。强制结束只在温和关闭退不干净时才出现：它会结束本组件的 Firefox 进程树（按进程路径认人，不碰宿主机的 Firefox），未保存的表单内容可能丢失。</span></div></div><p class="mut" style="margin-top:10px">应用化＝隐藏标签栏和地址栏的干净窗口。Firefox 是单进程浏览器：<b style="color:#fff">普通/应用化在进程启动那一刻就定死了</b>，开着的时候再点另一种打开不会生效——页面会提示冲突，点「重启并切换」一键处理。</p><p style="margin-top:8px"><span class="tag" id="ffstatus"></span></p>`;
  if(id==='ssh') b.innerHTML=`<h3>SSH 远程终端</h3><p class="mut" style="margin-top:6px">连接、私钥、服务器指纹都存在 EXE 旁的 <b style="color:#fff">Data/ssh</b> 里，跟着文件夹走。密码和私钥口令只在连接时输入、<b style="color:#fff">不保存</b>。第一次连某台服务器会记下它的指纹，之后每次校验，对不上会拦住。</p><div class="row" style="margin-top:10px"><select id="sshconn" class="txt" style="max-width:250px"></select><button class="btn gray" id="sshnew">＋ 新建</button><button class="btn gray" id="sshedit">编辑</button><button class="btn gray" id="sshdel">删除</button></div><div id="sshform" style="display:none;margin-top:10px"><div class="row"><input class="txt" id="sf_name" placeholder="名字，如 新加坡服务器" style="max-width:170px"><input class="txt" id="sf_host" placeholder="主机 / IP"><input class="txt" id="sf_port" placeholder="端口" value="22" style="max-width:80px"><input class="txt" id="sf_user" placeholder="用户名" style="max-width:120px"></div><div class="row" style="margin-top:8px"><label class="mut">登录方式 <select id="sf_auth" class="txt"><option value="key">密钥</option><option value="password">密码</option></select></label><select id="sf_key" class="txt" style="max-width:170px"></select><label class="mut"><input type="checkbox" id="sf_proxy"> 走节点连接</label></div><div class="row" style="margin-top:8px"><input class="txt" id="sf_keyname" placeholder="新密钥名（导入时填，如 id_sg）" style="max-width:210px"></div><textarea id="sf_keydata" rows="3" style="width:100%;margin-top:6px" placeholder="粘贴私钥内容导入（可选，存进 Data/ssh/keys；已存的密钥在上面选）"></textarea><div class="row" style="margin-top:8px"><button class="btn" id="sfsave">保存连接</button><span class="tag" id="sfst"></span></div></div><div class="row" style="margin-top:12px"><input class="txt" id="sshpass" type="password" placeholder="密码 / 私钥口令（连接时输，不保存）" style="max-width:250px" autocomplete="off"><button class="btn" id="sshgo">连接</button><button class="btn gray" id="sshstop">断开</button><span class="tag" id="sshst">未连接</span></div><div id="sshterm" style="margin-top:10px;height:300px;background:#0b0e14;border-radius:10px;padding:6px;overflow:hidden"></div><hr style="border-color:rgba(255,255,255,.14);margin:16px 0"><h3>文件（SFTP）</h3><p class="mut" style="margin-top:4px">共用上面的终端连接传文件，不用再输一次密码。</p><div class="row" style="margin-top:8px"><span class="tag" id="sfpath">未连接</span><button class="btn gray" id="sfup">↑ 上级</button><button class="btn gray" id="sfrefresh">刷新</button><button class="btn gray" id="sfmkdir">新建文件夹</button><button class="btn gray" id="sfupload">上传文件</button><input type="file" id="sffile" style="display:none"></div><div id="sflist" class="mut" style="margin-top:8px">连上服务器后，这里能浏览、上传、下载、删除远程文件。</div>`;
  if(id==='servermon') b.innerHTML=`<div class="sm-wrap"><div class="sm-side"><div class="sm-hd">服务器</div><div id="sm-list"></div><p class="mut" style="font-size:11.5px;padding:10px 8px 0;line-height:1.6">监控走 SSH 通道读服务器数据，不用在服务器上装任何东西。密钥连接可自动采样；密码连接先在 SSH 里连上，或在详情里输一次密码手动采样。</p></div><div class="sm-main" id="sm-main"><p class="mut">加载中…</p></div></div>`;
  if(id==='console'){ b.style.padding='0'; b.style.background='#0b0e14'; b.style.display='flex'; b.style.flexDirection='column';
@@ -2676,23 +2846,23 @@ function bind(id){
   const G=x=>document.getElementById(x);
   const fmtB=n=>{ n=+n||0; if(n>=1073741824) return (n/1073741824).toFixed(2)+' GB'; if(n>=1048576) return (n/1048576).toFixed(1)+' MB'; if(n>=1024) return (n/1024).toFixed(1)+' KB'; return n+' B' };
   const PAGES=[
-   {id:'appearance',n:'外观',g:'linear-gradient(180deg,#64d2ff,#bf5af2)',glyph:'🖼',kw:'壁纸 背景 个性化 wallpaper'},
-   {id:'desktop',n:'桌面与 Dock',g:'linear-gradient(180deg,#2dd4bf,#0e7490)',glyph:'▦',kw:'台前调度 手机宽 落位 dock 位置 左侧 右侧 自动隐藏 窗口 导入 文件 桌面图标 沉浸 全屏 任务栏 控制中心'},
-   {id:'notify',n:'通知',g:'linear-gradient(180deg,#ff453a,#ff9f0a)',glyph:'🔔',kw:'通知 横幅 提醒 通知中心 banner 允许'},
-   {id:'network',n:'节点与网络',g:'linear-gradient(180deg,#bf5af2,#7d2ae8)',glyph:'🚀',kw:'节点 加速 代理 下载 网络'},
-   {id:'browser',n:'浏览器',g:'linear-gradient(180deg,#5ec2ff,#0a62d6)',glyph:'◎',kw:'chrome firefox 缓存 同步 谷歌 浏览器'},
-   {id:'components',n:'组件',g:'linear-gradient(180deg,#ffb340,#ff7139)',glyph:'🧩',kw:'firefox 小龙虾 openclaw 组件'},
-   {id:'isolation',n:'应用隔离',g:'linear-gradient(180deg,#64d2ff,#5856d6)',glyph:'📦',kw:'隔离 沙盒 sandboxie 驱动 管理员 微信 安装 盒子'},
-   {id:'storage',n:'存储空间',g:'linear-gradient(180deg,#a7b0be,#5b6470)',glyph:'▤',kw:'存储 空间 清理 缓存 瘦身 占用 磁盘'},
-   {id:'security',n:'安全与隐私',g:'linear-gradient(180deg,#ffd60a,#ff9f0a)',glyph:'🔒',kw:'远程 协助 安全 隐私 配对 接管 tailscale 操作者 保险库 加密 密码 锁屏 vault lock'},
-   {id:'general',n:'通用',g:'linear-gradient(180deg,#d1d1d6,#636366)',glyph:'⚙',kw:'退出 自动 时长 通用 关机 关闭 应用'},
-   {id:'about',n:'关于',g:'linear-gradient(180deg,#64d2ff,#0a84ff)',glyph:'i',kw:'关于 版本 控制台 诊断 数据目录'},
-   {id:'update',n:'软件更新',g:'linear-gradient(180deg,#8e8e93,#48484a)',glyph:'⬆',kw:'更新 升级 版本 令牌'}
+   {id:'appearance',n:'外观',g:'linear-gradient(180deg,#64d2ff,#bf5af2)',glyph:'image',kw:'壁纸 背景 个性化 wallpaper'},
+   {id:'desktop',n:'桌面与 Dock',g:'linear-gradient(180deg,#2dd4bf,#0e7490)',glyph:'stage',kw:'台前调度 手机宽 落位 dock 位置 左侧 右侧 自动隐藏 窗口 导入 文件 桌面图标 沉浸 全屏 任务栏 控制中心'},
+   {id:'notify',n:'通知',g:'linear-gradient(180deg,#ff453a,#ff9f0a)',glyph:'bell',kw:'通知 横幅 提醒 通知中心 banner 允许'},
+   {id:'network',n:'节点与网络',g:'linear-gradient(180deg,#bf5af2,#7d2ae8)',glyph:'rocket',kw:'节点 加速 代理 下载 网络'},
+   {id:'browser',n:'浏览器',g:'linear-gradient(180deg,#5ec2ff,#0a62d6)',glyph:'globe',kw:'chrome firefox 缓存 同步 谷歌 浏览器'},
+   {id:'components',n:'组件',g:'linear-gradient(180deg,#ffb340,#ff7139)',glyph:'shapes',kw:'firefox 小龙虾 openclaw 组件'},
+   {id:'isolation',n:'应用隔离',g:'linear-gradient(180deg,#64d2ff,#5856d6)',glyph:'box',kw:'隔离 沙盒 sandboxie 驱动 管理员 微信 安装 盒子'},
+   {id:'storage',n:'存储空间',g:'linear-gradient(180deg,#a7b0be,#5b6470)',glyph:'stack',kw:'存储 空间 清理 缓存 瘦身 占用 磁盘'},
+   {id:'security',n:'安全与隐私',g:'linear-gradient(180deg,#ffd60a,#ff9f0a)',glyph:'lock',kw:'远程 协助 安全 隐私 配对 接管 tailscale 操作者 保险库 加密 密码 锁屏 vault lock'},
+   {id:'general',n:'通用',g:'linear-gradient(180deg,#d1d1d6,#636366)',glyph:'gear',kw:'退出 自动 时长 通用 关机 关闭 应用'},
+   {id:'about',n:'关于',g:'linear-gradient(180deg,#64d2ff,#0a84ff)',glyph:'info',kw:'关于 版本 控制台 诊断 数据目录'},
+   {id:'update',n:'软件更新',g:'linear-gradient(180deg,#8e8e93,#48484a)',glyph:'up',kw:'更新 升级 版本 令牌'}
   ];
   let curPage='appearance', usageCache=null, updIv=null, secIv=null, sbxIv=null, prodIv=null;
   const storageUsageOnce=async()=>{ if(!usageCache) usageCache=await api('/api/storage/usage'); return usageCache };
   const navPaint=()=>{ const q=(G('set-q').value||'').trim().toLowerCase();
-   G('set-nav').innerHTML=PAGES.filter(p=>!q||(p.n+' '+p.kw).toLowerCase().includes(q)).map(p=>`<div class="set-it${p.id===curPage?' on':''}" data-page="${p.id}"><span class="set-ico" style="background:${p.g}">${p.glyph}</span><span>${p.n}</span></div>`).join('')||'<p class="mut" style="padding:8px">没有匹配的设置项</p>';
+   G('set-nav').innerHTML=PAGES.filter(p=>!q||(p.n+' '+p.kw).toLowerCase().includes(q)).map(p=>`<div class="set-it${p.id===curPage?' on':''}" data-page="${p.id}"><span class="set-ico" style="background:${p.g}">${glyph(p.glyph,14)}</span><span>${p.n}</span></div>`).join('')||'<p class="mut" style="padding:8px">没有匹配的设置项</p>';
    G('set-nav').querySelectorAll('[data-page]').forEach(el=>el.onclick=()=>goto(el.dataset.page));
    const mc=G('set-mecard'); if(mc) mc.classList.toggle('on',curPage==='update');
   };
@@ -2799,7 +2969,7 @@ function bind(id){
   };
   const paintComponents=async()=>{
    if(prodIv){ clearInterval(prodIv); prodIv=null; }
-   G('set-main').innerHTML=`<div class="set-page"><div class="set-sec">组件</div><div class="set-desc">按需下载的重型组件，装在 EXE 旁，跟着文件夹走。点「管理」去各自的应用页下载、启停或卸载。</div><div class="sm-card"><div class="sm-row"><span>🦊 Firefox</span><span class="row"><span class="set-val" id="cp-ff">读取中…</span><button class="btn gray" data-openapp="firefox">管理</button></span></div><div class="sm-row"><span>🦞 小龙虾 OpenClaw</span><span class="row"><span class="set-val" id="cp-oc">读取中…</span><button class="btn gray" data-openapp="openclaw">管理</button></span></div><div class="sm-row"><span>📦 应用隔离 Sandboxie</span><span class="row"><span class="set-val" id="cp-sbie">读取中…</span><button class="btn gray" id="cp-sbie-go">管理</button></span></div></div><p class="set-note">应用隔离的组件包已内置在程序里（装的时候不用联网），驱动装在当前这台电脑上；细节和诚实说明在「应用隔离」页。</p><div class="set-sec">生产力组件</div><div class="set-desc">五个开源软件做成的便携组件，按需逐个下载（合计约 1.3 GB），装进 EXE 旁的 <b style="color:#fff">Data/components</b>；每个组件的数据都收在自己的组件目录里，跟着文件夹走。没装的在桌面上是「未下载」图标，点它也会开始下载。</div><div class="sm-card" id="cp-prod"><div class="sm-row"><span>读取中…</span></div></div><div class="set-sec">打开方式</div><div class="sm-card"><div class="sm-row"><span>默认办公套件</span><span class="sm-seg" id="cp-office">${['onlyoffice','libreoffice'].map(v=>`<button data-v="${v}" class="${(SETTINGS.defaultOfficeSuite||'onlyoffice')===v?'on':''}">${v==='onlyoffice'?'ONLYOFFICE':'LibreOffice'}</button>`).join('')}</span></div></div><p class="set-note">打开文档 / 表格 / 演示文件时优先用哪个套件；只装了一个就用那个，都没装会先请你下载。图片装了 ImageGlass 就用它打开，代码和文本装了 VSCodium 就用它打开，没装走内置查看器。</p></div>`;
+   G('set-main').innerHTML=`<div class="set-page"><div class="set-sec">组件</div><div class="set-desc">按需下载的重型组件，装在 EXE 旁，跟着文件夹走。点「管理」去各自的应用页下载、启停或卸载。</div><div class="sm-card"><div class="sm-row"><span>Firefox</span><span class="row"><span class="set-val" id="cp-ff">读取中…</span><button class="btn gray" data-openapp="firefox">管理</button></span></div><div class="sm-row"><span>小龙虾 OpenClaw</span><span class="row"><span class="set-val" id="cp-oc">读取中…</span><button class="btn gray" data-openapp="openclaw">管理</button></span></div><div class="sm-row"><span>应用隔离 Sandboxie</span><span class="row"><span class="set-val" id="cp-sbie">读取中…</span><button class="btn gray" id="cp-sbie-go">管理</button></span></div></div><p class="set-note">应用隔离的组件包已内置在程序里（装的时候不用联网），驱动装在当前这台电脑上；细节和诚实说明在「应用隔离」页。</p><div class="set-sec">生产力组件</div><div class="set-desc">五个开源软件做成的便携组件，按需逐个下载（合计约 1.3 GB），装进 EXE 旁的 <b style="color:#fff">Data/components</b>；每个组件的数据都收在自己的组件目录里，跟着文件夹走。没装的在桌面上是「未下载」图标，点它也会开始下载。</div><div class="sm-card" id="cp-prod"><div class="sm-row"><span>读取中…</span></div></div><div class="set-sec">打开方式</div><div class="sm-card"><div class="sm-row"><span>默认办公套件</span><span class="sm-seg" id="cp-office">${['onlyoffice','libreoffice'].map(v=>`<button data-v="${v}" class="${(SETTINGS.defaultOfficeSuite||'onlyoffice')===v?'on':''}">${v==='onlyoffice'?'ONLYOFFICE':'LibreOffice'}</button>`).join('')}</span></div></div><p class="set-note">打开文档 / 表格 / 演示文件时优先用哪个套件；只装了一个就用那个，都没装会先请你下载。图片装了 ImageGlass 就用它打开，代码和文本装了 VSCodium 就用它打开，没装走内置查看器。</p></div>`;
    G('set-main').querySelectorAll('[data-openapp]').forEach(b=>b.onclick=()=>openApp(b.dataset.openapp));
    G('cp-sbie-go').onclick=()=>goto('isolation');
    try{ const sb=await api('/api/sandbox/status'); const el=G('cp-sbie'); if(el) el.textContent=!sb.supported?'当前平台不支持':(sb.installed?('已安装 · v'+(sb.version||'?')+(sb.serviceState==='RUNNING'?' · 运行中':' · 服务异常')):'未安装'); }catch(e){}
@@ -2814,7 +2984,7 @@ function bind(id){
      if(c.installed){ st='已安装 · v'+(c.version||'?')+(c.diskBytes?' · '+fmtB(c.diskBytes):'')+(c.updateAvailable?' · 可更新到 v'+c.available:'');
       btns=`<button class="btn blue" data-prod-open="${c.id}">打开</button>`+(c.updateAvailable?`<button class="btn gray" data-prod-in="${c.id}">更新</button>`:'')+`<button class="btn gray" data-prod-un="${c.id}">卸载</button>`;
      } else if(prodBusy(c)){ const p=prodPct(c); st=c.phase==='extracting'?'正在释放…':('下载中 '+p+'%'+(c.size?' · '+fmtB(c.progress||0)+' / '+fmtB(c.size):'')); btns=`<span class="smProg"><i style="width:${p}%"></i></span>`; }
-     else if(c.phase==='error'){ st='⚠️ '+(c.message||'上次没装成'); btns=`<button class="btn blue" data-prod-in="${c.id}">重试下载</button>`; }
+     else if(c.phase==='error'){ st='⚠ '+(c.message||'上次没装成'); btns=`<button class="btn blue" data-prod-in="${c.id}">重试下载</button>`; }
      else { st='未下载'+(c.available?(' · v'+c.available+' · '+fmtB(c.availableSize||0)):''); btns=`<button class="btn blue" data-prod-in="${c.id}">下载</button>`; }
      return `<div class="sm-row"><span>${esc(c.name)}<div style="color:#9a9aa2;font-size:11.5px">${esc(c.blurb||'')}</div></span><span class="row"><span class="set-val">${st}</span>${btns}</span></div>`;
     }).join(''):'<div class="sm-row"><span>读取不到组件列表（守护进程没回应）</span></div>';
@@ -3067,7 +3237,7 @@ function bind(id){
    document.getElementById('btest').onclick=async()=>{
      const s=document.getElementById('bstatus'); s.textContent='自检中（经节点连接 Google，最多约 15 秒）…';
      const r=await api('/api/proxytest',{method:'POST'});
-     s.textContent=(r.ok?'✅ ':'❌ ')+(r.message||'');
+     s.textContent=(r.ok?'✓ ':'✕ ')+(r.message||'');
    };
    document.getElementById('bsync').onclick=async()=>{
      const s=document.getElementById('bsyncst'); s.textContent='正在打开同步设置…';
@@ -3105,6 +3275,7 @@ function bind(id){
      const cf=document.getElementById('ffconflict');
      if(r.conflict){
        document.getElementById('ffconflict-t').textContent='Firefox 正以'+(r.runningMode||'未知')+'模式运行，本次想开的是'+(appmode?'应用化':'普通')+'模式。模式在进程启动时定死，不重启切换不了。';
+       const fb0=document.getElementById('ffforce'); if(fb0) fb0.style.display='none';
        cf.style.display='block'; s.textContent='模式冲突，等你决定';
        return;
      }
@@ -3112,16 +3283,30 @@ function bind(id){
      s.textContent=r.error?('失败：'+r.error):('已打开 · '+(r.mode||''));
    };
    const rb=document.getElementById('ffrestart');
-   if(rb) rb.onclick=async()=>{
+   const fb=document.getElementById('ffforce');
+   /* test2 item 1: the restart first tries the gentle path
+      (close EVERY window of the component's processes, not
+      just claimed ones). If the daemon answers stillRunning,
+      the explicit 强制结束并切换 button appears -- the force
+      kill (this profile's process tree only) happens ONLY on
+      that second, deliberate click. */
+   const doRestart=async force=>{
      if(!ffWant) return;
-     const s=document.getElementById('ffstatus'); s.textContent='正在关闭 Firefox 并切换模式…';
-     rb.disabled=true;
-     const r=await api('/api/firefox/restart',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(ffWant)});
-     rb.disabled=false;
-     if(r.error){ s.textContent='失败：'+r.error; return; }
+     const s=document.getElementById('ffstatus'); s.textContent=force?'正在强制结束 Firefox 并切换模式…':'正在关闭 Firefox 并切换模式…';
+     rb.disabled=true; if(fb) fb.disabled=true;
+     const r=await api('/api/firefox/restart',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...ffWant,force:!!force})});
+     rb.disabled=false; if(fb) fb.disabled=false;
+     if(r.error){
+       s.textContent='失败：'+r.error;
+       if(r.stillRunning&&fb) fb.style.display='';
+       return;
+     }
+     if(fb) fb.style.display='none';
      document.getElementById('ffconflict').style.display='none';
      s.textContent='已切换 · '+(r.mode||'');
    };
+   if(rb) rb.onclick=()=>doRestart(false);
+   if(fb) fb.onclick=()=>doRestart(true);
    document.getElementById('ffopen').onclick=()=>openFF(true,false);
    document.getElementById('ffopenapp').onclick=()=>openFF(true,true);
    document.getElementById('ffopend').onclick=()=>openFF(false,false);
@@ -3340,7 +3525,7 @@ function bind(id){
      curPath=r.path; G('sfpath').textContent=r.path;
      G('sflist').innerHTML=r.entries.map(e=>{
        const full=(r.path.endsWith('/')?r.path:r.path+'/')+e.name;
-       return `<div class="row" style="justify-content:space-between;padding:3px 0"><span>${e.dir?'📁':'📄'} ${e.dir?`<a href="#" data-sfgo="${esc(full)}" style="color:#7cc7ff">${esc(e.name)}</a>`:esc(e.name)}${e.dir?'':` <span class="mut">${fmtSize(e.size)}</span>`}</span><span>${e.dir?'':`<a href="/api/ssh/sftp/download?conn=${encodeURIComponent(cur)}&path=${encodeURIComponent(full)}" style="color:#7cc7ff">下载</a> `}<a href="#" data-sfdel="${esc(full)}" data-dir="${e.dir?1:0}" style="color:#ff8a80">删除</a></span></div>`;
+       return `<div class="row" style="justify-content:space-between;padding:3px 0"><span>${glyph(e.dir?'folder':'file',14)} ${e.dir?`<a href="#" data-sfgo="${esc(full)}" style="color:#7cc7ff">${esc(e.name)}</a>`:esc(e.name)}${e.dir?'':` <span class="mut">${fmtSize(e.size)}</span>`}</span><span>${e.dir?'':`<a href="/api/ssh/sftp/download?conn=${encodeURIComponent(cur)}&path=${encodeURIComponent(full)}" style="color:#7cc7ff">下载</a> `}<a href="#" data-sfdel="${esc(full)}" data-dir="${e.dir?1:0}" style="color:#ff8a80">删除</a></span></div>`;
      }).join('')||'（空目录）';
      G('sflist').querySelectorAll('[data-sfgo]').forEach(a=>a.onclick=ev=>{ ev.preventDefault(); sfList(a.dataset.sfgo); });
      G('sflist').querySelectorAll('[data-sfdel]').forEach(a=>a.onclick=async ev=>{ ev.preventDefault(); if(!confirm('删除 '+a.dataset.sfdel+' ？')) return; const rr=await api('/api/ssh/sftp/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({conn:cur,path:a.dataset.sfdel,dir:a.dataset.dir==='1'})}); if(rr.error) alert(rr.error); else sfList(curPath); });
@@ -3460,13 +3645,13 @@ function bind(id){
        const firstAlive=cands.findIndex(c=>c.exists!==false);
        const anyForeign=cands.some(c=>c.foreign&&c.exists!==false);
        const anyExisting=cands.some(c=>c.existing&&c.exists!==false);
-       if(boxRender(ckey,`<p style="font-size:13.5px">✅ ${esc(bi.message||'装完了')}</p><div style="margin-top:6px">${cands.map((c,i)=> c.exists===false
+       if(boxRender(ckey,`<p style="font-size:13.5px">${glyph('checkcircle',14)} ${esc(bi.message||'装完了')}</p><div style="margin-top:6px">${cands.map((c,i)=> c.exists===false
          ? `<label style="display:block;margin-top:5px;font-size:13px;opacity:.55"><input type="radio" disabled> <s>${esc(c.virtual)}</s> <span class="tag">文件已消失，登记不了（多半是别的程序的临时文件）</span></label>`
-         : `<label style="display:block;margin-top:5px;font-size:13px"><input type="radio" name="stbox-exe" value="${esc(c.virtual)}" data-sealed="${c.sealed?1:0}" ${i===firstAlive?'checked':''}> ${esc(c.virtual)} <span class="mut">${(c.size/1048576).toFixed(1)} MB</span>${c.existing?' <span class="tag">盒内已有</span>':''}${c.foreign?' <span class="tag">与安装包看起来无关</span>':''}</label>`).join('')}</div>${anyExisting?`<p class="mut" style="margin-top:8px;font-size:12.5px;line-height:1.6">📦 标了「盒内已有」的不是这次新装进来的：本次安装没有新增文件——这个程序应该是已经装在盒子里了（同版本重装时安装器会跳过已存在的文件）。下面是从盒内找到的已有程序，确认是它，登记即可。</p>`:''}${anyForeign?`<p class="mut" style="margin-top:8px;font-size:12.5px;line-height:1.6">⚠️ 标了「与安装包看起来无关」的候选，可能是安装期间盒子里其他程序活动留下的文件，认准你要装的那个再登记。</p>`:''}<p class="mut" id="stbox-sealnote" style="margin-top:8px;font-size:12.5px;line-height:1.6"></p><p class="mut" style="margin-top:4px;font-size:12.5px">这一步已经存盘：关掉页面、重启终端都不会丢，什么时候回来确认都行。</p><div class="row" style="margin-top:10px"><input class="txt" id="stbox-name" placeholder="应用名字（可改）" style="max-width:200px;flex:none"><button class="btn" id="stbox-reg">登记到桌面</button><button class="btn gray" id="stbox-skip">先不登记</button></div>`)){
+         : `<label style="display:block;margin-top:5px;font-size:13px"><input type="radio" name="stbox-exe" value="${esc(c.virtual)}" data-sealed="${c.sealed?1:0}" ${i===firstAlive?'checked':''}> ${esc(c.virtual)} <span class="mut">${(c.size/1048576).toFixed(1)} MB</span>${c.existing?' <span class="tag">盒内已有</span>':''}${c.foreign?' <span class="tag">与安装包看起来无关</span>':''}</label>`).join('')}</div>${anyExisting?`<p class="mut" style="margin-top:8px;font-size:12.5px;line-height:1.6">标了「盒内已有」的不是这次新装进来的：本次安装没有新增文件——这个程序应该是已经装在盒子里了（同版本重装时安装器会跳过已存在的文件）。下面是从盒内找到的已有程序，确认是它，登记即可。</p>`:''}${anyForeign?`<p class="mut" style="margin-top:8px;font-size:12.5px;line-height:1.6">注意：标了「与安装包看起来无关」的候选，可能是安装期间盒子里其他程序活动留下的文件，认准你要装的那个再登记。</p>`:''}<p class="mut" id="stbox-sealnote" style="margin-top:8px;font-size:12.5px;line-height:1.6"></p><p class="mut" style="margin-top:4px;font-size:12.5px">这一步已经存盘：关掉页面、重启终端都不会丢，什么时候回来确认都行。</p><div class="row" style="margin-top:10px"><input class="txt" id="stbox-name" placeholder="应用名字（可改）" style="max-width:200px;flex:none"><button class="btn" id="stbox-reg">登记到桌面</button><button class="btn gray" id="stbox-skip">先不登记</button></div>`)){
          const nm=G('stbox-name');
          const topC=firstAlive>=0?cands[firstAlive]:null;
          if(nm&&topC){ const b=(topC.virtual||'').split('\\').pop()||''; nm.value=b.replace(/\.exe$/i,''); }
-         const sealNote=()=>{ const sel=boxEl.querySelector('input[name="stbox-exe"]:checked'); const sn=G('stbox-sealnote'); if(sn) sn.textContent=(sel&&sel.dataset.sealed==='1')?'🔒 这个主程序在数据封堵名单里（微信家族）：登记后它在盒内使用一份全新数据，和宿主机上的同名软件互不相通；宿主机那份数据不会被读到、也不会被改动。':''; };
+         const sealNote=()=>{ const sel=boxEl.querySelector('input[name="stbox-exe"]:checked'); const sn=G('stbox-sealnote'); if(sn) sn.textContent=(sel&&sel.dataset.sealed==='1')?'这个主程序在数据封堵名单里（微信家族）：登记后它在盒内使用一份全新数据，和宿主机上的同名软件互不相通；宿主机那份数据不会被读到、也不会被改动。':''; };
          boxEl.querySelectorAll('input[name="stbox-exe"]').forEach(r=>r.onchange=sealNote); sealNote();
          G('stbox-reg').onclick=async()=>{ const sel=boxEl.querySelector('input[name="stbox-exe"]:checked'); if(!sel){ alert('先选一个主程序'); return; } const r=await api('/api/sandbox/box/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:G('stbox-name').value,exe:sel.value})}); if(r&&r.error){ alert(r.error); return; } boxUi=''; await loadBoxApps(); renderDesk(); paintBox(); };
          G('stbox-skip').onclick=async()=>{ await api('/api/sandbox/box/discard',{method:'POST'}); boxUi=''; paintBox(); };
@@ -3486,7 +3671,7 @@ function bind(id){
        return;
      }
      const key='form:'+bi.phase+':'+(bi.message||'');
-     if(boxRender(key,`${bi.phase==='done'?`<p style="font-size:13px">✅ ${esc(bi.message||'')}</p>`:''}${bi.phase==='error'?`<p style="font-size:13px;color:#ff9d97">⚠️ ${esc(bi.message||'没装成')}</p>`:''}${bi.phase==='idle'&&bi.message?`<p style="font-size:13px">ℹ️ ${esc(bi.message)}</p>`:''}<div class="row"><input class="txt" id="stbox-url" placeholder="安装包下载地址（https://… 以 .exe 结尾）"><input class="txt" id="stbox-sha" placeholder="SHA-256（可选）" style="max-width:200px;flex:none"></div><div class="row" style="margin-top:8px"><button class="btn" id="stbox-dl">下载并隔离安装</button><button class="btn gray" id="stbox-local">导入本地安装包…</button><input type="file" id="stbox-file" accept=".exe,.msi" style="display:none"><span class="tag" id="stbox-fmsg"></span></div><p class="mut" style="margin-top:8px;font-size:12.5px;line-height:1.6">认得出类型的安装器（NSIS / Inno）会自动静默安装；认不出的会在盒子里打开安装界面，你照常点完就行。MSI 安装包的安装服务在盒子外，隔离不住，不接。</p>`)){
+     if(boxRender(key,`${bi.phase==='done'?`<p style="font-size:13px">${glyph('checkcircle',13)} ${esc(bi.message||'')}</p>`:''}${bi.phase==='error'?`<p style="font-size:13px;color:#ff9d97">${glyph('warn',13)} ${esc(bi.message||'没装成')}</p>`:''}${bi.phase==='idle'&&bi.message?`<p style="font-size:13px">${glyph('info',13)} ${esc(bi.message)}</p>`:''}<div class="row"><input class="txt" id="stbox-url" placeholder="安装包下载地址（https://… 以 .exe 结尾）"><input class="txt" id="stbox-sha" placeholder="SHA-256（可选）" style="max-width:200px;flex:none"></div><div class="row" style="margin-top:8px"><button class="btn" id="stbox-dl">下载并隔离安装</button><button class="btn gray" id="stbox-local">导入本地安装包…</button><input type="file" id="stbox-file" accept=".exe,.msi" style="display:none"><span class="tag" id="stbox-fmsg"></span></div><p class="mut" style="margin-top:8px;font-size:12.5px;line-height:1.6">认得出类型的安装器（NSIS / Inno）会自动静默安装；认不出的会在盒子里打开安装界面，你照常点完就行。MSI 安装包的安装服务在盒子外，隔离不住，不接。</p>`)){
        G('stbox-dl').onclick=async()=>{ const u=G('stbox-url').value.trim(); if(!u){ alert('先填安装包地址'); return; } const r=await api('/api/sandbox/box/install',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:u,sha256:G('stbox-sha').value.trim()})}); if(r&&r.error){ alert(r.error); return; } boxUi=''; paintBox(); };
        G('stbox-local').onclick=()=>G('stbox-file').click();
        G('stbox-file').onchange=async e=>{ const f=e.target.files[0]; if(!f) return; const msg=G('stbox-fmsg'); if(msg) msg.textContent='导入中…'; const fd=new FormData(); fd.append('file',f); let r=null; try{ r=await (await fetch('/api/sandbox/import',{method:'POST',body:fd})).json(); }catch(err){} if(!r||r.error){ if(msg) msg.textContent='导入失败：'+((r&&r.error)||'网络错误'); return; } const rr=await api('/api/sandbox/box/install',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({file:r.name})}); if(rr&&rr.error){ alert(rr.error); return; } boxUi=''; paintBox(); };
@@ -3800,7 +3985,7 @@ function bind(id){
    document.getElementById('ptest').onclick=async()=>{
      busy('自检中（经节点连接 Google，最多约 15 秒）…');
      const r=await api('/api/proxytest',{method:'POST'});
-     busy((r.ok?'✅ ':'❌ ')+(r.message||''));
+     busy((r.ok?'✓ ':'✕ ')+(r.message||''));
    };
    document.getElementById('corelogbtn').onclick=async()=>{
      const r=await api('/api/core/log');
@@ -3923,7 +4108,9 @@ document.addEventListener('keydown',e=>{
 
 /* ----- control center ----- */
 function ccTile(id,on,ico,name,sub,chev){
- return `<div class="cc-tile ${on?'on':''}" id="cc-${id}"><span class="cc-ico">${ico}</span><span class="cc-tx"><div class="cc-name">${name}</div>${sub?`<div class="cc-sub">${sub}</div>`:''}</span>${chev?'<span class="cc-chev">›</span>':''}</div>`;
+ /* test2: ico is a GLYPHS name -- one drawn set in the CC too
+    (test1 mixed blue filled circles, gray circles and emoji). */
+ return `<div class="cc-tile ${on?'on':''}" id="cc-${id}"><span class="cc-ico">${glyph(ico,16)}</span><span class="cc-tx"><div class="cc-name">${name}</div>${sub?`<div class="cc-sub">${sub}</div>`:''}</span>${chev?'<span class="cc-chev">›</span>':''}</div>`;
 }
 async function paintCC(){
  if(!ccEl.innerHTML) ccEl.innerHTML='<div class="nc-empty">读取中…</div>';
@@ -3946,13 +4133,13 @@ async function paintCC(){
  const wallName=customWall?'自定义壁纸':((WALLPAPERS[wallKey()]||{}).n||wallKey());
  let h='<div class="cc-grid">';
  /* node big tile: always present (core control, not hideable) */
- h+=`<div class="cc-tile wide ${running?'on':''}" id="cc-node"><span class="cc-ico">🚀</span><span class="cc-tx"><div class="cc-name">节点 ${running?'已连接':'未连接'}</div><div class="cc-sub">${running?(curNode?esc(curNode.name):'—'):(npExit?('当前选择：'+esc(npExit.name)):(nodes.length?('默认节点：'+esc(nodes[0].name)):'还没有节点'))}</div></span><span class="cc-chev" id="cc-node-chev">${ccNodesOpen?'⌄':'›'}</span></div>`;
- if(s.cc_show_immersive!==false) h+=ccTile('immersive',!!s.immersiveMode,'◑','沉浸模式',s.immersiveMode?'开':'关');
- if(s.cc_show_stage!==false) h+=ccTile('stage',stageOn(),'▦','台前调度',stageOn()?'开':'关');
- if(s.cc_show_fullscreen!==false) h+=ccTile('fullscreen',!!s.desktopFullscreen,'⛶','桌面全屏',s.desktopFullscreen?'开':'关');
- if(s.cc_show_dockhide!==false) h+=ccTile('dockhide',dockAutoHideOn(),'▭','Dock 自动隐藏',dockAutoHideOn()?'开':'关');
- if(s.cc_show_remote!==false) h+=ccTile('remote',!!rsum.on,'🔗','远程协助',rsum.label,true);
- if(s.cc_show_wallpaper!==false) h+=ccTile('wall',false,'🖼','壁纸',wallName,true);
+ h+=`<div class="cc-tile wide ${running?'on':''}" id="cc-node"><span class="cc-ico">${glyph('rocket',16)}</span><span class="cc-tx"><div class="cc-name">节点 ${running?'已连接':'未连接'}</div><div class="cc-sub">${running?(curNode?esc(curNode.name):'—'):(npExit?('当前选择：'+esc(npExit.name)):(nodes.length?('默认节点：'+esc(nodes[0].name)):'还没有节点'))}</div></span><span class="cc-chev" id="cc-node-chev">${ccNodesOpen?'⌄':'›'}</span></div>`;
+ if(s.cc_show_immersive!==false) h+=ccTile('immersive',!!s.immersiveMode,'half','沉浸模式',s.immersiveMode?'开':'关');
+ if(s.cc_show_stage!==false) h+=ccTile('stage',stageOn(),'stage','台前调度',stageOn()?'开':'关');
+ if(s.cc_show_fullscreen!==false) h+=ccTile('fullscreen',!!s.desktopFullscreen,'size','桌面全屏',s.desktopFullscreen?'开':'关');
+ if(s.cc_show_dockhide!==false) h+=ccTile('dockhide',dockAutoHideOn(),'dock','Dock 自动隐藏',dockAutoHideOn()?'开':'关');
+ if(s.cc_show_remote!==false) h+=ccTile('remote',!!rsum.on,'link','远程协助',rsum.label,true);
+ if(s.cc_show_wallpaper!==false) h+=ccTile('wall',false,'image','壁纸',wallName,true);
  h+='</div>';
  if(ccNodesOpen){
   let ccRows=[];
@@ -4753,13 +4940,13 @@ function spotCatalog(){
  const apps=lpEntries().filter(e=>e.key.indexOf('folder:')!==0)
   .map(e=>({key:e.key,name:e.name,icon:e.iconHTML,run:()=>e.open()}));
  const files=DESKFILES.map(f=>({key:'file:'+f.path,name:f.name,icon:fileIconHTML(f),sub:fvKindLabel(f),run:()=>openDeskFile(f.path,f.kind)}));
- const sets=SPOT_SETPAGES.map(([id,n])=>({key:'set:'+id,name:n,icon:'<div class="appico g-sys">⚙️</div>',sub:'设置',run:()=>{ openApp('sys'); const go=()=>{ if(window.sysGoto) window.sysGoto(id); }; go(); setTimeout(go,150); }}));
- const nodes=(spotNodesCache||[]).map(n=>({key:'node:'+n.target,name:n.name,icon:'<div class="appico g-core">🚀</div>',sub:'节点',run:async()=>{ const r=await api('/api/nodepro/select',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({target:n.target})}).catch(()=>null); if(r&&r.error) alert('切换失败：'+r.error); else { toast('已切换到 '+n.name); pollNode(); } }}));
+ const sets=SPOT_SETPAGES.map(([id,n])=>({key:'set:'+id,name:n,icon:`<div class="appico g-sys" style="color:#fff">${glyph('gear',26)}</div>`,sub:'设置',run:()=>{ openApp('sys'); const go=()=>{ if(window.sysGoto) window.sysGoto(id); }; go(); setTimeout(go,150); }}));
+ const nodes=(spotNodesCache||[]).map(n=>({key:'node:'+n.target,name:n.name,icon:`<div class="appico g-core" style="color:#fff">${glyph('rocket',26)}</div>`,sub:'节点',run:async()=>{ const r=await api('/api/nodepro/select',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({target:n.target})}).catch(()=>null); if(r&&r.error) alert('切换失败：'+r.error); else { toast('已切换到 '+n.name); pollNode(); } }}));
  const acts=[];
- if(window.__vault&&window.__vault.enabled) acts.push({key:'act:lock',name:'锁定屏幕',icon:'<div class="sic">🔒</div>',run:async()=>{ if(!confirm('锁定屏幕会关闭终端机内打开的应用，并把全部数据加密上锁。继续？')) return; const r=await api('/api/vault/lock',{method:'POST'}).catch(()=>null); if(r&&r.error){ alert(r.error); return; } if(window.__vaultShowLock) window.__vaultShowLock(); }});
- acts.push({key:'act:console',name:'打开控制台',icon:'<div class="sic">≡</div>',run:()=>openApp('console')});
- acts.push({key:'act:update',name:'检查更新',icon:'<div class="sic">⬆</div>',run:()=>{ openApp('sys'); const go=()=>{ if(window.sysGoto) window.sysGoto('update'); }; go(); setTimeout(go,150); }});
- acts.push({key:'act:off',name:'关机…',icon:'<div class="sic">⏻</div>',run:async()=>{ if(!confirm('关机将退出终端机。继续？')) return; await api('/api/shutdown',{method:'POST'}).catch(()=>{}); document.body.innerHTML='<div style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;font-size:20px;color:#fff;text-shadow:0 2px 10px #000">已关机</div>'; }});
+ if(window.__vault&&window.__vault.enabled) acts.push({key:'act:lock',name:'锁定屏幕',icon:`<div class="sic">${glyph('lock',16)}</div>`,run:async()=>{ if(!confirm('锁定屏幕会关闭终端机内打开的应用，并把全部数据加密上锁。继续？')) return; const r=await api('/api/vault/lock',{method:'POST'}).catch(()=>null); if(r&&r.error){ alert(r.error); return; } if(window.__vaultShowLock) window.__vaultShowLock(); }});
+ acts.push({key:'act:console',name:'打开控制台',icon:`<div class="sic">${glyph('list',16)}</div>`,run:()=>openApp('console')});
+ acts.push({key:'act:update',name:'检查更新',icon:`<div class="sic">${glyph('up',16)}</div>`,run:()=>{ openApp('sys'); const go=()=>{ if(window.sysGoto) window.sysGoto('update'); }; go(); setTimeout(go,150); }});
+ acts.push({key:'act:off',name:'关机…',icon:`<div class="sic">${glyph('power',16)}</div>`,run:async()=>{ if(!confirm('关机将退出终端机。继续？')) return; await api('/api/shutdown',{method:'POST'}).catch(()=>{}); document.body.innerHTML='<div style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;font-size:20px;color:#fff;text-shadow:0 2px 10px #000">已关机</div>'; }});
  return {rec,apps,files,sets,nodes,acts};
 }
 function paintSpot(){

@@ -26,6 +26,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -628,18 +629,94 @@ func ffOpenHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"ok": true, "mode": kind})
 }
 
+// ---------- v0.56 test2: restart close/kill sets ----------
+//
+// Field failure on test1: 「重启并切换」 timed out twice with
+// "等了 15 秒 Firefox 还没完全退出（档案仍被占用）". The old code
+// WM_CLOSEd only the windows the Stage Manager happened to have
+// CLAIMED -- a Firefox window the patrol never claimed (or one
+// claimed under a different registration) kept the single
+// process alive, the profile lock never released, and the
+// restart aborted. The close set is now computed from a full
+// top-level window enumeration matched against the component
+// exe's full path, unioned with the claimed set. And when even
+// that is not enough there is an explicit second step: the page
+// offers 「强制结束并切换」 (force=true), which terminates the
+// component process TREE -- by PID set computed from full image
+// paths, never a name-wide kill, so a host Firefox installed
+// elsewhere is untouchable.
+
+// ffCloseSet decides which top-level windows a restart closes:
+// every window owned by a process whose image path IS the
+// component firefox.exe. Pure (ffstate_test.go pins it).
+func ffCloseSet(wins []windowFact, procs []procFact, exePath string) []uint64 {
+	want := normalizeWinPath(exePath)
+	if want == "" {
+		return nil
+	}
+	byPID := map[uint32]string{}
+	for _, p := range procs {
+		byPID[p.PID] = p.ImagePath
+	}
+	seen := map[uint64]bool{}
+	var out []uint64
+	for _, wf := range wins {
+		if wf.HWND == 0 || seen[wf.HWND] {
+			continue
+		}
+		img, ok := byPID[wf.PID]
+		if !ok || img == "" || normalizeWinPath(img) != want {
+			continue
+		}
+		seen[wf.HWND] = true
+		out = append(out, wf.HWND)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
+}
+
+// ffKillRoots picks the root PIDs for the force step: processes
+// whose full image path IS the component firefox.exe. The kill
+// set proper is computeKillSet over these roots (the house
+// tree-expansion, with its self/kernel exclusions). A process
+// whose path could not be queried is never a root -- safety
+// over recall, here as everywhere in this codebase.
+func ffKillRoots(procs []procFact, exePath string) map[uint32]bool {
+	want := normalizeWinPath(exePath)
+	roots := map[uint32]bool{}
+	if want == "" {
+		return roots
+	}
+	for _, p := range procs {
+		if p.ImagePath != "" && normalizeWinPath(p.ImagePath) == want {
+			roots[p.PID] = true
+		}
+	}
+	return roots
+}
+
+func ffWaitUnlocked(d time.Duration) bool {
+	deadline := time.Now().Add(d)
+	for ffProfileLocked() && time.Now().Before(deadline) {
+		time.Sleep(300 * time.Millisecond)
+	}
+	return !ffProfileLocked()
+}
+
 // ffRestartHandler serves POST /api/firefox/restart: the
-// one-click answer to a mode conflict. It closes the Firefox
-// windows gracefully (WM_CLOSE via the platform layer), waits
-// for the profile lock to be released (bounded at ~15 s -- a
-// Firefox that refuses to die is reported honestly, never
-// force-killed from here), then seeds and starts fresh in the
-// requested mode.
+// one-click answer to a mode conflict. Graceful phase: close
+// EVERY top-level window of the profile's processes (see
+// ffCloseSet) and wait for the profile lock (~15 s). If the
+// lock survives, the response carries stillRunning=true and
+// the page offers the explicit 「强制结束并切换」 action,
+// which re-enters here with force=true and terminates the
+// process tree by PID set. Force never happens implicitly.
 func ffRestartHandler(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Proxy   bool   `json:"proxy"`
 		AppMode bool   `json:"appmode"`
 		URL     string `json:"url"`
+		Force   bool   `json:"force"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	if runtime.GOOS != "windows" {
@@ -651,26 +728,77 @@ func ffRestartHandler(w http.ResponseWriter, r *http.Request) {
 	if known {
 		from = ffModeName(birthApp)
 	}
-	logf("firefox", "info", "重启并切换：开始关闭 Firefox（%s → %s）", from, ffModeName(body.AppMode))
+	exe := filepath.Join(ffInstallDir(), "firefox.exe")
+	logf("firefox", "info", "重启并切换：开始关闭 Firefox（%s → %s，强制=%v）", from, ffModeName(body.AppMode), body.Force)
+	// Graceful close: the full enumeration set, unioned with
+	// the Stage Manager's claimed Firefox windows.
+	closeSet := ffCloseSet(platformAllTopWindows(), platformProcessSnapshot(), exe)
+	inSet := map[uint64]bool{}
+	for _, h := range closeSet {
+		inSet[h] = true
+	}
 	extMu.Lock()
-	var hwnds []uint64
+	claimed := 0
 	for h, e := range extWins {
-		if !e.Shell && platformProcessImageBase(e.pid) == "firefox.exe" {
-			hwnds = append(hwnds, h)
+		if e.Shell || platformProcessImageBase(e.pid) != "firefox.exe" {
+			continue
+		}
+		claimed++
+		if !inSet[h] {
+			inSet[h] = true
+			closeSet = append(closeSet, h)
 		}
 	}
 	extMu.Unlock()
-	for _, h := range hwnds {
+	logf("firefox", "info", "重启并切换：向 %d 个 Firefox 窗口发出关闭请求（台前调度在册 %d 个）", len(closeSet), claimed)
+	for _, h := range closeSet {
 		platformCloseWindow(h)
 	}
-	deadline := time.Now().Add(15 * time.Second)
-	for ffProfileLocked() && time.Now().Before(deadline) {
-		time.Sleep(300 * time.Millisecond)
-	}
-	if ffProfileLocked() {
-		logf("firefox", "error", "重启并切换失败：等了 15 秒 Firefox 还没完全退出（档案仍被占用）")
-		writeJSON(w, map[string]any{"error": "Firefox 还没完全退出，等了 15 秒档案仍被占用。请手动把 Firefox 窗口全关掉，再点一次打开。"})
-		return
+	if !ffWaitUnlocked(15 * time.Second) {
+		if !body.Force {
+			logf("firefox", "error", "重启并切换失败：等了 15 秒 Firefox 还没完全退出（档案仍被占用），等待用户决定是否强制结束")
+			writeJSON(w, map[string]any{
+				"error":        "Firefox 还没完全退出，等了 15 秒档案仍被占用。可以点「强制结束并切换」直接结束它的进程再重开（没保存的东西会丢，标签页按会话恢复），或者手动把 Firefox 窗口全关掉再点打开。",
+				"stillRunning": true,
+			})
+			return
+		}
+		// Force phase (explicit user click only): terminate the
+		// component's process tree by PID set, with the same
+		// pre-kill image re-verification closeAppsForExit uses
+		// (a recycled PID shows a different image and is spared).
+		procs := platformProcessSnapshot()
+		roots := ffKillRoots(procs, exe)
+		kill := computeKillSet(procs, roots, uint32(os.Getpid()))
+		imageByPID := map[uint32]string{}
+		for _, p := range procs {
+			imageByPID[p.PID] = p.ImagePath
+		}
+		logf("firefox", "warn", "强制结束并切换：档案仍被占用，结束 Firefox 进程树（根进程 %d 个，连子进程共 %d 个）", len(roots), len(kill))
+		procs2 := platformProcessSnapshot()
+		image2 := map[uint32]string{}
+		for _, p := range procs2 {
+			image2[p.PID] = p.ImagePath
+		}
+		killed := 0
+		for pid := range kill {
+			if img, ok := image2[pid]; !ok || img != imageByPID[pid] {
+				continue
+			}
+			proc, err := os.FindProcess(int(pid))
+			if err != nil {
+				continue
+			}
+			if err := proc.Kill(); err == nil {
+				killed++
+			}
+		}
+		logf("firefox", "info", "强制结束并切换：已结束 %d 个进程，等档案释放", killed)
+		if !ffWaitUnlocked(10 * time.Second) {
+			logf("firefox", "error", "强制结束并切换失败：进程已结束但档案仍被占用")
+			writeJSON(w, map[string]any{"error": "已经强制结束 Firefox 进程，等了 10 秒档案还是被占用。可能有别的程序占着档案，稍等一下再点打开试试。"})
+			return
+		}
 	}
 	ffClearRecord()
 	target := strings.TrimSpace(body.URL)

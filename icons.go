@@ -1,19 +1,23 @@
 package main
 
-// ---------- v0.56: built-in app icons (macosicons.com, plan A) ----------
+// ---------- v0.56: built-in app icons ----------
 //
-// The built-in apps' faces used to be CSS gradients + glyph
-// characters drawn in index.html. Per the user's decision
-// (2026-10-30, plan A: use the site's assets wholesale for now,
-// revisit later) they are now real macOS-style PNG artwork from
-// macosicons.com, embedded as base64 in icons_data.go (a text
-// file, so it travels through the same Contents-API push as
-// every other source file) and served from the local mux at
-// /api/appicon/<id>. The view falls back to the old CSS tile
-// whenever an id has no artwork, so a missing icon degrades,
-// never breaks. Provenance for every icon (site title,
-// uploader, source URL) lives in icon-provenance.md at the
-// repo root for the later revisit.
+// test1 shipped macosicons.com artwork (plan A); the user
+// field-rejected the set the same evening -- borrowed art from
+// a dozen uploaders never cohered as one family, and several
+// entries were off-style (a full-bleed ".ssh" square, a black
+// box with tiny text for the console). Since test2 the built-in
+// apps wear SELF-DRAWN original artwork: one macOS-native
+// family authored as SVG in assets/icons-svg/ (one superellipse
+// canvas, one top-light gradient model, bold glyphs), rendered
+// to PNG and embedded as base64 in icons_data.go (a text file,
+// so it travels through the same Contents-API push as every
+// other source file), served from the local mux at
+// /api/appicon/<id>. The one exception is openclaw -- the app's
+// own mascot artwork, treated as a third-party icon. The view
+// falls back to the plain gradient tile whenever an id has no
+// artwork, so a missing icon degrades, never breaks.
+// Provenance: icon-provenance.md at the repo root.
 //
 // The Chrome-family icon below is a different thing: it is the
 // isolated browser's OWN exe icon, extracted at runtime exactly
