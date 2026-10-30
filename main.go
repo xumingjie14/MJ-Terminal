@@ -40,6 +40,17 @@ import (
 //go:embed index.html
 var indexHTML []byte
 
+// servedIndexHTML is the shell page with its one build token
+// (__MJ_APPVER__, the APPVER constant at the top of the page's
+// first script) replaced by the running AppVersion (update.go
+// -- the single version source). The page spends APPVER on
+// version-tokened asset URLs (verQ(): /api/appicon/<id>?v=...),
+// so an in-app update can never be stranded by the view's HTTP
+// cache holding the previous build's icons under the same URL
+// (the test1 -> test2 field failure). The substitution happens
+// once here, never per request.
+var servedIndexHTML = bytes.ReplaceAll(indexHTML, []byte("__MJ_APPVER__"), []byte(AppVersion))
+
 // sing-box (official 1.14.4, legacy Windows 7 amd64 build) is embedded
 // COMPRESSED (~26MB zip for an 80MB exe) so the whole system ships as
 // ONE single MJ-System.exe file. On first run the daemon extracts it
@@ -2064,7 +2075,7 @@ func runServer(portFlag int, isDaemon bool) {
 		// Never cache the shell page: after an in-app update the newly
 		// opened desktop must run the new UI, not a stale copy.
 		w.Header().Set("Cache-Control", "no-store")
-		_, _ = w.Write(indexHTML)
+		_, _ = w.Write(servedIndexHTML)
 	})
 	mux.HandleFunc("/api/system", sysInfo)
 	mux.HandleFunc("/api/vault/status", vaultStatusHandler)

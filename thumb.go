@@ -39,12 +39,33 @@ package main
 // rendering refuses PrintWindow) keeps its last good frame;
 // three consecutive capture failures mark the window dead for
 // previews until it re-registers.
+//
+// test3 (field report: previews flicker, lag ~4 s, and wide /
+// narrow windows distort): the daemon half of the rework --
+//   - Frames are JPEG (q80, same 384 px width) instead of PNG:
+//     a third of the bytes on the wire and to encode.
+//   - Every frame carries a version (FNV-1a of the encoded
+//     bytes) served as an ETag. The view sends If-None-Match;
+//     an unchanged frame answers 304 and the view leaves its
+//     DOM untouched -- identical pixels can no longer cause a
+//     swap, and the swap itself is double-buffered view-side.
+//   - live=1 (sent while the strip is open) shortens the
+//     freshness window to ~0.9 s so the ~1 s poll is fed fresh
+//     frames; with the strip closed the lazy 2.5 s behaviour
+//     returns and nothing captures in the background (requests
+//     are the only capture trigger). Mode switches log once in
+//     this module.
+//   - fresh=1 (strip just opened) and thumbKick (a window was
+//     claimed or raised) force the next frame to be recaptured
+//     instead of serving staleness.
 
 import (
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -54,6 +75,9 @@ var errNoCapture = errors.New("当前平台不支持窗口抓图")
 const (
 	thumbMaxWidth = 384
 	thumbTTL      = 2500 * time.Millisecond
+	// thumbLiveTTL: freshness window while the strip is open
+	// (live=1) -- pairs with the view's ~1 s live poll.
+	thumbLiveTTL = 900 * time.Millisecond
 	// thumbMaxFails: consecutive capture failures after which a
 	// window's previews are given up on (the view bans it for
 	// the session, the daemon stops retrying).
@@ -61,11 +85,34 @@ const (
 )
 
 type thumbEntry struct {
-	png       []byte
+	frame     []byte // encoded JPEG (PNG only from old test fakes)
+	ver       string // frame version (ETag payload): hash+len of frame
 	at        time.Time
 	capturing bool
 	fails     int  // consecutive capture failures
 	dead      bool // fails exhausted: no more capture attempts
+}
+
+// frameVersion derives a frame's ETag payload from its encoded
+// bytes: identical pixels encode to identical bytes, so an
+// unchanged window keeps its version and the view's
+// If-None-Match answers 304.
+func frameVersion(b []byte) string {
+	h := fnv.New64a()
+	_, _ = h.Write(b)
+	return fmt.Sprintf("%x-%d", h.Sum64(), len(b))
+}
+
+// frameContentType sniffs the encoded frame's real type (the
+// capture path emits JPEG; a PNG signature still reads PNG).
+func frameContentType(b []byte) string {
+	if len(b) >= 3 && b[0] == 0xFF && b[1] == 0xD8 && b[2] == 0xFF {
+		return "image/jpeg"
+	}
+	if len(b) >= 4 && b[0] == 0x89 && b[1] == 'P' && b[2] == 'N' && b[3] == 'G' {
+		return "image/png"
+	}
+	return "application/octet-stream"
 }
 
 var (
@@ -113,11 +160,11 @@ func thumbEntryFor(hwnd uint64) *thumbEntry {
 // cache: success installs the frame and resets the failure
 // count; failure counts toward the dead threshold and logs the
 // reason (once) in the [thumb] module.
-func recordCapture(hwnd uint64, png []byte, err error) {
+func recordCapture(hwnd uint64, frame []byte, err error) {
 	thumbMu.Lock()
 	ent := thumbEntryFor(hwnd)
-	if err == nil && len(png) > 0 {
-		ent.png, ent.at, ent.fails, ent.dead = png, time.Now(), 0, false
+	if err == nil && len(frame) > 0 {
+		ent.frame, ent.ver, ent.at, ent.fails, ent.dead = frame, frameVersion(frame), time.Now(), 0, false
 		thumbMu.Unlock()
 		return
 	}
@@ -149,6 +196,11 @@ func extWinThumbHandler(w http.ResponseWriter, r *http.Request) {
 			"台前调度预览：请求参数不对（hwnd=%q）", r.URL.Query().Get("hwnd"))
 		return
 	}
+	live := r.URL.Query().Get("live") == "1"
+	if live {
+		thumbNoteLive()
+	}
+	fresh := r.URL.Query().Get("fresh") == "1"
 	extMu.Lock()
 	e, ok := extWins[hwnd]
 	claimed := ok && !e.Shell
@@ -162,20 +214,36 @@ func extWinThumbHandler(w http.ResponseWriter, r *http.Request) {
 			"台前调度预览：hwnd %d 不在台前调度的在册窗口里，不给抓图", hwnd)
 		return
 	}
+	// fresh=1 (the strip just opened): recapture synchronously
+	// even when a frame is cached, so the strip's first paint is
+	// current. A failed attempt falls through to the cached
+	// frame below rather than refusing.
+	if fresh && thumbSupported && !platformWindowIconic(hwnd) {
+		frame, capErr := platformCaptureWindowFrame(hwnd, thumbMaxWidth)
+		recordCapture(hwnd, frame, capErr)
+		if capErr == nil && len(frame) > 0 {
+			serveThumbFrame(w, r, frame, frameVersion(frame))
+			return
+		}
+	}
 	thumbMu.Lock()
 	ent := thumbEntryFor(hwnd)
-	if ent.png != nil {
+	if ent.frame != nil {
 		// A cached frame is served even on a platform that
 		// cannot capture new ones (and, on Windows, while a
 		// refresh runs in the background).
-		stale := time.Since(ent.at) > thumbTTL
+		ttl := thumbTTL
+		if live {
+			ttl = thumbLiveTTL
+		}
+		stale := time.Since(ent.at) > ttl
 		if stale && !ent.capturing && thumbSupported {
 			ent.capturing = true
 			go captureThumb(hwnd)
 		}
-		png := ent.png
+		frame, ver := ent.frame, ent.ver
 		thumbMu.Unlock()
-		serveThumbPNG(w, png)
+		serveThumbFrame(w, r, frame, ver)
 		return
 	}
 	if ent.dead {
@@ -202,9 +270,9 @@ func extWinThumbHandler(w http.ResponseWriter, r *http.Request) {
 	// 404 is what killed every preview). PrintWindow on a
 	// strip-sized window is fast; the strip's first paint waits
 	// a few hundred ms per NEW window at worst.
-	png, capErr := platformCaptureWindowPNG(hwnd, thumbMaxWidth)
-	recordCapture(hwnd, png, capErr)
-	if capErr != nil || len(png) == 0 {
+	frame, capErr := platformCaptureWindowFrame(hwnd, thumbMaxWidth)
+	recordCapture(hwnd, frame, capErr)
+	if capErr != nil || len(frame) == 0 {
 		reason := "capture-failed"
 		if errors.Is(capErr, errNoCapture) {
 			reason = "unsupported"
@@ -213,13 +281,23 @@ func extWinThumbHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "thumb: "+reason, http.StatusNotFound)
 		return
 	}
-	serveThumbPNG(w, png)
+	serveThumbFrame(w, r, frame, frameVersion(frame))
 }
 
-func serveThumbPNG(w http.ResponseWriter, png []byte) {
-	w.Header().Set("Content-Type", "image/png")
+// serveThumbFrame writes a cached frame with its version as an
+// ETag. If the view's If-None-Match already names this exact
+// version, the answer is 304 and the view leaves its DOM
+// untouched (test3 anti-flicker: no identical-pixel swaps).
+func serveThumbFrame(w http.ResponseWriter, r *http.Request, frame []byte, ver string) {
+	etag := `"mjf-` + ver + `"`
+	w.Header().Set("ETag", etag)
 	w.Header().Set("Cache-Control", "no-store")
-	_, _ = w.Write(png)
+	if inm := r.Header.Get("If-None-Match"); inm != "" && (inm == "*" || strings.Contains(inm, etag)) {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	w.Header().Set("Content-Type", frameContentType(frame))
+	_, _ = w.Write(frame)
 }
 
 // captureThumb is the async refresher for windows that already
@@ -241,8 +319,62 @@ func captureThumb(hwnd uint64) {
 		thumbMu.Unlock()
 		return
 	}
-	png, err := platformCaptureWindowPNG(hwnd, thumbMaxWidth)
-	recordCapture(hwnd, png, err)
+	frame, err := platformCaptureWindowFrame(hwnd, thumbMaxWidth)
+	recordCapture(hwnd, frame, err)
+}
+
+// thumbKick marks a window's frame stale so the next request
+// recaptures: called when a window is newly claimed or raised
+// (winmgr), so a window the user just brought forward never
+// greets them with its pre-raise picture.
+func thumbKick(hwnd uint64) {
+	thumbMu.Lock()
+	if ent := thumbCache[hwnd]; ent != nil {
+		ent.at = time.Time{}
+	}
+	thumbMu.Unlock()
+}
+
+// ---------- live (near-real-time) mode tracking ----------
+//
+// While the strip is open the view polls with live=1 (~1 s);
+// the daemon shortens its freshness window and notes the mode
+// switch once per transition in this module. When live
+// requests stop, the sweeper notes the return to lazy mode.
+// Captures still only ever happen in answer to a request, so
+// a closed strip costs no CPU at all.
+
+var thumbLive = struct {
+	sync.Mutex
+	on   bool
+	last time.Time
+	once sync.Once
+}{}
+
+func thumbNoteLive() {
+	thumbLive.Lock()
+	turnOn := !thumbLive.on
+	thumbLive.on = true
+	thumbLive.last = time.Now()
+	thumbLive.Unlock()
+	if turnOn {
+		logf("thumb", "info", "台前调度预览：调度条打开，准实时抓图开启（约 1 秒一帧）")
+	}
+	thumbLive.once.Do(func() { go thumbLiveSweeper() })
+}
+
+func thumbLiveSweeper() {
+	for range time.Tick(5 * time.Second) {
+		thumbLive.Lock()
+		off := thumbLive.on && time.Since(thumbLive.last) > 6*time.Second
+		if off {
+			thumbLive.on = false
+		}
+		thumbLive.Unlock()
+		if off {
+			logf("thumb", "info", "台前调度预览：调度条关闭，准实时抓图停止（回到懒抓图）")
+		}
+	}
 }
 
 // thumbForget drops a window's cached frame (called when the

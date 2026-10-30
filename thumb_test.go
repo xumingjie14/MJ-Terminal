@@ -47,7 +47,7 @@ func TestThumbHandlerServesCachedFrame(t *testing.T) {
 	extWins[hwnd] = &extWindow{HWND: hwnd, App: "测试窗口"}
 	extMu.Unlock()
 	thumbMu.Lock()
-	thumbCache[hwnd] = &thumbEntry{png: []byte("\x89PNG-fake-frame"), at: time.Now()}
+	thumbCache[hwnd] = &thumbEntry{frame: []byte("\x89PNG-fake-frame"), ver: frameVersion([]byte("\x89PNG-fake-frame")), at: time.Now()}
 	thumbMu.Unlock()
 	defer func() {
 		extMu.Lock()
@@ -70,6 +70,63 @@ func TestThumbHandlerServesCachedFrame(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "PNG-fake-frame") {
 		t.Fatalf("cached frame: body does not carry the cached bytes")
+	}
+	// test3: the frame carries a version ETag, and a request
+	// naming that exact version answers 304 (the view then
+	// leaves its DOM untouched -- the anti-flicker protocol).
+	etag := rec.Header().Get("ETag")
+	if etag == "" {
+		t.Fatal("cached frame: no ETag header")
+	}
+	rec2 := httptest.NewRecorder()
+	req2 := httptest.NewRequest("GET", "/api/extwin/thumb?hwnd=777001", nil)
+	req2.Header.Set("If-None-Match", etag)
+	extWinThumbHandler(rec2, req2)
+	if rec2.Code != 304 {
+		t.Fatalf("If-None-Match with the current version: got status %d, want 304", rec2.Code)
+	}
+}
+
+// test3: a frame's version tracks its bytes -- new pixels get
+// a new version (a stale If-None-Match no longer 304s), and
+// re-recording identical bytes keeps the version (304 again).
+func TestThumbFrameVersionTracksBytes(t *testing.T) {
+	const hwnd = 777003
+	extMu.Lock()
+	extWins[hwnd] = &extWindow{HWND: hwnd, App: "测试窗口"}
+	extMu.Unlock()
+	defer func() {
+		extMu.Lock()
+		delete(extWins, hwnd)
+		extMu.Unlock()
+		thumbForget(hwnd)
+	}()
+	get := func(inm string) (int, string) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", "/api/extwin/thumb?hwnd=777003", nil)
+		if inm != "" {
+			req.Header.Set("If-None-Match", inm)
+		}
+		extWinThumbHandler(rec, req)
+		return rec.Code, rec.Header().Get("ETag")
+	}
+	recordCapture(hwnd, []byte("frame-A"), nil)
+	codeA, etagA := get("")
+	if codeA != 200 || etagA == "" {
+		t.Fatalf("frame A: got %d / ETag %q, want 200 with an ETag", codeA, etagA)
+	}
+	recordCapture(hwnd, []byte("frame-B"), nil)
+	codeB, etagB := get(etagA)
+	if codeB != 200 {
+		t.Fatalf("frame B with A's version: got %d, want 200 (new frame must not 304)", codeB)
+	}
+	if etagB == "" || etagB == etagA {
+		t.Fatalf("frame B: ETag %q did not change from A's %q", etagB, etagA)
+	}
+	recordCapture(hwnd, []byte("frame-B"), nil)
+	codeB2, _ := get(etagB)
+	if codeB2 != 304 {
+		t.Fatalf("identical frame B re-recorded: got %d, want 304", codeB2)
 	}
 }
 

@@ -94,7 +94,7 @@ func platformExitShellFullscreen(hwnd uint64, style int32, rect [4]int32, zoomed
 // uses identity cards.
 const thumbSupported = false
 
-func platformCaptureWindowPNG(hwnd uint64, maxW int) ([]byte, error) {
+func platformCaptureWindowFrame(hwnd uint64, maxW int) ([]byte, error) {
 	return nil, errNoCapture
 }
 

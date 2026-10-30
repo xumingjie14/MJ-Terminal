@@ -507,7 +507,7 @@ table.gridtab td,table.gridtab th{white-space:nowrap;max-width:280px;overflow:hi
 .extcard{display:flex;align-items:center;gap:8px;width:100%;padding:9px 10px;border-radius:13px;background:var(--glass);border:1px solid var(--glass-brd);backdrop-filter:blur(24px) saturate(170%);-webkit-backdrop-filter:blur(24px) saturate(170%);box-shadow:0 10px 26px rgba(0,0,0,.42);cursor:pointer;color:#fff;text-align:left;font:inherit;opacity:.8;transition:opacity .25s,border-color .25s,box-shadow .25s}
 .extcard:hover{background:rgba(74,74,88,.62);opacity:1}
 .extcard .et{min-width:0;flex:1}
-.extcard .et b{display:block;font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.85}
+.extcard .et b{display:block;font-size:12px;font-weight:600;height:16px;line-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.85}
 /* v0.38: the window the user is actually in gets the accent ring,
    a lit dot and a full-bright title; the rest dim, minimized more. */
 .extcard.mini{opacity:.55}
@@ -520,7 +520,7 @@ table.gridtab td,table.gridtab th{white-space:nowrap;max-width:280px;overflow:hi
    destroying it, so the return from the tray is the same window. */
 #mb-hide{width:13px;height:13px;border-radius:50%;border:0;background:#ff5f57;cursor:pointer;padding:0;flex:none;box-shadow:inset 0 0 2px rgba(0,0,0,.3);color:transparent;font-size:9px;line-height:13px;text-align:center}
 #mb-hide:hover{color:rgba(0,0,0,.55);filter:brightness(1.08)}
-.extcard .et span{display:block;font-size:11px;opacity:.75;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.extcard .et span{display:block;font-size:11px;height:15px;line-height:15px;opacity:.75;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* ---------- v0.56 ---------- */
 :root{--deskico:54px}
 #icons .icon .appico{width:var(--deskico);height:var(--deskico);border-radius:calc(var(--deskico)*.24);font-size:calc(var(--deskico)*.5)}
@@ -529,9 +529,9 @@ table.gridtab td,table.gridtab th{white-space:nowrap;max-width:280px;overflow:hi
 /* Stage Manager preview cards (item 1) */
 .extcard.prev{flex-direction:column;align-items:stretch;gap:6px;padding:6px;width:172px}
 #extstrip:has(.extcard.prev){width:184px}
-.extcard .ethumb{width:100%;height:88px;object-fit:cover;border-radius:8px;background:rgba(0,0,0,.45);display:block;pointer-events:none}
-.extcard .ecap{display:flex;align-items:center;gap:6px;min-width:0;padding:0 2px 2px}
-.extcard .ecap b{font-size:11.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.92}
+.extcard .ethumb{width:100%;height:88px;flex:none;object-fit:contain;border-radius:8px;background:rgba(0,0,0,.30);display:block;pointer-events:none}
+.extcard .ecap{display:flex;align-items:center;gap:6px;min-width:0;height:24px;flex:none;padding:0 2px 2px}
+.extcard .ecap b{font-size:11.5px;font-weight:600;line-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.92}
 .extcard .ecap .appico{width:20px;height:20px;border-radius:5px;font-size:11px;margin:0;flex:none}
 .extcard .extRealIcon{width:26px;height:26px;border-radius:6px;flex:none;object-fit:cover}
 /* context-menu submenus (items 5 + 7) */
@@ -604,6 +604,27 @@ table.gridtab td,table.gridtab th{white-space:nowrap;max-width:280px;overflow:hi
 <div id="dockwrap" class="pos-bottom"><div id="dock"></div></div>
 
 <script>
+/* APPVER: the running daemon's version, substituted by the
+   daemon when it serves this page (main.go replaces this
+   constant's placeholder with AppVersion -- the single
+   version source in update.go). verQ() spends it as a
+   token on asset URLs whose bytes are program assets (icons):
+   without it, the view's HTTP cache held test1's icons under
+   the same URL through the whole test2 build (they were
+   served max-age=86400) and the new art never appeared. When
+   this file is evaluated from disk (tests), APPVER is simply
+   the token string and every URL still works. */
+const APPVER='__MJ_APPVER__';
+function verQ(u){ return u+(u.indexOf('?')>=0?'&':'?')+'v='+APPVER; }
+/* Stage Manager strip state (test3): declared HERE, at the
+   very top of the block, because updateStageUI() ->
+   refreshExtStrip() can run during initial evaluation, long
+   before the strip section below executes -- the v0.54 TDZ
+   lesson (the same reason FFSTATE is hoisted further down).
+   The strip logic itself lives in the extwin section. */
+const thumbBad=new Set();
+const extCards=new Map(); /* hwnd -> Stage card record */
+let extLabelEl=null, extLive=false;
 const APPS=[
  {id:'home',e:'',g:'g-home',glyph:'⌂',n:'工作站',art:1},
  {id:'term',e:'>_',g:'g-term',glyph:'>_',n:'终端',art:1},
@@ -822,11 +843,11 @@ function appIcon(a,size){
     edge-to-edge; if the image fails it removes itself and the
     plain gradient tile underneath shows -- the icon degrades,
     never breaks. Provenance: icon-provenance.md. */
- if(a.art)return `<div class="appico ${a.g}"><img class="appArt" alt="" draggable="false" src="/api/appicon/${a.id}" onerror="this.remove()"></div>`;
+ if(a.art)return `<div class="appico ${a.g}"><img class="appArt" alt="" draggable="false" src="${verQ('/api/appicon/'+a.id)}" onerror="this.remove()"></div>`;
  /* Chrome is a third-party brand icon: the daemon serves the
     real thing at /api/chrome/icon; the drawn dot stays
     underneath as the degradation path. */
- if(a.id==='browser')return `<div class="appico g-browser"><div class="chrome-dot"></div><img class="appArt" alt="" draggable="false" src="/api/chrome/icon" onerror="this.remove()"></div>`;
+ if(a.id==='browser')return `<div class="appico g-browser"><div class="chrome-dot"></div><img class="appArt" alt="" draggable="false" src="${verQ('/api/chrome/icon')}" onerror="this.remove()"></div>`;
  if(a.gkey)return `<div class="appico ${a.g}" style="color:#fff">${glyph(a.gkey,27)}</div>`;
  return `<div class="appico ${a.g}">${esc(a.glyph)}</div>`;
 }
@@ -970,37 +991,43 @@ function updateStageUI(){
    fetch(): a refusal carries X-Thumb-Reason -- "minimized" is
    transient (this round just shows identity; the next poll
    retries), every other reason is sticky for the session
-   (thumbBad: no more requests for that window, no 404 spam). */
-const thumbBad=new Set();
-const thumbURLs=new Map(); /* hwnd -> {url, at} blob cache */
-async function loadThumb(img,hwnd){
- if(typeof fetch!=='function') return;
- const hit=thumbURLs.get(hwnd);
- if(hit&&Date.now()-hit.at<6000){ img.src=hit.url; return; }
- try{
-  const r=await fetch('/api/extwin/thumb?hwnd='+hwnd);
-  if(r.ok){
-   const u=URL.createObjectURL(await r.blob());
-   if(hit) URL.revokeObjectURL(hit.url);
-   thumbURLs.set(hwnd,{url:u,at:Date.now()});
-   img.src=u; return;
-  }
-  const reason=r.headers.get('X-Thumb-Reason')||'';
-  if(reason!=='minimized') thumbBad.add(hwnd);
- }catch(e){ /* network hiccup: retry next poll, not sticky */ }
- img.remove();
+   (thumbBad: no more requests for that window, no 404 spam).
+   TEST3 rework (field report: previews flicker, lag ~4 s, and
+   wide/narrow windows distort): cards are built ONCE per
+   window and mutated in place -- a poll never rebuilds the
+   strip. Frames are versioned (ETag): the loader sends
+   If-None-Match, a 304 leaves the DOM untouched, and a new
+   frame is preloaded off-DOM and swapped in only after it has
+   loaded (the old frame stays visible until then -- no blank
+   flash, no thumb/identity flapping). While the strip is open
+   the poll runs at ~1 s with live=1 (the daemon shortens its
+   freshness window to match) and the opening asks every card
+   for one fresh frame; strip closed, the loop falls back to
+   the lazy 4 s poll and the daemon captures nothing in the
+   background. The media box is fixed-size and the frame
+   renders object-fit:contain -- never stretched, never
+   cropped; caption rows have fixed heights, so a frame
+   arriving never shifts the layout.
+   (thumbBad / extCards / extLabelEl / extLive are declared
+   at the very top of this script block -- refreshExtStrip
+   can run during initial evaluation; see the note there.) */
+function extPreviewOn(){ return !SETTINGS||SETTINGS.stageDisplay!=='identity'; }
+function extCardClass(x,prev){
+ return 'extcard'+(prev?' prev':'')+(x.active?' active':'')+(x.minimized?' mini':'');
 }
-function extIconHTML(x){
- if(x.ikind==='firefox') return `<img class="extRealIcon" alt="" src="/api/firefox/icon" onerror="this.remove()">`;
- if(x.ikind==='chrome') return `<img class="extRealIcon" alt="" src="/api/chrome/icon" onerror="this.remove()">`;
- return webIconHTML({name:x.app,url:x.url||''},true);
+function extCardInnerHTML(x,prev){
+ const title=cleanWinTitle(x.title)||x.app||'应用';
+ if(prev) return `<img class="ethumb" alt=""><span class="ecap">${extIconHTML(x)}<b>${esc(title)}</b></span>`;
+ return `<span class="actdot"></span>${extIconHTML(x)}<span class="et"><b>${esc(title)}</b><span>${esc(x.app||'')}</span></span>`;
 }
 function extCardHTML(x,preview){
- const title=cleanWinTitle(x.title)||x.app||'应用';
- if(preview&&!thumbBad.has(x.hwnd)){
-  return `<button class="extcard prev${x.active?' active':''}${x.minimized?' mini':''}" data-hwnd="${x.hwnd}"><img class="ethumb" alt=""><span class="ecap">${extIconHTML(x)}<b>${esc(title)}</b></span></button>`;
- }
- return `<button class="extcard${x.active?' active':''}${x.minimized?' mini':''}" data-hwnd="${x.hwnd}"><span class="actdot"></span>${extIconHTML(x)}<span class="et"><b>${esc(title)}</b><span>${esc(x.app||'')}</span></span></button>`;
+ const prev=preview&&!thumbBad.has(x.hwnd);
+ return `<button class="${extCardClass(x,prev)}" data-hwnd="${x.hwnd}">${extCardInnerHTML(x,prev)}</button>`;
+}
+function extIconHTML(x){
+ if(x.ikind==='firefox') return `<img class="extRealIcon" alt="" src="${verQ('/api/firefox/icon')}" onerror="this.remove()">`;
+ if(x.ikind==='chrome') return `<img class="extRealIcon" alt="" src="${verQ('/api/chrome/icon')}" onerror="this.remove()">`;
+ return webIconHTML({name:x.app,url:x.url||''},true);
 }
 /* v0.56 test2 item 3: right-click on a strip card -- the
    per-window menu. External windows get the three operations
@@ -1032,26 +1059,124 @@ function showStageCtx(x,y,app){
   if(w){ w.classList.add('hidden'); onWinClosed(app.id); syncDots(); }
  });
 }
+/* One card's frame pump (test3): conditional (If-None-Match),
+   double-buffered. A 304 means the pixels we already show are
+   current -- the DOM is not touched. A 200 is preloaded
+   off-DOM and swapped in only once loaded. "minimized" parks
+   the card in identity shape for now (minWait) but keeps
+   pumping on later polls; any other refusal is session-sticky
+   via thumbBad. */
+async function pumpThumb(card){
+ if(card.busy) return;
+ card.busy=true;
+ try{
+  const headers={};
+  if(card.ver) headers['If-None-Match']=card.ver;
+  let q='/api/extwin/thumb?hwnd='+card.hwnd;
+  if(extLive) q+='&live=1';
+  if(card.needFresh){ q+='&fresh=1'; card.needFresh=false; }
+  const r=await fetch(q,{headers:headers,cache:'no-store'});
+  if(r.status===304){ card.minWait=false; }
+  else if(r.ok){
+   const ver=(r.headers&&r.headers.get('ETag'))||'';
+   const blob=await r.blob();
+   const u=URL.createObjectURL(blob);
+   const ok=await new Promise(res=>{ const im=new Image(); im.onload=()=>res(true); im.onerror=()=>res(false); im.src=u; });
+   if(ok){
+    const old=card.blob;
+    card.blob=u; card.ver=ver; card.minWait=false;
+    if(card.img) card.img.src=u;
+    if(old) URL.revokeObjectURL(old);
+   } else URL.revokeObjectURL(u);
+  } else {
+   const reason=(r.headers&&r.headers.get('X-Thumb-Reason'))||'';
+   if(reason==='minimized'){ card.minWait=true; }
+   else if(reason){ thumbBad.add(card.hwnd); }
+   /* no reason (a bare network failure): retry next poll */
+  }
+ }catch(e){ /* network hiccup: retry next poll, not sticky */ }
+ card.busy=false;
+}
+/* Mutate one card in place: rebuild its inner structure ONLY
+   when the shape (preview/identity) or the icon identity
+   changes; otherwise touch just the classes and the texts
+   that actually changed. */
+function paintExtCard(card,x,prev){
+ const iconKey=(x.ikind||'')+'|'+(x.app||'')+'|'+(x.url||'');
+ if(card.prev!==prev||card.iconKey!==iconKey){
+  card.el.innerHTML=extCardInnerHTML(x,prev);
+  card.prev=prev; card.iconKey=iconKey;
+  card.img=card.el.querySelector('img.ethumb');
+  card.capB=card.el.querySelector('.ecap b')||card.el.querySelector('.et b');
+  card.subB=card.el.querySelector('.et span');
+  card.title=null; card.sub=null;
+  if(prev&&card.img&&card.blob) card.img.src=card.blob; /* frame parked while the card wore identity shape */
+ }
+ const cls=extCardClass(x,prev);
+ if(card.cls!==cls){ card.cls=cls; card.el.className=cls; }
+ const title=cleanWinTitle(x.title)||x.app||'应用';
+ if(card.capB&&card.title!==title){ card.capB.textContent=title; card.title=title; }
+ if(card.subB&&card.sub!==x.app){ card.subB.textContent=x.app||''; card.sub=x.app||''; }
+}
+function newExtCard(x,prev){
+ const el=document.createElement('button');
+ el.dataset.hwnd=x.hwnd;
+ const card={hwnd:x.hwnd,el:el,prev:null,iconKey:'',img:null,capB:null,subB:null,cls:'',title:null,sub:null,ver:'',blob:'',busy:false,minWait:false,needFresh:true};
+ el.onclick=async()=>{
+  const r=await api('/api/extwin/focus',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hwnd:card.hwnd})}).catch(()=>null);
+  if(!r||r.error) refreshExtStrip(); /* window closed or focus failed: re-sync the strip */
+ };
+ el.oncontextmenu=ev=>{ ev.preventDefault(); ev.stopPropagation(); showExtCtx(ev.clientX,ev.clientY,card.hwnd); };
+ paintExtCard(card,x,prev);
+ return card;
+}
+function clearExtCards(box){
+ extCards.forEach(card=>{ if(card.blob) URL.revokeObjectURL(card.blob); });
+ extCards.clear();
+ extLabelEl=null;
+ box.innerHTML='';
+}
 async function refreshExtStrip(){
  const box=document.getElementById('extstrip'); if(!box) return;
- if(!stageOn()){ box.classList.add('hidden'); box.innerHTML=''; return; }
+ if(!stageOn()){ box.classList.add('hidden'); clearExtCards(box); extLive=false; return; }
  let list=[];
  try{ const r=await api('/api/extwin'); list=(r.windows||[]).filter(x=>!x.shell); }catch(e){}
- if(!list.length){ box.classList.add('hidden'); box.innerHTML=''; return; }
- const preview=!SETTINGS||SETTINGS.stageDisplay!=='identity';
- box.innerHTML=`<div class="extlab">外部应用 · 点一下切过去</div>`+list.map(x=>extCardHTML(x,preview)).join('');
+ if(!list.length){ box.classList.add('hidden'); clearExtCards(box); extLive=false; return; }
+ const preview=extPreviewOn();
+ if(!extLabelEl){ extLabelEl=document.createElement('div'); extLabelEl.className='extlab'; extLabelEl.textContent='外部应用 · 点一下切过去'; }
+ if(box.children[0]!==extLabelEl) box.insertBefore(extLabelEl,box.children[0]||null);
  box.classList.remove('hidden');
- box.querySelectorAll('.extcard').forEach(c=>{
-  c.onclick=async()=>{
-   const r=await api('/api/extwin/focus',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hwnd:Number(c.dataset.hwnd)})}).catch(()=>null);
-   if(!r||r.error) refreshExtStrip(); /* window closed or focus failed: re-sync the strip */
-  };
-  c.oncontextmenu=ev=>{ ev.preventDefault(); ev.stopPropagation(); showExtCtx(ev.clientX,ev.clientY,Number(c.dataset.hwnd)); };
-  const img=c.querySelector('img.ethumb');
-  if(img) loadThumb(img,Number(c.dataset.hwnd));
+ const seen=new Set();
+ list.forEach((x,i)=>{
+  seen.add(x.hwnd);
+  let card=extCards.get(x.hwnd);
+  const wantPrev=preview&&!thumbBad.has(x.hwnd);
+  if(!card){ card=newExtCard(x,wantPrev); extCards.set(x.hwnd,card); }
+  paintExtCard(card,x,wantPrev&&!card.minWait);
+  const ref=box.children[i+1]||null;
+  if(ref!==card.el) box.insertBefore(card.el,ref);
+  if(wantPrev) pumpThumb(card);
  });
+ Array.from(extCards).forEach(([hwnd,card])=>{
+  if(seen.has(hwnd)) return;
+  if(card.blob) URL.revokeObjectURL(card.blob);
+  if(card.el.parentNode) card.el.parentNode.removeChild(card.el);
+  else if(box.children.indexOf(card.el)>=0) box.removeChild(card.el);
+  extCards.delete(hwnd);
+ });
+ /* Live mode = strip rendered + the view itself visible. On
+    the closed->open transition every card asks for one fresh
+    frame instead of greeting the user with pre-open pictures. */
+ const liveNow=!document.hidden;
+ if(liveNow&&!extLive) extCards.forEach(c=>{ c.needFresh=true; });
+ extLive=liveNow;
 }
-setInterval(refreshExtStrip,4000);
+/* The strip's heartbeat (test3): ~1 s while live, the old
+   lazy 4 s otherwise. refreshExtStrip itself reconciles the
+   card set; this loop only paces it. */
+(function extLoop(){
+ setTimeout(async()=>{ try{ await refreshExtStrip(); }catch(e){} extLoop(); }, extLive?1000:4000);
+})();
 
 /* ----- desktop session memory (v0.38, tray memory's page half) -----
    If the view is destroyed for real (the Edge frame's own X --
@@ -2222,7 +2347,7 @@ function prodBusy(c){ return c&&(c.phase==='downloading'||c.phase==='extracting'
 function prodPct(c){ if(!c||!c.size) return 0; return Math.max(0,Math.min(100,Math.floor((c.progress||0)*100/c.size))); }
 function prodIconHTML(c){
  const badge=!c.installed?`<span class="dlb">${prodBusy(c)?('下载 '+prodPct(c)+'%'):'未下载'}</span>`:'';
- const img=c.installed?`<img alt="" src="/api/components/icon?id=${encodeURIComponent(c.id)}" onerror="this.remove()">`:'';
+ const img=c.installed?`<img alt="" src="${verQ('/api/components/icon?id='+encodeURIComponent(c.id))}" onerror="this.remove()">`:'';
  return `<div class="appico webapp${c.installed?'':' notin'}"><span class="icolet">${esc(c.name.replace(/[^A-Za-z]/g,'').slice(0,1)||c.name.slice(0,1))}</span>${img}${badge}</div>`;
 }
 async function loadProdApps(){
@@ -2247,7 +2372,7 @@ function ffPct(c){ if(!c||!c.size) return 0; return Math.max(0,Math.min(100,Math
 function ffDeskIconHTML(){
  const c=FFSTATE||{};
  const badge=!c.installed?`<span class="dlb">${ffBusy(c)?('下载 '+ffPct(c)+'%'):(c.phase==='error'?'下载失败':'未下载')}</span>`:'';
- const img=c.installed?`<img alt="" src="/api/firefox/icon" onerror="this.remove()">`:'';
+ const img=c.installed?`<img alt="" src="${verQ('/api/firefox/icon')}" onerror="this.remove()">`:'';
  return `<div class="appico webapp${c.installed?'':' notin'}"><span class="icolet">F</span>${img}${badge}</div>`;
 }
 async function launchFirefoxEntry(){

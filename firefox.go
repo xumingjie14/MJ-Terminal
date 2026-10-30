@@ -279,27 +279,26 @@ func runFFInstall() {
 // .ico is cached in Data (ff-icon.ico) -- a runtime-derived file
 // in the data home, never a stored absolute path, so it travels
 // and re-extracts on any machine where the cache is missing.
+// Since test3 the cache is keyed by the exe's path+mtime+size
+// (exeIconServed in icons.go): a Firefox component update swaps
+// the exe and the stale icon can no longer serve forever. The
+// response itself is no-cache like every icon endpoint.
 func ffIconHandler(w http.ResponseWriter, r *http.Request) {
 	if !ffInstalled() {
 		http.NotFound(w, r)
 		return
 	}
+	exe := filepath.Join(ffInstallDir(), "firefox.exe")
 	cache := filepath.Join(dataDir(), "ff-icon.ico")
-	if b, err := os.ReadFile(cache); err == nil && len(b) > 0 {
-		w.Header().Set("Content-Type", "image/x-icon")
-		w.Header().Set("Cache-Control", "max-age=3600")
-		_, _ = w.Write(b)
-		return
-	}
-	ico, err := exeIconICO(filepath.Join(ffInstallDir(), "firefox.exe"))
+	ico, origin, err := exeIconServed(cache, exe)
 	if err != nil || len(ico) == 0 {
 		http.NotFound(w, r)
 		return
 	}
-	_ = os.WriteFile(cache, ico, 0o644)
-	w.Header().Set("Content-Type", "image/x-icon")
-	w.Header().Set("Cache-Control", "max-age=3600")
-	_, _ = w.Write(ico)
+	if origin == "extract" {
+		logf("firefox", "info", "Firefox 图标已从 %s 提取并缓存（缓存缺失或 exe 已变化）", exe)
+	}
+	serveIconBytes(w, ico, "image/x-icon")
 }
 
 // extractZipTo unzips into dir, guarding against zip-slip paths.

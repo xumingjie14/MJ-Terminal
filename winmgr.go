@@ -257,6 +257,7 @@ func trackLaunch(app, targetURL, exePath string, before map[uint64]bool, shell, 
 				extWins[hwnd] = &extWindow{HWND: hwnd, App: app, URL: targetURL, Shell: shell, pid: pid, browser: browser, origin: "launch", geomKey: geomKey, placeMode: placeMode}
 				extMu.Unlock()
 				logf("winmgr", "info", "已登记外部窗口：%s", app)
+				thumbKick(hwnd) // test3: first preview frame must be fresh
 				// 丙: stamp the unified AppUserModelID (best effort).
 				platformSetAppID(hwnd)
 				if shell {
@@ -456,6 +457,7 @@ func registerPIDClaimedWindow(app string, wf windowFact, origin string) bool {
 		HWND: wf.HWND, App: app, Title: wf.Title, pid: wf.PID,
 		lastTitle: wf.Title, origin: origin,
 	}
+	thumbKick(wf.HWND) // test3: first preview frame must be fresh
 	return true
 }
 
@@ -988,6 +990,7 @@ func extWinFocusHandler(w http.ResponseWriter, r *http.Request) {
 		e.presentPending = false
 	}
 	extMu.Unlock()
+	thumbKick(body.HWND) // test3: a just-raised window gets a fresh frame next poll
 	writeJSON(w, map[string]any{"ok": true})
 }
 
@@ -1325,6 +1328,7 @@ func patrolTick() {
 				geomKey: exeGeomKey(byPID[wf.PID].ImagePath),
 			}
 			extMu.Unlock()
+			thumbKick(wf.HWND) // test3: first preview frame must be fresh
 			registered[wf.HWND] = true
 			auditMu.Lock()
 			delete(pendingOwned, wf.HWND)

@@ -489,7 +489,7 @@ func filesThumbHandler(w http.ResponseWriter, r *http.Request) {
 	cache := filepath.Join(thumbsDir(), fmt.Sprintf("%s-%d-%d.jpg", name, fi.Size(), fi.ModTime().Unix()))
 	if b, err := os.ReadFile(cache); err == nil {
 		w.Header().Set("Content-Type", "image/jpeg")
-		w.Header().Set("Cache-Control", "max-age=3600")
+		w.Header().Set("Cache-Control", "no-cache")
 		_, _ = w.Write(b)
 		return
 	}
@@ -525,7 +525,7 @@ func filesThumbHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "image/jpeg")
-	w.Header().Set("Cache-Control", "max-age=3600")
+	w.Header().Set("Cache-Control", "no-cache")
 	_, _ = w.Write(b)
 }
 

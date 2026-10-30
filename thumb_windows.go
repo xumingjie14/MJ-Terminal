@@ -7,14 +7,16 @@ package main
 // window into a memory bitmap (it works for occluded windows;
 // minimized windows are excluded by the caller), then the
 // pixels are read back with GetDIBits, downscaled to the
-// strip's width and PNG-encoded. Pure stdlib + LazyDLL, like
-// the rest of the window layer.
+// strip's width and JPEG-encoded (q80 since test3 -- a third
+// of PNG's bytes at preview size, and faster to encode for
+// the ~1 Hz live cadence). Pure stdlib + LazyDLL, like the
+// rest of the window layer.
 
 import (
 	"bytes"
 	"fmt"
 	"image"
-	"image/png"
+	"image/jpeg"
 	"syscall"
 	"unsafe"
 )
@@ -51,7 +53,7 @@ type bitmapInfoHeader struct {
 	ClrImportant  uint32
 }
 
-func platformCaptureWindowPNG(hwnd uint64, maxW int) ([]byte, error) {
+func platformCaptureWindowFrame(hwnd uint64, maxW int) ([]byte, error) {
 	h := uintptr(hwnd)
 	if r, _, _ := procIsWindow.Call(h); r == 0 {
 		return nil, fmt.Errorf("窗口已不存在")
@@ -132,7 +134,7 @@ func platformCaptureWindowPNG(hwnd uint64, maxW int) ([]byte, error) {
 		out = downscaleRGBA(img, maxW)
 	}
 	var bb bytes.Buffer
-	if err := png.Encode(&bb, out); err != nil {
+	if err := jpeg.Encode(&bb, out, &jpeg.Options{Quality: 80}); err != nil {
 		return nil, err
 	}
 	return bb.Bytes(), nil

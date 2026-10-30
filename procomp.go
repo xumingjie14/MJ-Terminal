@@ -621,20 +621,21 @@ func compIconHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	icoPath := filepath.Join(compDir(c.ID), "mj-icon.ico")
-	if b, err := os.ReadFile(icoPath); err == nil && len(b) > 0 {
-		w.Header().Set("Content-Type", "image/x-icon")
-		w.Header().Set("Cache-Control", "max-age=3600")
-		_, _ = w.Write(b)
-		return
-	}
+	// test3: same rules as the other icon endpoints -- the
+	// response is no-cache (serveIconBytes), and the Data-side
+	// cache is keyed by the component exe's stamp, so a
+	// component update can never leave a stale icon serving.
 	if compInstalled(c) {
-		if ico, err := exeIconICO(compExePath(c)); err == nil && len(ico) > 0 {
-			_ = os.WriteFile(icoPath, ico, 0o644)
-			w.Header().Set("Content-Type", "image/x-icon")
-			w.Header().Set("Cache-Control", "max-age=3600")
-			_, _ = w.Write(ico)
+		if ico, origin, err := exeIconServed(icoPath, compExePath(c)); err == nil && len(ico) > 0 {
+			if origin == "extract" {
+				logf(c.ID, "info", "%s 组件图标已从 exe 提取并缓存", c.Name)
+			}
+			serveIconBytes(w, ico, "image/x-icon")
 			return
 		}
+	} else if b, err := os.ReadFile(icoPath); err == nil && len(b) > 0 {
+		serveIconBytes(w, b, "image/x-icon")
+		return
 	}
 	http.NotFound(w, r)
 }
