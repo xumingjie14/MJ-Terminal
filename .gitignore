@@ -8,3 +8,6 @@ assets/sandboxie-plus-x64-v1.18.8.exe
 # Local build artifacts
 /mjlight
 /MJ-System.exe
+
+# Node toolchain for the web/ frontend build (v0.58)
+node_modules/
