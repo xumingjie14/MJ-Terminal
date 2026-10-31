@@ -21,5 +21,7 @@ import './dock';
 import './pages';
 import './ccnc';
 import './notify';
+import './apiclient';
+import './events';
 import './expose';
 import './boot';

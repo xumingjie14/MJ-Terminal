@@ -2113,13 +2113,14 @@ func npModeHandler(w http.ResponseWriter, r *http.Request) {
 		Mode string `json:"mode"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, map[string]any{"error": "请求内容不对"})
+		apiErrBadRequest(w, errCodeBadJSON, "请求内容不对")
 		return
 	}
 	if err := npSetMode(body.Mode); err != nil {
-		writeJSON(w, map[string]any{"error": err.Error()})
+		apiErrBadRequest(w, errCodeBadRequest, err.Error())
 		return
 	}
+	busPublish("nodes", "") // v0.59 block 3: live sync
 	writeJSON(w, npStatus())
 }
 
@@ -2128,12 +2129,12 @@ func npSelectHandler(w http.ResponseWriter, r *http.Request) {
 		Target string `json:"target"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, map[string]any{"error": "请求内容不对"})
+		apiErrBadRequest(w, errCodeBadJSON, "请求内容不对")
 		return
 	}
 	how, err := npSelectExit(body.Target)
 	if err != nil {
-		writeJSON(w, map[string]any{"error": err.Error()})
+		apiErrBadRequest(w, errCodeBadRequest, err.Error())
 		return
 	}
 	st := npStatus()
@@ -2146,7 +2147,7 @@ func npTestHandler(w http.ResponseWriter, r *http.Request) {
 		Target string `json:"target"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, map[string]any{"error": "请求内容不对"})
+		apiErrBadRequest(w, errCodeBadJSON, "请求内容不对")
 		return
 	}
 	target := body.Target
@@ -2177,7 +2178,7 @@ func npTestHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		npMu.Unlock()
 		if len(ids) == 0 {
-			writeJSON(w, map[string]any{"error": "没有可测速的节点"})
+			apiErrBadRequest(w, errCodeInvalid, "没有可测速的节点")
 			return
 		}
 		results := testNodes(ids, "虚拟组")
@@ -2201,7 +2202,7 @@ func npTestHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	npMu.Unlock()
 	if len(ids) == 0 {
-		writeJSON(w, map[string]any{"error": "没有可测速的节点"})
+		apiErrBadRequest(w, errCodeInvalid, "没有可测速的节点")
 		return
 	}
 	results := testNodes(ids, "手动")
@@ -2214,7 +2215,7 @@ func npDetourHandler(w http.ResponseWriter, r *http.Request) {
 		Detour string `json:"detour"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, map[string]any{"error": "请求内容不对"})
+		apiErrBadRequest(w, errCodeBadJSON, "请求内容不对")
 		return
 	}
 	npMu.Lock()
@@ -2222,7 +2223,7 @@ func npDetourHandler(w http.ResponseWriter, r *http.Request) {
 	n := npFindNode(body.Node)
 	if n == nil {
 		npMu.Unlock()
-		writeJSON(w, map[string]any{"error": "节点不存在"})
+		writeAPIError(w, http.StatusNotFound, errCodeNotFound, "节点不存在")
 		return
 	}
 	switch {
@@ -2231,18 +2232,18 @@ func npDetourHandler(w http.ResponseWriter, r *http.Request) {
 	case body.Detour == "warp":
 		if npStore.Warp == nil {
 			npMu.Unlock()
-			writeJSON(w, map[string]any{"error": "WARP 中继还没注册"})
+			apiErrBadRequest(w, errCodeInvalid, "WARP 中继还没注册")
 			return
 		}
 		n.Detour = "warp"
 	case body.Detour == body.Node:
 		npMu.Unlock()
-		writeJSON(w, map[string]any{"error": "前置不能是节点自己"})
+		apiErrBadRequest(w, errCodeInvalid, "前置不能是节点自己")
 		return
 	default:
 		if npFindNode(body.Detour) == nil {
 			npMu.Unlock()
-			writeJSON(w, map[string]any{"error": "前置节点不存在"})
+			apiErrBadRequest(w, errCodeInvalid, "前置节点不存在")
 			return
 		}
 		n.Detour = body.Detour
@@ -2251,7 +2252,7 @@ func npDetourHandler(w http.ResponseWriter, r *http.Request) {
 	npSaveStoreLocked()
 	npMu.Unlock()
 	if err := npRegen(true); err != nil {
-		writeJSON(w, map[string]any{"error": err.Error()})
+		apiErrBadRequest(w, errCodeBadRequest, err.Error())
 		return
 	}
 	if det == "" {
@@ -2259,6 +2260,7 @@ func npDetourHandler(w http.ResponseWriter, r *http.Request) {
 	} else {
 		logf("core", "info", "节点 %s 的前置已设为 %s", name, det)
 	}
+	busPublish("nodes", "") // v0.59 block 3: live sync
 	writeJSON(w, npStatus())
 }
 
@@ -2272,14 +2274,14 @@ func npSubsHandler(w http.ResponseWriter, r *http.Request) {
 		AutoMins *int   `json:"autoMins"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, map[string]any{"error": "请求内容不对"})
+		apiErrBadRequest(w, errCodeBadJSON, "请求内容不对")
 		return
 	}
 	switch body.Action {
 	case "add":
 		raw := strings.TrimSpace(body.URL)
 		if raw == "" {
-			writeJSON(w, map[string]any{"error": "订阅地址不能为空"})
+			apiErrBadRequest(w, errCodeInvalid, "订阅地址不能为空")
 			return
 		}
 		name := strings.TrimSpace(body.Name)
@@ -2315,7 +2317,7 @@ func npSubsHandler(w http.ResponseWriter, r *http.Request) {
 		sub := npFindSub(body.ID)
 		if sub == nil {
 			npMu.Unlock()
-			writeJSON(w, map[string]any{"error": "订阅不存在"})
+			writeAPIError(w, http.StatusNotFound, errCodeNotFound, "订阅不存在")
 			return
 		}
 		name := sub.Name
@@ -2330,15 +2332,16 @@ func npSubsHandler(w http.ResponseWriter, r *http.Request) {
 		npSaveStoreLocked()
 		npMu.Unlock()
 		if err := npRegen(true); err != nil {
-			writeJSON(w, map[string]any{"error": err.Error()})
+			apiErrBadRequest(w, errCodeBadRequest, err.Error())
 			return
 		}
 		logf("node", "info", "已删除订阅：%s（其节点一并移除）", name)
+		busPublish("nodes", "") // v0.59 block 3: live sync
 		writeJSON(w, npStatus())
 	case "rename":
 		name := strings.TrimSpace(body.Name)
 		if name == "" {
-			writeJSON(w, map[string]any{"error": "名字不能为空"})
+			apiErrBadRequest(w, errCodeInvalid, "名字不能为空")
 			return
 		}
 		npMu.Lock()
@@ -2346,17 +2349,18 @@ func npSubsHandler(w http.ResponseWriter, r *http.Request) {
 		sub := npFindSub(body.ID)
 		if sub == nil {
 			npMu.Unlock()
-			writeJSON(w, map[string]any{"error": "订阅不存在"})
+			writeAPIError(w, http.StatusNotFound, errCodeNotFound, "订阅不存在")
 			return
 		}
 		sub.Name = name
 		npSaveStoreLocked()
 		npMu.Unlock()
 		logf("node", "info", "订阅已改名为：%s", name)
+		busPublish("nodes", "") // v0.59 block 3: live sync
 		writeJSON(w, npStatus())
 	case "enable":
 		if body.Enabled == nil {
-			writeJSON(w, map[string]any{"error": "缺少 enabled"})
+			apiErrBadRequest(w, errCodeInvalid, "缺少 enabled")
 			return
 		}
 		npMu.Lock()
@@ -2364,7 +2368,7 @@ func npSubsHandler(w http.ResponseWriter, r *http.Request) {
 		sub := npFindSub(body.ID)
 		if sub == nil {
 			npMu.Unlock()
-			writeJSON(w, map[string]any{"error": "订阅不存在"})
+			writeAPIError(w, http.StatusNotFound, errCodeNotFound, "订阅不存在")
 			return
 		}
 		sub.Enabled = *body.Enabled
@@ -2372,14 +2376,15 @@ func npSubsHandler(w http.ResponseWriter, r *http.Request) {
 		npSaveStoreLocked()
 		npMu.Unlock()
 		if err := npRegen(true); err != nil {
-			writeJSON(w, map[string]any{"error": err.Error()})
+			apiErrBadRequest(w, errCodeBadRequest, err.Error())
 			return
 		}
 		logf("node", "info", "订阅 %s 已%s", name, map[bool]string{true: "启用", false: "停用"}[en])
+		busPublish("nodes", "") // v0.59 block 3: live sync
 		writeJSON(w, npStatus())
 	case "automins":
 		if body.AutoMins == nil || *body.AutoMins < 0 {
-			writeJSON(w, map[string]any{"error": "间隔不对"})
+			apiErrBadRequest(w, errCodeInvalid, "间隔不对")
 			return
 		}
 		npMu.Lock()
@@ -2387,17 +2392,18 @@ func npSubsHandler(w http.ResponseWriter, r *http.Request) {
 		sub := npFindSub(body.ID)
 		if sub == nil {
 			npMu.Unlock()
-			writeJSON(w, map[string]any{"error": "订阅不存在"})
+			writeAPIError(w, http.StatusNotFound, errCodeNotFound, "订阅不存在")
 			return
 		}
 		sub.AutoMins = *body.AutoMins
 		npSaveStoreLocked()
 		npMu.Unlock()
+		busPublish("nodes", "") // v0.59 block 3: live sync
 		writeJSON(w, npStatus())
 	case "update":
 		cnt, err := npUpdateSubscription(body.ID, "手动")
 		if err != nil {
-			writeJSON(w, map[string]any{"error": err.Error()})
+			apiErrBadRequest(w, errCodeBadRequest, err.Error())
 			return
 		}
 		st := npStatus()
@@ -2429,7 +2435,7 @@ func npSubsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, st)
 	default:
-		writeJSON(w, map[string]any{"error": "未知操作"})
+		apiErrBadRequest(w, errCodeInvalid, "未知操作")
 	}
 }
 
@@ -2448,12 +2454,12 @@ func npRulesHandler(w http.ResponseWriter, r *http.Request) {
 		Rules []userRule `json:"rules"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, map[string]any{"error": "请求内容不对"})
+		apiErrBadRequest(w, errCodeBadJSON, "请求内容不对")
 		return
 	}
 	for i, rl := range body.Rules {
 		if err := validateUserRule(rl); err != nil {
-			writeJSON(w, map[string]any{"error": fmt.Sprintf("第 %d 条规则不对：%v", i+1, err)})
+			apiErrBadRequest(w, errCodeInvalid, fmt.Sprintf("第 %d 条规则不对：%v", i+1, err))
 			return
 		}
 		if body.Rules[i].ID == "" {
@@ -2469,13 +2475,14 @@ func npRulesHandler(w http.ResponseWriter, r *http.Request) {
 	npMu.Unlock()
 	if mode == "rule" {
 		if err := npRegen(true); err != nil {
-			writeJSON(w, map[string]any{"error": err.Error()})
+			apiErrBadRequest(w, errCodeBadRequest, err.Error())
 			return
 		}
 		logf("core", "info", "自定义规则已保存（%d 条，规则模式已重新生成配置）", len(body.Rules))
 	} else {
 		logf("core", "info", "自定义规则已保存（%d 条，切到规则模式时生效）", len(body.Rules))
 	}
+	busPublish("nodes", "") // v0.59 block 3: live sync
 	writeJSON(w, npStatus())
 }
 
@@ -2531,18 +2538,18 @@ func npDNSHandler(w http.ResponseWriter, r *http.Request) {
 		Custom string `json:"custom"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, map[string]any{"error": "请求内容不对"})
+		apiErrBadRequest(w, errCodeBadJSON, "请求内容不对")
 		return
 	}
 	switch body.Mode {
 	case "anti", "direct":
 	case "custom":
 		if parseDoHServer(body.Custom, "rule") == nil {
-			writeJSON(w, map[string]any{"error": "自定义 DoH 地址不对：需要 https:// 开头的 DoH 地址，如 https://dns.google/dns-query"})
+			apiErrBadRequest(w, errCodeInvalid, "自定义 DoH 地址不对：需要 https:// 开头的 DoH 地址，如 https://dns.google/dns-query")
 			return
 		}
 	default:
-		writeJSON(w, map[string]any{"error": "未知 DNS 方案"})
+		apiErrBadRequest(w, errCodeInvalid, "未知 DNS 方案")
 		return
 	}
 	npMu.Lock()
@@ -2554,10 +2561,11 @@ func npDNSHandler(w http.ResponseWriter, r *http.Request) {
 	npSaveStoreLocked()
 	npMu.Unlock()
 	if err := npRegen(true); err != nil {
-		writeJSON(w, map[string]any{"error": err.Error()})
+		apiErrBadRequest(w, errCodeBadRequest, err.Error())
 		return
 	}
 	logf("core", "info", "DNS 方案已切换为 %s", map[string]string{"anti": "防污染", "direct": "直连（系统 DNS）", "custom": "自定义 DoH"}[body.Mode])
+	busPublish("nodes", "") // v0.59 block 3: live sync
 	writeJSON(w, npStatus())
 }
 
@@ -2566,15 +2574,16 @@ func npWarpHandler(w http.ResponseWriter, r *http.Request) {
 		Action string `json:"action"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, map[string]any{"error": "请求内容不对"})
+		apiErrBadRequest(w, errCodeBadJSON, "请求内容不对")
 		return
 	}
 	switch body.Action {
 	case "register":
 		if err := npWarpRegister(); err != nil {
-			writeJSON(w, map[string]any{"error": err.Error()})
+			apiErrBadRequest(w, errCodeBadRequest, err.Error())
 			return
 		}
+		busPublish("nodes", "") // v0.59 block 3: live sync
 		writeJSON(w, npStatus())
 	case "remove":
 		npMu.Lock()
@@ -2591,13 +2600,14 @@ func npWarpHandler(w http.ResponseWriter, r *http.Request) {
 		npSaveStoreLocked()
 		npMu.Unlock()
 		if err := npRegen(true); err != nil {
-			writeJSON(w, map[string]any{"error": err.Error()})
+			apiErrBadRequest(w, errCodeBadRequest, err.Error())
 			return
 		}
 		logf("node", "info", "WARP 中继已移除（注册信息已删除）")
+		busPublish("nodes", "") // v0.59 block 3: live sync
 		writeJSON(w, npStatus())
 	default:
-		writeJSON(w, map[string]any{"error": "未知操作"})
+		apiErrBadRequest(w, errCodeInvalid, "未知操作")
 	}
 }
 
@@ -2670,13 +2680,13 @@ func npConnCloseHandler(w http.ResponseWriter, r *http.Request) {
 		All bool   `json:"all"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, map[string]any{"error": "请求内容不对"})
+		apiErrBadRequest(w, errCodeBadJSON, "请求内容不对")
 		return
 	}
 	if body.All {
 		code, _, err := clashDo(http.MethodDelete, "/connections", nil, 3*time.Second)
 		if err != nil || (code != 200 && code != 204) {
-			writeJSON(w, map[string]any{"error": "关闭全部连接失败（Clash API 不可用）"})
+			writeAPIError(w, http.StatusInternalServerError, errCodeInternal, "关闭全部连接失败（Clash API 不可用）")
 			return
 		}
 		logf("core", "info", "已关闭全部实时连接")
@@ -2684,12 +2694,12 @@ func npConnCloseHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.ID == "" {
-		writeJSON(w, map[string]any{"error": "缺少连接 id"})
+		apiErrBadRequest(w, errCodeInvalid, "缺少连接 id")
 		return
 	}
 	code, _, err := clashDo(http.MethodDelete, "/connections/"+url.PathEscape(body.ID), nil, 3*time.Second)
 	if err != nil || (code != 200 && code != 204) {
-		writeJSON(w, map[string]any{"error": "关闭连接失败（Clash API 不可用）"})
+		writeAPIError(w, http.StatusInternalServerError, errCodeInternal, "关闭连接失败（Clash API 不可用）")
 		return
 	}
 	logf("core", "info", "已关闭一条实时连接")

@@ -20,8 +20,15 @@ package main
 // window and handed to the next view that connects. Commands are
 // idempotent UI opens, so a rare duplicate delivery is harmless.
 //
-// GET /api/view/stream -> SSE, one JSON object per command:
-// {"cmd":"spotlight","ts":<unix ms>}
+// GET /api/view/stream -> SSE, one JSON object per message.
+// Two message families share the stream since v0.59 (block 3):
+//   - view commands (this file, pre-existing): {"cmd":"spotlight","ts":<unix ms>}
+//   - change-bus events (events.go): {"topic":"files","id":"x.png","ts":<unix ms>}
+// The one pre-existing consumer (Spotlight's F8 summon) reads
+// only "cmd" and is unaffected; the view's event client
+// (web/src/b1/events.ts) reads only "topic". Local mux only --
+// this route must never appear on the remote-assist mux (a test
+// in viewcmd_test.go pins that).
 
 import (
 	"encoding/json"
@@ -99,6 +106,11 @@ func viewStreamHandler(w http.ResponseWriter, r *http.Request) {
 		delete(viewCmdState.subs, ch)
 		viewCmdState.Unlock()
 	}()
+	// v0.59: the same connection also carries the change bus
+	// (all topics). Unsubscribe on return; the bus side is
+	// drop-tolerant, so a slow view never stalls a mutation.
+	busCh, busDone := busSubscribe()
+	defer busDone()
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.WriteHeader(http.StatusOK)
@@ -119,6 +131,10 @@ func viewStreamHandler(w http.ResponseWriter, r *http.Request) {
 			fl.Flush()
 		case vc := <-ch:
 			b, _ := json.Marshal(vc)
+			fmt.Fprintf(w, "data: %s\n\n", b)
+			fl.Flush()
+		case ev := <-busCh:
+			b, _ := json.Marshal(ev)
 			fmt.Fprintf(w, "data: %s\n\n", b)
 			fl.Flush()
 		}

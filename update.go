@@ -45,7 +45,7 @@ import (
 // AppVersion is the single source of truth for the running version.
 // The CI workflow must publish the Release with the matching tag
 // (v + AppVersion) and update.json.
-const AppVersion = "0.58"
+const AppVersion = "0.59"
 
 const updateRepo = "xumingjie14/MJ-Terminal"
 const updateZipName = "MJ-System-64bit.zip"
@@ -104,17 +104,19 @@ func (u *updateStatus) set(phase, msg string) {
 	}
 }
 
-func (u *updateStatus) snapshot() map[string]any {
+// snapshot projects the internal status into the contract
+// type (apicontract.go). Field presence matches the old map.
+func (u *updateStatus) snapshot() updateSnapshot {
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	return map[string]any{
-		"current":  AppVersion,
-		"token":    readUpdateToken() != "",
-		"phase":    u.Phase,
-		"latest":   u.Latest,
-		"size":     u.Size,
-		"progress": u.Progress,
-		"message":  u.Message,
+	return updateSnapshot{
+		Current:  AppVersion,
+		Token:    readUpdateToken() != "",
+		Phase:    u.Phase,
+		Latest:   u.Latest,
+		Size:     u.Size,
+		Progress: u.Progress,
+		Message:  u.Message,
 	}
 }
 
@@ -590,6 +592,7 @@ func downloadUpdate() {
 		return
 	}
 	upd.set("ready", "新版本已下载并验过，点「重启并更新」完成更新（节点会断开几秒，自动重连）")
+	busPublish("update", "") // v0.59 block 3: live sync
 }
 
 // ---------- HTTP handlers ----------
@@ -603,24 +606,25 @@ func updateTokenHandler(w http.ResponseWriter, r *http.Request) {
 		Token string `json:"token"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, map[string]any{"error": "bad request"})
+		apiErrBadRequest(w, errCodeBadJSON, "bad request")
 		return
 	}
 	tok := strings.TrimSpace(body.Token)
 	if tok == "" {
 		_ = os.Remove(updateTokenPath())
-		writeJSON(w, map[string]any{"ok": true, "token": false})
+		writeJSON(w, updateTokenResponse{OK: true, Token: false})
 		return
 	}
 	if err := dsSave("update-token", []byte(tok)); err != nil {
-		writeJSON(w, map[string]any{"error": err.Error()})
+		writeAPIError(w, http.StatusInternalServerError, errCodeInternal, err.Error())
 		return
 	}
-	writeJSON(w, map[string]any{"ok": true, "token": true})
+	writeJSON(w, updateTokenResponse{OK: true, Token: true})
 }
 
 func updateCheckHandler(w http.ResponseWriter, r *http.Request) {
 	checkUpdate()
+	busPublish("update", "") // v0.59 block 3: live sync
 	writeJSON(w, upd.snapshot())
 }
 
@@ -643,6 +647,7 @@ func updateDownloadHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	go downloadUpdate()
+	busPublish("update", "") // v0.59 block 3: live sync
 	writeJSON(w, upd.snapshot())
 }
 
@@ -654,23 +659,23 @@ func updateApplyHandler(w http.ResponseWriter, r *http.Request) {
 	latest := upd.Latest
 	upd.mu.Unlock()
 	if phase != "ready" {
-		writeJSON(w, map[string]any{"error": "更新包还没准备好，先检查并下载更新"})
+		apiErrBadRequest(w, errCodeInvalid, "更新包还没准备好，先检查并下载更新")
 		return
 	}
 	self, err := os.Executable()
 	if err != nil {
-		writeJSON(w, map[string]any{"error": err.Error()})
+		writeAPIError(w, http.StatusInternalServerError, errCodeInternal, err.Error())
 		return
 	}
 	updater := exec.Command(stagedExePath(), "-apply-update", "-update-target", self)
 	updater.Dir = updateDir()
 	if err := updater.Start(); err != nil {
 		logf("update", "error", "启动更新程序失败：%v", err)
-		writeJSON(w, map[string]any{"error": "启动更新程序失败：" + err.Error()})
+		writeAPIError(w, http.StatusInternalServerError, errCodeInternal, "启动更新程序失败："+err.Error())
 		return
 	}
 	logf("update", "info", "开始应用更新（v%s → v%s），守护进程交接退出", AppVersion, latest)
-	writeJSON(w, map[string]any{"ok": true, "message": "正在更新，桌面会自动重开"})
+	writeJSON(w, updateApplyResponse{OK: true, Message: "正在更新，桌面会自动重开"})
 	// The updater also asks us to shut down over HTTP; exiting here as
 	// well makes the handover robust if that call races. Either way
 	// it is a HANDOVER exit: no app closing, no vault sealing.

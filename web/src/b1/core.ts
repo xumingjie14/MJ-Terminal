@@ -44,7 +44,13 @@ export const winsEl=document.getElementById('wins'), iconsEl=document.getElement
 export let z=10, sysInfo=null, customWall=false;
 
 export function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
-export async function api(p: any, opt?: any){const r=await fetch(p,opt);let t=await r.text();try{return JSON.parse(t)}catch(e){return{raw:t}}}
+export async function api(p: any, opt?: any){const r=await fetch(p,opt);let t=await r.text();let j;try{j=JSON.parse(t)}catch(e){return{raw:t}}
+ /* v0.59 block 3: the daemon's uniform error envelope
+    {error:{code,message}} is normalized back to the legacy
+    string field (plus errorCode) so every existing consumer
+    keeps surfacing errors exactly as before. */
+ if(j&&typeof j==='object'&&j.error&&typeof j.error==='object'){return{...j,error:String(j.error.message??''),errorCode:j.error.code}}
+ return j}
 
 export const __bind_sysInfo: any = { get(): any { return sysInfo; }, set(v: any): any { sysInfo = v; return v; } };
 

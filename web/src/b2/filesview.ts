@@ -170,3 +170,15 @@ window.__bindFiles=function(){
  if(imp) imp.onclick=()=>{ const f=$50('deskimp'); if(f) f.click(); };
  paintFiles();
 };
+/* v0.59 block 3 (item #8): a files mutation made anywhere --
+   a rename in this view, an import from the desktop, another
+   window -- re-pulls and repaints THIS view in place.
+   paintFiles() already re-fetches via the typed API and no-ops
+   when the Files window is not in the DOM. The short delay lets
+   bundle 1's own refresh land first so both surfaces converge
+   in one pass. */
+try{
+ if(typeof MJEvents!=='undefined'&&MJEvents&&MJEvents.on){
+  MJEvents.on('files',()=>{ setTimeout(()=>{ try{ paintFiles(); }catch(e){} },180); });
+ }
+}catch(e){}

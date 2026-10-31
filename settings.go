@@ -125,8 +125,8 @@ type mjSettings struct {
 	// installed app is on by default without any migration. The
 	// settings wire keys are notify_allow_app_<id> /
 	// notify_banner_app_<id>, validated by validNotifyAppID.
-	NotifyAllowApp  map[string]bool `json:"notify_allow_app,omitempty"`
-	NotifyBannerApp map[string]bool `json:"notify_banner_app,omitempty"`
+	NotifyAllowApp  map[string]bool `json:"notify_allow_app,omitempty" mjapi:"-"`
+	NotifyBannerApp map[string]bool `json:"notify_banner_app,omitempty" mjapi:"-"`
 	// NCWidgets is a JSON array [{"id":"calendar","show":true},...]
 	// in display order; ids are calendar/server/node.
 	NCWidgets string `json:"nc_widgets"`
@@ -588,58 +588,21 @@ func settingsSaveLocked() error {
 
 func settingsMap() map[string]any {
 	s := settingsGet()
-	out := map[string]any{
-		"wallpaper":               s.Wallpaper,
-		"stageManager":            s.StageManager,
-		"idleExitMinutes":         s.IdleExitMinutes,
-		"phoneMode":               s.PhoneMode,
-		"phoneTriggerWidth":       s.PhoneTriggerWidth,
-		"phoneWidth":              s.PhoneWidth,
-		"chromeCacheMB":           s.ChromeCacheMB,
-		"stageAutoClaimBrowser":   s.StageAutoClaimBrowser,
-		"filesOnDesktop":          s.FilesOnDesktop,
-		"remoteEnabled":           s.RemoteEnabled,
-		"winPlaceOnClaim":         s.WinPlaceOnClaim,
-		"winHideOnMinimize":       s.WinHideOnMinimize,
-		"winCloseToTray":          s.WinCloseToTray,
-		"immersiveMode":           s.ImmersiveMode,
-		"desktopFullscreen":       s.DesktopFullscreen,
-		"dockPosition":            s.DockPosition,
-		"dockAutoHide":            s.DockAutoHide,
-		"dockIconSize":            s.DockIconSize,
-		"cc_show_immersive":       s.CCShowImmersive,
-		"cc_show_stage":           s.CCShowStage,
-		"cc_show_fullscreen":      s.CCShowFullscreen,
-		"cc_show_dockhide":        s.CCShowDockHide,
-		"cc_show_remote":          s.CCShowRemote,
-		"cc_show_wallpaper":       s.CCShowWallpaper,
-		"notify_allow_sandbox":    s.NotifyAllowSandbox,
-		"notify_allow_update":     s.NotifyAllowUpdate,
-		"notify_allow_servermon":  s.NotifyAllowServer,
-		"notify_allow_node":       s.NotifyAllowNode,
-		"notify_allow_remote":     s.NotifyAllowRemote,
-		"notify_allow_files":      s.NotifyAllowFiles,
-		"notify_banner_sandbox":   s.NotifyBannerSandbox,
-		"notify_banner_update":    s.NotifyBannerUpdate,
-		"notify_banner_servermon": s.NotifyBannerServer,
-		"notify_banner_node":      s.NotifyBannerNode,
-		"notify_banner_remote":    s.NotifyBannerRemote,
-		"notify_banner_files":     s.NotifyBannerFiles,
-		"nc_widgets":              s.NCWidgets,
-		"exitClosesApps":          s.ExitClosesApps,
-		"nodeStartMode":           s.NodeStartMode,
-		"nodeSubAuto":             s.NodeSubAuto,
-		"nodeSubIntervalMin":      s.NodeSubIntervalMin,
-		"nodeTestURL":             s.NodeTestURL,
-		"nodeTestTimeoutMs":       s.NodeTestTimeoutMs,
-		"nodeClashAPI":            s.NodeClashAPI,
-		"summonHotkey":            s.SummonHotkey,
-		"defaultOfficeSuite":      s.DefaultOfficeSuite,
-		"stageDisplay":            s.StageDisplay,
-		"deskIconSize":            s.DeskIconSize,
-		"deskSort":                s.DeskSort,
-		"fresh":                   settingsFresh(),
-	}
+	// v0.59 block 3: the fixed shape is the API contract struct
+	// (settingsResponse = mjSettings + fresh, apicontract.go). It
+	// is round-tripped into a map ONLY so the dynamic per-app
+	// keys below can be merged in; the emitted keys and values
+	// are byte-identical to the old hand-built literal, which the
+	// remote-assist settings projection relies on.
+	sb, _ := json.Marshal(settingsResponse{mjSettings: s, Fresh: settingsFresh()})
+	out := map[string]any{}
+	_ = json.Unmarshal(sb, &out)
+	// The per-app maps ride the wire ONLY in their flattened
+	// notify_allow_app_<id> form (the loops below); the object
+	// form is the on-disk representation and was never a key of
+	// this map before the contract refactor either.
+	delete(out, "notify_allow_app")
+	delete(out, "notify_banner_app")
 	// v0.54: per-app notification switches are emitted flattened
 	// (notify_allow_app_<id>: bool) for the entries the user has
 	// explicitly set; an absent key reads as the default (on) on
@@ -731,7 +694,7 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		var raw map[string]json.RawMessage
 		if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
-			writeJSON(w, map[string]any{"error": "请求内容不对"})
+			apiErrBadRequest(w, errCodeBadJSON, "请求内容不对")
 			return
 		}
 		setState.Lock()
@@ -1070,7 +1033,7 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 		if fail != "" {
 			setState.Unlock()
 			logf("settings", "warn", "设置更新被拒绝：%s", fail)
-			writeJSON(w, map[string]any{"error": fail})
+			apiErrBadRequest(w, errCodeInvalid, fail)
 			return
 		}
 		setState.cur = next
@@ -1078,7 +1041,7 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 		setState.Unlock()
 		if err != nil {
 			logf("settings", "error", "设置保存失败：%v", err)
-			writeJSON(w, map[string]any{"error": "保存失败：" + err.Error()})
+			writeAPIError(w, http.StatusInternalServerError, errCodeInternal, "保存失败："+err.Error())
 			return
 		}
 		for _, c := range changed {
@@ -1102,7 +1065,7 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, settingsMap())
 	default:
-		writeJSON(w, map[string]any{"error": "method not allowed"})
+		writeAPIError(w, http.StatusMethodNotAllowed, errCodeMethod, "method not allowed")
 	}
 }
 

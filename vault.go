@@ -947,26 +947,34 @@ func vaultDetect() {
 }
 
 // vaultStatusMap is the lock screen / settings view of the vault.
-func vaultStatusMap() map[string]any {
+// vaultStatusMap projects the vault runtime state into the
+// contract type (v0.59 block 3, apicontract.go). This is a
+// read-only projection of status fields -- no vault format,
+// key material or crypto is involved or changed.
+func vaultStatusMap() vaultStatusResponse {
 	vaultSt.Lock()
 	defer vaultSt.Unlock()
-	m := map[string]any{
-		"enabled": vaultSt.meta != nil,
-		"phase":   vaultSt.phase,
-		"locked": vaultSt.phase == vaultPhaseGate || vaultSt.phase == vaultPhaseSealed ||
+	m := vaultStatusResponse{
+		Enabled: vaultSt.meta != nil,
+		Phase:   vaultSt.phase,
+		Locked: vaultSt.phase == vaultPhaseGate || vaultSt.phase == vaultPhaseSealed ||
 			vaultSt.phase == vaultPhaseSealing || vaultSt.phase == vaultPhaseUnlocking,
-		"partial":   vaultSt.partial,
-		"hasKey":    vaultSt.key != nil,
-		"lastError": vaultSt.lastErr,
+		Partial:   vaultSt.partial,
+		HasKey:    vaultSt.key != nil,
+		LastError: vaultSt.lastErr,
 	}
 	if vaultSt.meta != nil {
-		m["shards"] = len(vaultSt.meta.Shards)
-		m["totalBytes"] = vaultSt.meta.TotalBytes
-		m["sealed"] = vaultSt.meta.Sealed
+		shards := len(vaultSt.meta.Shards)
+		totalBytes := vaultSt.meta.TotalBytes
+		sealed := vaultSt.meta.Sealed
+		m.Shards = &shards
+		m.TotalBytes = &totalBytes
+		m.Sealed = &sealed
 	}
 	if vaultSt.phase == vaultPhaseSealing || vaultSt.phase == vaultPhaseUnlocking {
-		m["progress"] = vaultSt.done
-		m["progressTotal"] = vaultSt.total
+		done, total := vaultSt.done, vaultSt.total
+		m.Progress = &done
+		m.ProgressTotal = &total
 	}
 	return m
 }
@@ -1133,7 +1141,7 @@ func vaultGateMiddleware(next http.Handler) http.Handler {
 		if vaultLocked() && !vaultGateAllowed(r) {
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
 			w.WriteHeader(http.StatusForbidden)
-			_ = json.NewEncoder(w).Encode(map[string]any{"error": "终端机已锁定，输入密码解锁后继续"})
+			_ = json.NewEncoder(w).Encode(apiErrorEnvelope{Error: apiError{Code: "vault_locked", Message: "终端机已锁定，输入密码解锁后继续"}})
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -1174,29 +1182,29 @@ func vaultEnableHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	if len([]rune(body.Password)) < 6 {
-		writeJSON(w, map[string]any{"error": "密码至少 6 位"})
+		apiErrBadRequest(w, errCodeInvalid, "密码至少 6 位")
 		return
 	}
 	vaultSt.Lock()
 	if vaultSt.meta != nil {
 		vaultSt.Unlock()
-		writeJSON(w, map[string]any{"error": "保险库已经启用了"})
+		apiErrBadRequest(w, errCodeInvalid, "保险库已经启用了")
 		return
 	}
 	vaultSt.Unlock()
 	master := make([]byte, vaultKeyLen)
 	if _, err := rand.Read(master); err != nil {
-		writeJSON(w, map[string]any{"error": err.Error()})
+		writeAPIError(w, http.StatusInternalServerError, errCodeInternal, err.Error())
 		return
 	}
 	meta, err := vaultNewMeta(body.Password, master)
 	if err != nil {
-		writeJSON(w, map[string]any{"error": err.Error()})
+		writeAPIError(w, http.StatusInternalServerError, errCodeInternal, err.Error())
 		return
 	}
 	if err := vaultSaveMeta(vaultDir(), meta); err != nil {
 		logf("vault", "error", "保险库启用失败（写元数据）：%v", err)
-		writeJSON(w, map[string]any{"error": "启用失败：" + err.Error()})
+		writeAPIError(w, http.StatusInternalServerError, errCodeInternal, "启用失败："+err.Error())
 		return
 	}
 	vaultSt.Lock()
@@ -1218,11 +1226,11 @@ func vaultUnlockHandler(w http.ResponseWriter, r *http.Request) {
 	phase := vaultSt.phase
 	vaultSt.Unlock()
 	if meta == nil {
-		writeJSON(w, map[string]any{"error": "保险库未启用"})
+		apiErrBadRequest(w, errCodeInvalid, "保险库未启用")
 		return
 	}
 	if phase != vaultPhaseGate && phase != vaultPhaseSealed {
-		writeJSON(w, map[string]any{"error": "当前不在锁定状态"})
+		apiErrBadRequest(w, errCodeInvalid, "当前不在锁定状态")
 		return
 	}
 	// Verification reads ONLY the header (meta.json) -- never a
@@ -1231,7 +1239,7 @@ func vaultUnlockHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		vaultFailedUnlocks.Add(1)
 		logf("vault", "info", "保险库解锁失败：密码不对")
-		writeJSON(w, map[string]any{"error": "密码不对"})
+		apiErrBadRequest(w, errCodeInvalid, "密码不对")
 		return
 	}
 	vaultSetKey(master)
@@ -1273,6 +1281,7 @@ func vaultUnlockHandler(w http.ResponseWriter, r *http.Request) {
 		vaultSt.partial = false
 		vaultSt.Unlock()
 		vaultSetPhase(vaultPhaseUnlocked)
+		busPublish("vault", "unlock") // v0.59 block 3: live sync
 		diagHoldFile.Store(false)
 		logf("vault", "info", "保险库已解锁：数据恢复完成（%s）", fmtBytes(metaCopy.TotalBytes))
 		if n := vaultFailedUnlocks.Swap(0); n > 0 {
@@ -1289,21 +1298,22 @@ func vaultLockHandler(w http.ResponseWriter, r *http.Request) {
 	meta := vaultSt.meta
 	vaultSt.Unlock()
 	if meta == nil {
-		writeJSON(w, map[string]any{"error": "保险库未启用"})
+		apiErrBadRequest(w, errCodeInvalid, "保险库未启用")
 		return
 	}
 	if phase != vaultPhaseUnlocked || !hasKey {
-		writeJSON(w, map[string]any{"error": "当前状态不能上锁"})
+		apiErrBadRequest(w, errCodeInvalid, "当前状态不能上锁")
 		return
 	}
 	if blockers := vaultBusyBlockers(); len(blockers) > 0 {
-		writeJSON(w, map[string]any{"error": "暂时不能上锁：" + strings.Join(blockers, "、") + "，等它完成再试"})
+		apiErrBadRequest(w, errCodeInvalid, "暂时不能上锁："+strings.Join(blockers, "、")+"，等它完成再试")
 		return
 	}
 	// Flip the phase first: the local endpoint gate engages at
 	// once, the seal itself runs in the background (the lock
 	// screen polls status for progress).
 	vaultSetPhase(vaultPhaseSealing)
+	busPublish("vault", "lock") // v0.59 block 3: live sync
 	logf("vault", "info", "用户锁定屏幕，开始上锁")
 	writeJSON(w, map[string]any{"ok": true, "message": "正在上锁"})
 	go func() {
@@ -1324,28 +1334,28 @@ func vaultChangePwHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	if len([]rune(body.New)) < 6 {
-		writeJSON(w, map[string]any{"error": "新密码至少 6 位"})
+		apiErrBadRequest(w, errCodeInvalid, "新密码至少 6 位")
 		return
 	}
 	vaultSt.Lock()
 	meta := vaultSt.meta
 	vaultSt.Unlock()
 	if meta == nil {
-		writeJSON(w, map[string]any{"error": "保险库未启用"})
+		apiErrBadRequest(w, errCodeInvalid, "保险库未启用")
 		return
 	}
 	master, err := vaultVerifyPassword(meta, body.Old)
 	if err != nil {
-		writeJSON(w, map[string]any{"error": "旧密码不对"})
+		apiErrBadRequest(w, errCodeInvalid, "旧密码不对")
 		return
 	}
 	fresh, err := vaultRewrap(meta, master, body.New)
 	if err != nil {
-		writeJSON(w, map[string]any{"error": err.Error()})
+		writeAPIError(w, http.StatusInternalServerError, errCodeInternal, err.Error())
 		return
 	}
 	if err := vaultSaveMeta(vaultDir(), fresh); err != nil {
-		writeJSON(w, map[string]any{"error": "保存失败：" + err.Error()})
+		writeAPIError(w, http.StatusInternalServerError, errCodeInternal, "保存失败："+err.Error())
 		return
 	}
 	vaultSt.Lock()
@@ -1366,23 +1376,23 @@ func vaultDisableHandler(w http.ResponseWriter, r *http.Request) {
 	phase := vaultSt.phase
 	vaultSt.Unlock()
 	if meta == nil {
-		writeJSON(w, map[string]any{"error": "保险库未启用"})
+		apiErrBadRequest(w, errCodeInvalid, "保险库未启用")
 		return
 	}
 	if phase != vaultPhaseUnlocked {
-		writeJSON(w, map[string]any{"error": "只能在解锁状态停用保险库"})
+		apiErrBadRequest(w, errCodeInvalid, "只能在解锁状态停用保险库")
 		return
 	}
 	if len(meta.Shards) > 0 {
-		writeJSON(w, map[string]any{"error": "数据还在分片里，先完成一次解锁恢复再停用"})
+		apiErrBadRequest(w, errCodeInvalid, "数据还在分片里，先完成一次解锁恢复再停用")
 		return
 	}
 	if _, err := vaultVerifyPassword(meta, body.Password); err != nil {
-		writeJSON(w, map[string]any{"error": "密码不对"})
+		apiErrBadRequest(w, errCodeInvalid, "密码不对")
 		return
 	}
 	if err := os.RemoveAll(vaultDir()); err != nil {
-		writeJSON(w, map[string]any{"error": "删除保险库元数据失败：" + err.Error()})
+		writeAPIError(w, http.StatusInternalServerError, errCodeInternal, "删除保险库元数据失败："+err.Error())
 		return
 	}
 	vaultSt.Lock()

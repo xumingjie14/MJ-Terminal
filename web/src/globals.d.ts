@@ -30,6 +30,7 @@ declare function dockAutoHideOn(...args: any[]): any;
 declare function applyDockLayout(...args: any[]): any;
 declare function zoomWin(...args: any[]): any;
 declare function api(...args: any[]): any;
+declare const MJEvents: any;
 declare var frontApp: any;
 declare var sysInfo: any;
 declare function folderedKeys(...args: any[]): any;

@@ -232,30 +232,32 @@ func compStatusList(w http.ResponseWriter, r *http.Request) {
 		}(i, c)
 	}
 	wg.Wait()
-	out := make([]map[string]any, 0, len(prodComponents))
+	out := make([]compStatusRow, 0, len(prodComponents))
 	for i, c := range prodComponents {
 		phase, prog, size, msg := compState(c.ID).snapshot()
 		inst := compInstalled(c)
-		row := map[string]any{
-			"id": c.ID, "name": c.Name, "blurb": c.Blurb,
-			"installed": inst, "version": compInstalledVersion(c),
-			"phase": phase, "progress": prog, "size": size, "message": msg,
+		row := compStatusRow{
+			ID: c.ID, Name: c.Name, Blurb: c.Blurb,
+			Installed: inst, Version: compInstalledVersion(c),
+			Phase: phase, Progress: prog, Size: size, Message: msg,
 		}
 		if inst {
-			row["diskBytes"] = compDiskBytes(c)
+			db := compDiskBytes(c)
+			row.DiskBytes = &db
 			// The icon endpoint also extracts on demand, so an
 			// installed component always has an icon to show.
-			row["hasIcon"] = true
+			row.HasIcon = true
 		}
 		if avails[i].err == nil {
-			row["available"] = avails[i].m.Version
-			row["availableSize"] = avails[i].m.Size
+			row.Available = avails[i].m.Version
+			row.AvailableSize = avails[i].m.Size
 			iv := compInstalledVersion(c)
-			row["updateAvailable"] = inst && iv != "" && avails[i].m.Version != iv
+			ua := inst && iv != "" && avails[i].m.Version != iv
+			row.UpdateAvailable = &ua
 		}
 		out = append(out, row)
 	}
-	writeJSON(w, map[string]any{"components": out})
+	writeJSON(w, componentsResponse{Components: out})
 }
 
 func compInstallHandler(w http.ResponseWriter, r *http.Request) {
@@ -265,7 +267,7 @@ func compInstallHandler(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	c, ok := prodByID(body.ID)
 	if !ok {
-		writeJSON(w, map[string]any{"error": "没有这个组件"})
+		apiErrBadRequest(w, errCodeInvalid, "没有这个组件")
 		return
 	}
 	if compState(c.ID).busy() {
@@ -392,16 +394,16 @@ func compUninstallHandler(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	c, ok := prodByID(body.ID)
 	if !ok {
-		writeJSON(w, map[string]any{"error": "没有这个组件"})
+		apiErrBadRequest(w, errCodeInvalid, "没有这个组件")
 		return
 	}
 	if compState(c.ID).busy() {
-		writeJSON(w, map[string]any{"error": "正在下载/安装中，等它完成再卸载"})
+		apiErrBadRequest(w, errCodeInvalid, "正在下载/安装中，等它完成再卸载")
 		return
 	}
 	if err := os.RemoveAll(compDir(c.ID)); err != nil {
 		logf(c.ID, "error", "卸载 %s 失败：%v", c.Name, err)
-		writeJSON(w, map[string]any{"error": "卸载失败（程序可能还在运行，先关掉它）：" + err.Error()})
+		writeAPIError(w, http.StatusInternalServerError, errCodeInternal, "卸载失败（程序可能还在运行，先关掉它）："+err.Error())
 		return
 	}
 	winGeomDrop("comp:" + c.ID) // v0.56: a reinstall starts from the default landing
@@ -513,12 +515,12 @@ func compLaunchHandler(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	c, ok := prodByID(body.ID)
 	if !ok {
-		writeJSON(w, map[string]any{"error": "没有这个组件"})
+		apiErrBadRequest(w, errCodeInvalid, "没有这个组件")
 		return
 	}
 	if err := launchComponent(c, ""); err != nil {
 		logf(c.ID, "error", "启动 %s 失败：%v", c.Name, err)
-		writeJSON(w, map[string]any{"error": err.Error()})
+		writeAPIError(w, http.StatusInternalServerError, errCodeInternal, err.Error())
 		return
 	}
 	writeJSON(w, map[string]any{"ok": true})
@@ -599,7 +601,7 @@ func compOpenFileHandler(w http.ResponseWriter, r *http.Request) {
 		c, _ := prodByID(comp)
 		if err := launchComponent(c, abs); err != nil {
 			logf(c.ID, "error", "用 %s 打开 %s 失败：%v", c.Name, fi.Name(), err)
-			writeJSON(w, map[string]any{"error": err.Error()})
+			writeAPIError(w, http.StatusInternalServerError, errCodeInternal, err.Error())
 			return
 		}
 		writeJSON(w, map[string]any{"action": "launched", "component": comp, "name": c.Name})

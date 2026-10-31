@@ -355,7 +355,15 @@ func dsSave(name string, b []byte) error {
 	}
 	path := filepath.Join(dsRoot(), filepath.FromSlash(spec.rel))
 	dsEnsureManifest()
-	return dsSaveFile(path, b, spec.perm, spec.validate, spec.backup)
+	if err := dsSaveFile(path, b, spec.perm, spec.validate, spec.backup); err != nil {
+		return err
+	}
+	// v0.59 block 3: a successful save of a bus-mapped file is a
+	// state mutation -- announce it so open views re-pull (item
+	// #8). dsBusEmit (events.go) knows the mapping; unmapped
+	// files stay silent by design.
+	dsBusEmit(name)
+	return nil
 }
 
 // ---------- schema manifest (Data/schema.json) ----------

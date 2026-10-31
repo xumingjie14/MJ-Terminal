@@ -256,6 +256,7 @@ func trackLaunch(app, targetURL, exePath string, before map[uint64]bool, shell, 
 				extMu.Lock()
 				extWins[hwnd] = &extWindow{HWND: hwnd, App: app, URL: targetURL, Shell: shell, pid: pid, browser: browser, origin: "launch", geomKey: geomKey, placeMode: placeMode}
 				extMu.Unlock()
+				busWindows(hwnd) // v0.59 block 3: live sync
 				logf("winmgr", "info", "已登记外部窗口：%s", app)
 				thumbKick(hwnd) // test3: first preview frame must be fresh
 				// 丙: stamp the unified AppUserModelID (best effort).
@@ -457,7 +458,8 @@ func registerPIDClaimedWindow(app string, wf windowFact, origin string) bool {
 		HWND: wf.HWND, App: app, Title: wf.Title, pid: wf.PID,
 		lastTitle: wf.Title, origin: origin,
 	}
-	thumbKick(wf.HWND) // test3: first preview frame must be fresh
+	thumbKick(wf.HWND)  // test3: first preview frame must be fresh
+	busWindows(wf.HWND) // v0.59 block 3: live sync
 	return true
 }
 
@@ -570,6 +572,7 @@ func presentWindowForPIDs(app string, pids map[uint32]bool) (uint64, bool) {
 		extMu.Lock()
 		delete(extWins, hwnd)
 		extMu.Unlock()
+		busWindows(hwnd) // v0.59 block 3: live sync
 		return 0, false
 	}
 	grpRestoreForFocus()
@@ -664,6 +667,7 @@ func pruneExtWindowsLocked() (restamp, place []uint64) {
 			noteGeomGone(h, e.geomKey)
 			thumbForget(h)
 			delete(extWins, h)
+			busWindows(h) // v0.59 block 3: live sync
 			continue
 		}
 		if title != "" {
@@ -955,7 +959,7 @@ func extWinListHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		return list[i].Title < list[j].Title
 	})
-	writeJSON(w, map[string]any{"windows": list})
+	writeJSON(w, extWinListResponse{Windows: list})
 }
 
 // extWinFocusHandler serves POST /api/extwin/focus {"hwnd": N}:
@@ -965,14 +969,15 @@ func extWinFocusHandler(w http.ResponseWriter, r *http.Request) {
 		HWND uint64 `json:"hwnd"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.HWND == 0 {
-		writeJSON(w, map[string]any{"error": "参数不对"})
+		apiErrBadRequest(w, errCodeBadRequest, "参数不对")
 		return
 	}
 	if _, alive := platformWindowTitle(body.HWND); !alive {
 		extMu.Lock()
 		delete(extWins, body.HWND)
 		extMu.Unlock()
-		writeJSON(w, map[string]any{"error": "这个窗口已经关了"})
+		busWindows(body.HWND) // v0.59 block 3: live sync
+		writeAPIError(w, http.StatusNotFound, errCodeNotFound, "这个窗口已经关了")
 		return
 	}
 	// v0.37: while the set is tucked away (minimize linkage /
@@ -980,7 +985,7 @@ func extWinFocusHandler(w http.ResponseWriter, r *http.Request) {
 	// then raises the target (grpRestoreForFocus, winset.go).
 	grpRestoreForFocus()
 	if !platformFocusWindow(body.HWND) {
-		writeJSON(w, map[string]any{"error": "窗口置前失败"})
+		writeAPIError(w, http.StatusInternalServerError, errCodeInternal, "窗口置前失败")
 		return
 	}
 	// The user just presented this window by hand: any pending
@@ -990,8 +995,9 @@ func extWinFocusHandler(w http.ResponseWriter, r *http.Request) {
 		e.presentPending = false
 	}
 	extMu.Unlock()
-	thumbKick(body.HWND) // test3: a just-raised window gets a fresh frame next poll
-	writeJSON(w, map[string]any{"ok": true})
+	thumbKick(body.HWND)  // test3: a just-raised window gets a fresh frame next poll
+	busWindows(body.HWND) // v0.59 block 3: live sync
+	writeJSON(w, okResponse{OK: true})
 }
 
 // extWinPost is the shared shape of the Stage Manager card
@@ -1004,14 +1010,15 @@ func extWinPost(w http.ResponseWriter, r *http.Request, act func(hwnd uint64) bo
 		HWND uint64 `json:"hwnd"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.HWND == 0 {
-		writeJSON(w, map[string]any{"error": "参数不对"})
+		apiErrBadRequest(w, errCodeBadRequest, "参数不对")
 		return
 	}
 	if _, alive := platformWindowTitle(body.HWND); !alive {
 		extMu.Lock()
 		delete(extWins, body.HWND)
 		extMu.Unlock()
-		writeJSON(w, map[string]any{"error": "这个窗口已经关了"})
+		busWindows(body.HWND) // v0.59 block 3: live sync
+		writeAPIError(w, http.StatusNotFound, errCodeNotFound, "这个窗口已经关了")
 		return
 	}
 	extMu.Lock()
@@ -1021,11 +1028,12 @@ func extWinPost(w http.ResponseWriter, r *http.Request, act func(hwnd uint64) bo
 	}
 	extMu.Unlock()
 	if !act(body.HWND) {
-		writeJSON(w, map[string]any{"error": verb + "失败"})
+		writeAPIError(w, http.StatusInternalServerError, errCodeInternal, verb+"失败")
 		return
 	}
 	logf("winmgr", "info", "台前调度卡片菜单：%s窗口（%s）", verb, label)
-	writeJSON(w, map[string]any{"ok": true})
+	busWindows(body.HWND) // v0.59 block 3: live sync
+	writeJSON(w, okResponse{OK: true})
 }
 
 // extWinMinimizeHandler serves POST /api/extwin/minimize.
@@ -1328,7 +1336,8 @@ func patrolTick() {
 				geomKey: exeGeomKey(byPID[wf.PID].ImagePath),
 			}
 			extMu.Unlock()
-			thumbKick(wf.HWND) // test3: first preview frame must be fresh
+			busWindows(wf.HWND) // v0.59 block 3: live sync
+			thumbKick(wf.HWND)  // test3: first preview frame must be fresh
 			registered[wf.HWND] = true
 			auditMu.Lock()
 			delete(pendingOwned, wf.HWND)

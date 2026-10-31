@@ -174,3 +174,17 @@ export const __bind_lpPage: any = { get(): any { return lpPage; }, set(v: any): 
 export const __bind_lpDrag: any = { get(): any { return lpDrag; }, set(v: any): any { lpDrag = v; return v; } };
 
 export const __bind_lpWheelAt: any = { get(): any { return lpWheelAt; }, set(v: any): any { lpWheelAt = v; return v; } };
+
+/* v0.59 block 3 (item #8): Launchpad reflects files / webapp /
+   layout mutations live while it is open -- re-pull the file
+   list, let bundle 1's own refresh settle the webapp/layout
+   globals, then repaint in place. Closed Launchpad does
+   nothing (it rebuilds its entries on open anyway). */
+try{
+ if(typeof MJEvents!=='undefined'&&MJEvents&&MJEvents.on){
+  const lpLive=()=>{ if(!lpIsOpen) return; setTimeout(async()=>{ try{ await loadDeskFiles(); if(lpIsOpen) paintLP(); }catch(e){} },200); };
+  MJEvents.on('files',lpLive);
+  MJEvents.on('webapps',lpLive);
+  MJEvents.on('layout',lpLive);
+ }
+}catch(e){}

@@ -238,15 +238,15 @@ func wallpaperHandler(w http.ResponseWriter, r *http.Request) {
 
 func sysInfo(w http.ResponseWriter, r *http.Request) {
 	host, _ := os.Hostname()
-	writeJSON(w, map[string]any{
-		"app": "MJ-Terminal", "version": AppVersion,
-		"os": runtime.GOOS, "arch": runtime.GOARCH, "numCPU": runtime.NumCPU(),
-		"hostname": host, "home": homeDir(), "exeDir": exeDir(), "dataDir": dataDir(),
+	writeJSON(w, systemInfo{
+		App: "MJ-Terminal", Version: AppVersion,
+		OS: runtime.GOOS, Arch: runtime.GOARCH, NumCPU: runtime.NumCPU(),
+		Hostname: host, Home: homeDir(), ExeDir: exeDir(), DataDir: dataDir(),
 		// v0.54: true when the EXE folder was not writable and
 		// data fell back to LocalAppData (设置 → 关于 warns about
 		// it; portable assets do not travel in that state).
-		"dataFallback": dataDirIsFallbackPath(),
-		"time":         time.Now().Format("2006-01-02 15:04:05"),
+		DataFallback: dataDirIsFallbackPath(),
+		Time:         time.Now().Format("2006-01-02 15:04:05"),
 	})
 }
 
@@ -978,37 +978,39 @@ func coreControl(w http.ResponseWriter, r *http.Request) {
 	switch body.Action {
 	case "status":
 		if _, err := os.Stat(corePath()); err != nil {
-			writeJSON(w, map[string]any{"running": false, "message": "未找到 core/sing-box.exe（其他功能不受影响）"})
+			writeJSON(w, coreStatusResponse{Running: false, Message: "未找到 core/sing-box.exe（其他功能不受影响）"})
 			return
 		}
 		if coreRunningLocked() {
-			writeJSON(w, map[string]any{"running": true, "message": fmt.Sprintf("运行中（已确认进程活着），本地代理 127.0.0.1:%d", proxyPort)})
+			writeJSON(w, coreStatusResponse{Running: true, Message: fmt.Sprintf("运行中（已确认进程活着），本地代理 127.0.0.1:%d", proxyPort)})
 			return
 		}
 		if exitErr, _ := coreExitErr.Load().(string); coreCmd != nil && coreExited.Load() && exitErr != "" {
-			writeJSON(w, map[string]any{"running": false, "message": "sing-box 已异常退出：" + exitErr + "；日志末尾：" + coreLogTail()})
+			writeJSON(w, coreStatusResponse{Running: false, Message: "sing-box 已异常退出：" + exitErr + "；日志末尾：" + coreLogTail()})
 			return
 		}
-		writeJSON(w, map[string]any{"running": false, "message": "已停止，sing-box 已就位"})
+		writeJSON(w, coreStatusResponse{Running: false, Message: "已停止，sing-box 已就位"})
 	case "start":
 		if err := startCoreLocked(); err != nil {
 			logf("core", "error", "核心启动失败：%v", err)
 			// v0.47 hook (notify): node connect failure event.
 			postNotify(notifySrcNode, "connect-fail", "节点连接失败", err.Error(), "core")
-			writeJSON(w, map[string]any{"running": false, "message": err.Error()})
+			writeJSON(w, coreStatusResponse{Running: false, Message: err.Error()})
 			return
 		}
-		writeJSON(w, map[string]any{"running": true, "message": fmt.Sprintf("已启动并确认 %d 端口在监听", proxyPort)})
+		busPublish("nodes", "") // v0.59 block 3: core (dis)connect is a nodes change
+		writeJSON(w, coreStatusResponse{Running: true, Message: fmt.Sprintf("已启动并确认 %d 端口在监听", proxyPort)})
 	case "stop":
 		stopCoreLocked()
-		writeJSON(w, map[string]any{"running": false, "message": "已停止"})
+		busPublish("nodes", "") // v0.59 block 3: live sync
+		writeJSON(w, coreStatusResponse{Running: false, Message: "已停止"})
 	default:
-		writeJSON(w, map[string]any{"error": "unknown action"})
+		apiErrBadRequest(w, errCodeBadRequest, "unknown action")
 	}
 }
 
 func coreLogHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, map[string]any{"log": coreLogTail()})
+	writeJSON(w, coreLogResponse{Log: coreLogTail()})
 }
 
 // ---------- proxy self-test ----------
@@ -1465,7 +1467,7 @@ func saveWebApps(list []webApp) {
 }
 
 func webAppsHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, map[string]any{"apps": loadWebApps()})
+	writeJSON(w, webAppsResponse{Apps: loadWebApps()})
 }
 
 func webAppSaveHandler(w http.ResponseWriter, r *http.Request) {
@@ -1481,7 +1483,7 @@ func webAppSaveHandler(w http.ResponseWriter, r *http.Request) {
 		u = "https://" + u
 	}
 	if !(strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://")) {
-		writeJSON(w, map[string]any{"error": "网址不对"})
+		apiErrBadRequest(w, errCodeBadRequest, "网址不对")
 		return
 	}
 	list := loadWebApps()
@@ -1491,7 +1493,7 @@ func webAppSaveHandler(w http.ResponseWriter, r *http.Request) {
 	// two-field file format.
 	if body.WinMode != "" {
 		if !webWinModes[body.WinMode] {
-			writeJSON(w, map[string]any{"error": "窗口模式不对"})
+			apiErrBadRequest(w, errCodeBadRequest, "窗口模式不对")
 			return
 		}
 		for i, a := range list {
@@ -1502,11 +1504,11 @@ func webAppSaveHandler(w http.ResponseWriter, r *http.Request) {
 				}
 				saveWebApps(list)
 				logf("browser", "info", "网站应用 %s 的窗口模式设为 %s", a.Name, body.WinMode)
-				writeJSON(w, map[string]any{"ok": true, "apps": list})
+				writeJSON(w, webAppSaveResponse{OK: true, Apps: list})
 				return
 			}
 		}
-		writeJSON(w, map[string]any{"error": "没找到这个网站应用"})
+		writeAPIError(w, http.StatusNotFound, errCodeNotFound, "没找到这个网站应用")
 		return
 	}
 	if body.Delete {
@@ -1522,7 +1524,7 @@ func webAppSaveHandler(w http.ResponseWriter, r *http.Request) {
 			tomb[u] = true
 			saveTombstones(tomb)
 		}
-		writeJSON(w, map[string]any{"ok": true, "apps": out})
+		writeJSON(w, webAppSaveResponse{OK: true, Apps: out})
 		return
 	}
 	// (Re-)adding a site clears its tombstone, so it stays added.
@@ -1532,7 +1534,7 @@ func webAppSaveHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	name := strings.TrimSpace(body.Name)
 	if name == "" {
-		writeJSON(w, map[string]any{"error": "给它起个名字"})
+		apiErrBadRequest(w, errCodeBadRequest, "给它起个名字")
 		return
 	}
 	if rr := []rune(name); len(rr) > 24 {
@@ -1545,13 +1547,13 @@ func webAppSaveHandler(w http.ResponseWriter, r *http.Request) {
 			}
 			list[i].Name = name
 			saveWebApps(list)
-			writeJSON(w, map[string]any{"ok": true, "apps": list})
+			writeJSON(w, webAppSaveResponse{OK: true, Apps: list})
 			return
 		}
 	}
 	list = append(list, webApp{Name: name, URL: u})
 	saveWebApps(list)
-	writeJSON(w, map[string]any{"ok": true, "apps": list})
+	writeJSON(w, webAppSaveResponse{OK: true, Apps: list})
 }
 
 // openWebAppHandler opens a pinned website in --app mode. It goes
@@ -1564,7 +1566,7 @@ func openWebAppHandler(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	u := strings.TrimSpace(body.URL)
 	if !(strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://")) {
-		writeJSON(w, map[string]any{"error": "网址不对"})
+		apiErrBadRequest(w, errCodeBadRequest, "网址不对")
 		return
 	}
 	if runtime.GOOS != "windows" {
@@ -1611,12 +1613,7 @@ func layoutGetHandler(w http.ResponseWriter, r *http.Request) {
 	// positions already collide with each other, leave a trace in
 	// the console hub so the owner can see the cleanup happened.
 	// The file itself is served unchanged.
-	var lay struct {
-		Pos map[string]struct {
-			X float64 `json:"x"`
-			Y float64 `json:"y"`
-		} `json:"pos"`
-	}
+	var lay layoutBlob
 	if json.Unmarshal(b, &lay) == nil && len(lay.Pos) > 1 {
 		type pt struct{ x, y float64 }
 		pts := make([]pt, 0, len(lay.Pos))
@@ -1650,14 +1647,14 @@ func layoutGetHandler(w http.ResponseWriter, r *http.Request) {
 func layoutSaveHandler(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, 512*1024))
 	if err != nil || !json.Valid(body) {
-		writeJSON(w, map[string]any{"error": "布局数据不对"})
+		apiErrBadRequest(w, errCodeBadJSON, "布局数据不对")
 		return
 	}
 	if err := dsSave("layout", body); err != nil {
-		writeJSON(w, map[string]any{"error": err.Error()})
+		writeAPIError(w, http.StatusInternalServerError, errCodeInternal, err.Error())
 		return
 	}
-	writeJSON(w, map[string]any{"ok": true})
+	writeJSON(w, okResponse{OK: true})
 }
 
 // ---------- background daemon (v0.4) ----------
@@ -2309,6 +2306,26 @@ func main() {
 	// boot a daemon or open a view.
 	if code, handled := sbieHelperExitCode(os.Args[1:]); handled {
 		os.Exit(code)
+	}
+
+	// v0.59 block 3: API contract codegen (apicontract.go). The
+	// frontend freshness gate regenerates web/src/api-types.ts
+	// from the Go contract structs through these flags -- a pure
+	// function of the source, checked before any daemon boot so
+	// `go run . -apigen` never starts services or touches Data.
+	for _, a := range os.Args[1:] {
+		if a == "-apigen" {
+			fmt.Print(genAPITypes())
+			return
+		}
+		if strings.HasPrefix(a, "-apigen-out=") {
+			out := strings.TrimPrefix(a, "-apigen-out=")
+			if err := os.WriteFile(out, []byte(genAPITypes()), 0o644); err != nil {
+				fmt.Fprintln(os.Stderr, "apigen:", err)
+				os.Exit(1)
+			}
+			return
+		}
 	}
 
 	port := flag.Int("port", 0, "port to listen on (0 = daemon port range)")

@@ -288,11 +288,11 @@ func hotkeyStatusHandler(w http.ResponseWriter, r *http.Request) {
 	case hotkeyConflict.Load():
 		status = "busy"
 	}
-	writeJSON(w, map[string]any{
-		"key":        key,
-		"registered": registered,
-		"supported":  hotkeyPlatformSupported,
-		"note":       note,
-		"status":     status,
+	writeJSON(w, hotkeyStatusResponse{
+		Key:        key,
+		Registered: registered,
+		Supported:  hotkeyPlatformSupported,
+		Note:       note,
+		Status:     status,
 	})
 }

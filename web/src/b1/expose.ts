@@ -12,6 +12,7 @@ import { APPS, api, dockEl, esc, iconsEl, thumbBad } from './core';
 import { GLYPHS, glyph } from './glyphs';
 import { SETDEF, deskPitch, dockAutoHideOn, gotoSys, saveSetting } from './settings';
 import { pollNode } from './menubar';
+import { MJEvents } from './events';
 import { appIcon, zoomWin } from './windows';
 import { stageOn, toggleStage } from './stage';
 import { extCardHTML } from './extstrip';
@@ -34,6 +35,7 @@ import { __bind_openDeskFile, __bind_openWebApp } from './viewers';
 function pub(name: string, d: PropertyDescriptor): void { Object.defineProperty(window, name, Object.assign({ configurable: true, enumerable: true }, d)); }
 pub('APPS', { get: () => APPS });
 pub('api', { get: () => api });
+pub('MJEvents', { get: () => MJEvents });
 pub('dockEl', { get: () => dockEl });
 pub('esc', { get: () => esc });
 pub('iconsEl', { get: () => iconsEl });

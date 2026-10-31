@@ -107,10 +107,10 @@ func downloadRoute() string {
 	return "直连"
 }
 
-func accelStatus() map[string]any {
+func accelStatus() accelStatusResponse {
 	en := accelEnabled()
 	running := coreRunningQuick()
-	return map[string]any{"enabled": en, "coreRunning": running, "active": en && running}
+	return accelStatusResponse{Enabled: en, CoreRunning: running, Active: en && running}
 }
 
 func accelHandler(w http.ResponseWriter, r *http.Request) {

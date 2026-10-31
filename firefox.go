@@ -125,34 +125,34 @@ func fetchFFManifest(ctx context.Context) (*ffManifest, error) {
 
 func ffStatusHandler(w http.ResponseWriter, r *http.Request) {
 	phase, prog, size, msg := ffSt.get()
-	out := map[string]any{
-		"installed": ffInstalled(),
-		"version":   ffInstalledVersion(),
-		"phase":     phase,
-		"progress":  prog,
-		"size":      size,
-		"message":   msg,
+	out := ffStatusResponse{
+		Installed: ffInstalled(),
+		Version:   ffInstalledVersion(),
+		Phase:     phase,
+		Progress:  prog,
+		Size:      size,
+		Message:   msg,
 	}
 	// v0.56: the live process truth for the Firefox page (the
 	// conflict banner reads these): whether a process holds the
 	// profile, and the mode it was born in ("" when none,
 	// "未知" when a process predates the birth-mode record).
 	alive, birthApp, known := ffReconcileProc()
-	out["procAlive"] = alive
-	out["procMode"] = ""
+	out.ProcAlive = alive
 	if alive {
-		out["procMode"] = "未知"
+		out.ProcMode = "未知"
 		if known {
-			out["procMode"] = ffModeName(birthApp)
+			out.ProcMode = ffModeName(birthApp)
 		}
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
 	defer cancel()
 	if m, err := fetchFFManifest(ctx); err == nil {
-		out["available"] = m.Version
-		out["availableSize"] = m.Size
+		out.Available = m.Version
+		out.AvailableSize = m.Size
 		iv := ffInstalledVersion()
-		out["updateAvailable"] = ffInstalled() && iv != "" && m.Version != iv
+		ua := ffInstalled() && iv != "" && m.Version != iv
+		out.UpdateAvailable = &ua
 	}
 	writeJSON(w, out)
 }
@@ -590,7 +590,7 @@ func ffOpenHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	if runtime.GOOS != "windows" {
-		writeJSON(w, map[string]any{"error": "当前不是 Windows 环境（这是测试环境），到 Windows 上会正常打开 Firefox"})
+		apiErrBadRequest(w, errCodeInvalid, "当前不是 Windows 环境（这是测试环境），到 Windows 上会正常打开 Firefox")
 		return
 	}
 	target := strings.TrimSpace(body.URL)
@@ -612,13 +612,13 @@ func ffOpenHandler(w http.ResponseWriter, r *http.Request) {
 	case ffJoin:
 		if err := startFFProcess(body.Proxy, body.AppMode, target, false); err != nil {
 			logf("firefox", "error", "打开 Firefox 失败：%v", err)
-			writeJSON(w, map[string]any{"error": err.Error()})
+			writeAPIError(w, http.StatusInternalServerError, errCodeInternal, err.Error())
 			return
 		}
 	default: // ffFresh
 		if err := startFFProcess(body.Proxy, body.AppMode, target, true); err != nil {
 			logf("firefox", "error", "打开 Firefox 失败：%v", err)
-			writeJSON(w, map[string]any{"error": err.Error()})
+			writeAPIError(w, http.StatusInternalServerError, errCodeInternal, err.Error())
 			return
 		}
 	}
@@ -724,7 +724,7 @@ func ffRestartHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	if runtime.GOOS != "windows" {
-		writeJSON(w, map[string]any{"error": "当前不是 Windows 环境（这是测试环境），到 Windows 上才能重启 Firefox"})
+		apiErrBadRequest(w, errCodeInvalid, "当前不是 Windows 环境（这是测试环境），到 Windows 上才能重启 Firefox")
 		return
 	}
 	_, birthApp, known := ffReconcileProc()
@@ -800,7 +800,7 @@ func ffRestartHandler(w http.ResponseWriter, r *http.Request) {
 		logf("firefox", "info", "强制结束并切换：已结束 %d 个进程，等档案释放", killed)
 		if !ffWaitUnlocked(10 * time.Second) {
 			logf("firefox", "error", "强制结束并切换失败：进程已结束但档案仍被占用")
-			writeJSON(w, map[string]any{"error": "已经强制结束 Firefox 进程，等了 10 秒档案还是被占用。可能有别的程序占着档案，稍等一下再点打开试试。"})
+			apiErrBadRequest(w, errCodeInvalid, "已经强制结束 Firefox 进程，等了 10 秒档案还是被占用。可能有别的程序占着档案，稍等一下再点打开试试。")
 			return
 		}
 	}
@@ -808,7 +808,7 @@ func ffRestartHandler(w http.ResponseWriter, r *http.Request) {
 	target := strings.TrimSpace(body.URL)
 	if err := startFFProcess(body.Proxy, body.AppMode, target, true); err != nil {
 		logf("firefox", "error", "重启并切换失败：%v", err)
-		writeJSON(w, map[string]any{"error": err.Error()})
+		writeAPIError(w, http.StatusInternalServerError, errCodeInternal, err.Error())
 		return
 	}
 	logf("firefox", "info", "重启并切换完成：Firefox 已以%s模式重开", ffModeName(body.AppMode))
@@ -822,13 +822,13 @@ func ffRestartHandler(w http.ResponseWriter, r *http.Request) {
 // says so; a running Firefox blocks the uninstall.
 func ffUninstallHandler(w http.ResponseWriter, r *http.Request) {
 	if ffProfileLocked() {
-		writeJSON(w, map[string]any{"error": "Firefox 还在运行，先把它的窗口全关掉再卸载"})
+		apiErrBadRequest(w, errCodeInvalid, "Firefox 还在运行，先把它的窗口全关掉再卸载")
 		return
 	}
 	dir := ffInstallDir()
 	if err := os.RemoveAll(dir); err != nil {
 		logf("firefox", "error", "卸载 Firefox 组件失败：%v", err)
-		writeJSON(w, map[string]any{"error": "卸载失败（程序可能还在运行，先关掉它）：" + err.Error()})
+		writeAPIError(w, http.StatusInternalServerError, errCodeInternal, "卸载失败（程序可能还在运行，先关掉它）："+err.Error())
 		return
 	}
 	dsRemoveFile(ffVersionPath()) // the version stamp and its data-layer backup

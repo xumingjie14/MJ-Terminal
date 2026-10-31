@@ -135,11 +135,19 @@ document.addEventListener('keydown',e=>{
  if(mbOpenFor&&e.key==='Escape'){ closeMbMenu(); }
 },true);
 document.addEventListener('keyup',e=>{ if(e.key==='F5') e.preventDefault(); },true);
+/* v0.59 block 3: this was the stream's only consumer; it now
+   rides the shared event client (MJEvents.onCmd) instead of
+   holding its own EventSource. The direct-EventSource path
+   remains as a fallback if the client is somehow absent. */
 try{
- const es=new EventSource('/api/view/stream');
- es.onmessage=ev=>{
-  try{ const m=JSON.parse(ev.data); if(m&&m.cmd==='spotlight'&&!vaultLockedNow()) openSpot(); }catch(e){}
+ const onViewCmd=(m)=>{
+  try{ if(m&&m.cmd==='spotlight'&&!vaultLockedNow()) openSpot(); }catch(e){}
  };
+ if(typeof MJEvents!=='undefined'&&MJEvents&&MJEvents.onCmd){ MJEvents.onCmd(onViewCmd); }
+ else{
+  const es=new EventSource('/api/view/stream');
+  es.onmessage=ev=>{ try{ onViewCmd(JSON.parse(ev.data)); }catch(e){} };
+ }
 }catch(e){}
 
 export const __bind_spotIsOpen: any = { get(): any { return spotIsOpen; }, set(v: any): any { spotIsOpen = v; return v; } };

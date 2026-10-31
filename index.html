@@ -678,6 +678,92 @@ function ncLayoutWidgets(raw) {
   }
 }
 /* === end ncgroup pure === */
+/* === events pure (node-testable) === */
+function evBackoffDelay(attempt) {
+  const a = Math.max(0, attempt | 0);
+  return Math.min(1e3 * Math.pow(2, a), 15e3);
+}
+function evDedupeKey(topic, id) {
+  return topic + "|" + (id || "");
+}
+function createEvHub(nowFn) {
+  const now = typeof nowFn === "function" ? nowFn : function() {
+    return Date.now();
+  };
+  const subs = /* @__PURE__ */ new Map();
+  const cmdSubs = /* @__PURE__ */ new Set();
+  const seen = /* @__PURE__ */ new Map();
+  const DEDUPE_MS = 1500, SEEN_CAP = 200;
+  function on(topic, fn) {
+    let set = subs.get(topic);
+    if (!set) {
+      set = /* @__PURE__ */ new Set();
+      subs.set(topic, set);
+    }
+    set.add(fn);
+    return function() {
+      set.delete(fn);
+    };
+  }
+  function onCmd(fn) {
+    cmdSubs.add(fn);
+    return function() {
+      cmdSubs.delete(fn);
+    };
+  }
+  function markSeen(key) {
+    seen.set(key, now());
+    if (seen.size > SEEN_CAP) {
+      const k = seen.keys().next().value;
+      seen.delete(k);
+    }
+  }
+  function dispatch(raw) {
+    let m = null;
+    try {
+      m = JSON.parse(raw);
+    } catch (e) {
+      return "bad";
+    }
+    if (!m || typeof m !== "object") return "bad";
+    if (typeof m.cmd === "string" && m.cmd) {
+      cmdSubs.forEach((fn) => {
+        try {
+          fn(m);
+        } catch (e) {
+        }
+      });
+      return "cmd";
+    }
+    if (typeof m.topic === "string" && m.topic) {
+      if (m.id) {
+        const key = evDedupeKey(m.topic, m.id);
+        const t = seen.get(key);
+        if (t !== void 0 && now() - t < DEDUPE_MS) return "dup";
+        markSeen(key);
+      }
+      const set = subs.get(m.topic);
+      if (set) set.forEach((fn) => {
+        try {
+          fn(m);
+        } catch (e) {
+        }
+      });
+      return "event";
+    }
+    return "ignored";
+  }
+  return {
+    on,
+    onCmd,
+    dispatch,
+    subscriberCount: function(topic) {
+      const s = subs.get(topic);
+      return s ? s.size : 0;
+    }
+  };
+}
+/* === end events pure === */
 (() => {
   // web/src/b1/core.ts
   function verQ(u) {
@@ -731,11 +817,16 @@ function ncLayoutWidgets(raw) {
   async function api(p, opt) {
     const r = await fetch(p, opt);
     let t = await r.text();
+    let j;
     try {
-      return JSON.parse(t);
+      j = JSON.parse(t);
     } catch (e) {
       return { raw: t };
     }
+    if (j && typeof j === "object" && j.error && typeof j.error === "object") {
+      return { ...j, error: String(j.error.message ?? ""), errorCode: j.error.code };
+    }
+    return j;
   }
   var __bind_sysInfo = { get() {
     return sysInfo;
@@ -5013,9 +5104,9 @@ ${pr.textContent}> ${cmd}\r
         if (!vis()) return;
         try {
           const r = await api("/api/diag/logs?after=" + lastSeq);
-          const es = r.entries || [];
-          if (es.length) {
-            es.forEach((e) => {
+          const es2 = r.entries || [];
+          if (es2.length) {
+            es2.forEach((e) => {
               entries.push(e);
               if (e.seq > lastSeq) lastSeq = e.seq;
             });
@@ -6786,8 +6877,8 @@ ${pr.textContent}> ${cmd}\r
   }
   (function connectNotifyStream() {
     try {
-      const es = new EventSource("/api/notify/stream");
-      es.onmessage = (e) => {
+      const es2 = new EventSource("/api/notify/stream");
+      es2.onmessage = (e) => {
         try {
           const ev = JSON.parse(e.data);
           if (ncOpen) paintNC();
@@ -6799,12 +6890,145 @@ ${pr.textContent}> ${cmd}\r
     }
   })();
 
+  // web/src/b1/apiclient.ts
+  function getVaultStatus() {
+    return api("/api/vault/status");
+  }
+
+  // web/src/b1/events.ts
+  var hub = createEvHub();
+  var MJEvents = {
+    on(topic, fn) {
+      return hub.on(topic, fn);
+    },
+    onCmd(fn) {
+      return hub.onCmd(fn);
+    }
+  };
+  function refresher(fn) {
+    let timer = null, running = false, again = false;
+    const kick = () => {
+      if (running) {
+        again = true;
+        return;
+      }
+      if (timer) return;
+      timer = setTimeout(async () => {
+        timer = null;
+        running = true;
+        try {
+          await fn();
+        } catch (e) {
+        }
+        running = false;
+        if (again) {
+          again = false;
+          kick();
+        }
+      }, 140);
+    };
+    return kick;
+  }
+  function refreshFolderPop() {
+    try {
+      if (openFolderId && openFolderEl) openFolderPop(openFolderId, openFolderEl);
+    } catch (e) {
+    }
+  }
+  MJEvents.on("files", refresher(async () => {
+    await loadDeskFiles();
+    renderDesk();
+    refreshFolderPop();
+  }));
+  MJEvents.on("layout", refresher(async () => {
+    await loadLayout();
+    renderDesk();
+    refreshFolderPop();
+  }));
+  MJEvents.on("webapps", refresher(async () => {
+    await loadWebApps();
+    renderDesk();
+    refreshFolderPop();
+  }));
+  MJEvents.on("storeapps", refresher(async () => {
+    await loadStoreApps();
+    await loadBoxApps();
+    renderDesk();
+  }));
+  MJEvents.on("settings", refresher(async () => {
+    await loadSettings();
+  }));
+  MJEvents.on("windows", refresher(async () => {
+    await refreshExtStrip();
+  }));
+  MJEvents.on("nodes", refresher(async () => {
+    await pollNode();
+  }));
+  MJEvents.on("vault", refresher(async () => {
+    const s = await getVaultStatus();
+    window.__vault = s;
+    if (s && s.locked && window.__vaultShowLock) {
+      try {
+        window.__vaultShowLock();
+      } catch (e) {
+      }
+    }
+  }));
+  var es = null;
+  var attempt = 0;
+  var retryTimer = null;
+  var started = false;
+  function scheduleReconnect() {
+    if (retryTimer) return;
+    const delay = evBackoffDelay(attempt);
+    attempt++;
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      connectEvents();
+    }, delay);
+  }
+  function connectEvents() {
+    try {
+      if (typeof EventSource === "undefined") {
+        scheduleReconnect();
+        return;
+      }
+      es = new EventSource("/api/view/stream");
+      es.onopen = () => {
+        attempt = 0;
+      };
+      es.onmessage = (ev) => {
+        try {
+          hub.dispatch(ev.data);
+        } catch (e) {
+        }
+      };
+      es.onerror = () => {
+        try {
+          if (es) es.close();
+        } catch (e) {
+        }
+        es = null;
+        scheduleReconnect();
+      };
+    } catch (e) {
+      scheduleReconnect();
+    }
+  }
+  function startEvents() {
+    if (started) return;
+    started = true;
+    connectEvents();
+  }
+  startEvents();
+
   // web/src/b1/expose.ts
   function pub(name, d) {
     Object.defineProperty(window, name, Object.assign({ configurable: true, enumerable: true }, d));
   }
   pub("APPS", { get: () => APPS });
   pub("api", { get: () => api });
+  pub("MJEvents", { get: () => MJEvents });
   pub("dockEl", { get: () => dockEl });
   pub("esc", { get: () => esc });
   pub("iconsEl", { get: () => iconsEl });
@@ -7315,6 +7539,19 @@ function fvRangeSel(paths, anchor, to) {
     };
     paintFiles();
   };
+  try {
+    if (typeof MJEvents !== "undefined" && MJEvents && MJEvents.on) {
+      MJEvents.on("files", () => {
+        setTimeout(() => {
+          try {
+            paintFiles();
+          } catch (e) {
+          }
+        }, 180);
+      });
+    }
+  } catch (e) {
+  }
 
   // web/src/b2/recents.ts
   function spotRecentGet() {
@@ -7817,14 +8054,23 @@ function fvRangeSel(paths, anchor, to) {
     if (e.key === "F5") e.preventDefault();
   }, true);
   try {
-    const es = new EventSource("/api/view/stream");
-    es.onmessage = (ev) => {
+    const onViewCmd = (m) => {
       try {
-        const m = JSON.parse(ev.data);
         if (m && m.cmd === "spotlight" && !vaultLockedNow()) openSpot();
       } catch (e) {
       }
     };
+    if (typeof MJEvents !== "undefined" && MJEvents && MJEvents.onCmd) {
+      MJEvents.onCmd(onViewCmd);
+    } else {
+      const es = new EventSource("/api/view/stream");
+      es.onmessage = (ev) => {
+        try {
+          onViewCmd(JSON.parse(ev.data));
+        } catch (e) {
+        }
+      };
+    }
   } catch (e) {
   }
 
@@ -8072,6 +8318,24 @@ function fvRangeSel(paths, anchor, to) {
     if (dockEl.children.length > 1) dockEl.insertBefore(it, dockEl.children[1]);
     else dockEl.appendChild(it);
   })();
+  try {
+    if (typeof MJEvents !== "undefined" && MJEvents && MJEvents.on) {
+      const lpLive = () => {
+        if (!lpIsOpen) return;
+        setTimeout(async () => {
+          try {
+            await loadDeskFiles();
+            if (lpIsOpen) paintLP();
+          } catch (e) {
+          }
+        }, 200);
+      };
+      MJEvents.on("files", lpLive);
+      MJEvents.on("webapps", lpLive);
+      MJEvents.on("layout", lpLive);
+    }
+  } catch (e) {
+  }
 
   // web/src/b2/expose.ts
   Object.defineProperty(window, "lpEntries", { configurable: true, enumerable: true, get: () => lpEntries });

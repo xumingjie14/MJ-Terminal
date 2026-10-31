@@ -608,15 +608,15 @@ func TestVaultRestoreSpacePrecheckRefusesCleanly(t *testing.T) {
 // an unlock fell back to the password prompt.
 func TestVaultStatusLastErrorLifecycle(t *testing.T) {
 	vaultSetLastErr("")
-	if got := vaultStatusMap()["lastError"]; got != "" {
+	if got := vaultStatusMap().LastError; got != "" {
 		t.Fatalf("lastError = %v, want empty", got)
 	}
 	vaultSetLastErr("恢复失败：磁盘空间不足（测试）")
-	if got := vaultStatusMap()["lastError"]; got != "恢复失败：磁盘空间不足（测试）" {
+	if got := vaultStatusMap().LastError; got != "恢复失败：磁盘空间不足（测试）" {
 		t.Fatalf("lastError = %v, want the recorded failure", got)
 	}
 	vaultSetLastErr("")
-	if got := vaultStatusMap()["lastError"]; got != "" {
+	if got := vaultStatusMap().LastError; got != "" {
 		t.Fatalf("lastError not cleared: %v", got)
 	}
 }

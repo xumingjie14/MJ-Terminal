@@ -7,7 +7,7 @@
  *                           IIFE bundles (one per script slot, the
  *                           same load/eval order as the page has
  *                           always had)
- *   - web/src/pure/*.ts     the five node-testable pure-function
+ *   - web/src/pure/*.ts     the six node-testable pure-function
  *                           segments, transformed WITHOUT bundling
  *                           and inlined between their marker
  *                           comments, where they stay page globals
@@ -52,6 +52,7 @@ let shell = readFileSync(join(webDir, 'shell.html'), 'utf8');
 const slots = {
   '/*__MJ_PURE_DOCKMAG__*/': () => pure('dockmag', 'dockmag'),
   '/*__MJ_PURE_NCGROUP__*/': () => pure('ncgroup', 'ncgroup'),
+  '/*__MJ_PURE_EVENTS__*/': () => pure('events', 'events'),
   '/*__MJ_PURE_SPOT__*/': () => pure('spot', 'spot'),
   '/*__MJ_PURE_LP__*/': () => pure('lp', 'lp'),
   '/*__MJ_PURE_FV__*/': () => pure('fv', 'fv'),
@@ -74,12 +75,12 @@ const html = shell;
    - the daemon's APPVER placeholder survives byte-exact in the
      first block (main.go bytes.ReplaceAll substitutes it at
      serve time);
-   - all five pure marker pairs are present for the extractive
+   - all six pure marker pairs are present for the extractive
      suites. */
 const blocks = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]);
 if (blocks.length !== 3) throw new Error('built page must contain exactly 3 script blocks, got ' + blocks.length);
 if (!blocks[0].includes('__MJ_APPVER__')) throw new Error('APPVER placeholder missing from built block 1');
-for (const mk of ['dockmag', 'ncgroup', 'spot', 'lp', 'fv']) {
+for (const mk of ['dockmag', 'ncgroup', 'events', 'spot', 'lp', 'fv']) {
   if (!html.includes('/* === ' + mk + ' pure (node-testable) === */')) throw new Error('pure marker missing: ' + mk);
 }
 

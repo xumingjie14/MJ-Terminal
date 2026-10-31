@@ -485,8 +485,8 @@ func gatherNotifyStatusFacts() notifyStatusFacts {
 	}
 	// Update: the checker's own status snapshot.
 	snap := upd.snapshot()
-	f.UpdatePhase, _ = snap["phase"].(string)
-	f.UpdateDetail, _ = snap["message"].(string)
+	f.UpdatePhase = snap.Phase
+	f.UpdateDetail = snap.Message
 	// Server alerts: same rules as the monitor's own evaluation.
 	f.ServerAlert, f.ServerDetail = monAlertSummary()
 	return f
@@ -499,7 +499,7 @@ func gatherNotifyStatusFacts() notifyStatusFacts {
 // in one payload so the view needs a single fetch.
 func notifyHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		writeJSON(w, map[string]any{"error": "method not allowed"})
+		writeAPIError(w, http.StatusMethodNotAllowed, errCodeMethod, "method not allowed")
 		return
 	}
 	s := settingsGet()
@@ -512,12 +512,12 @@ func notifyHandler(w http.ResponseWriter, r *http.Request) {
 		evs = []notifyEvent{}
 	}
 	name, online, hasSnap, cpu, mem := monWidgetSummary()
-	writeJSON(w, map[string]any{
-		"status": items,
-		"events": evs,
-		"widgets": map[string]any{
-			"server": map[string]any{"name": name, "online": online, "hasSnap": hasSnap, "cpuPct": cpu, "memPct": mem},
-		},
+	writeJSON(w, notifyResponse{
+		Status: items,
+		Events: evs,
+		Widgets: notifyWidgets{Server: notifyServerWidget{
+			Name: name, Online: online, HasSnap: hasSnap, CPUPct: cpu, MemPct: mem,
+		}},
 	})
 }
 
@@ -525,25 +525,25 @@ func notifyHandler(w http.ResponseWriter, r *http.Request) {
 // event; POST /api/notify/clear-source {source} -- a whole stack.
 func notifyDismissHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeJSON(w, map[string]any{"error": "method not allowed"})
+		writeAPIError(w, http.StatusMethodNotAllowed, errCodeMethod, "method not allowed")
 		return
 	}
 	var body struct {
 		ID string `json:"id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.ID == "" {
-		writeJSON(w, map[string]any{"error": "参数不对"})
+		apiErrBadRequest(w, errCodeBadRequest, "参数不对")
 		return
 	}
 	if notifySt.dismiss(body.ID) {
 		logf("notify", "info", "通知已清除（单条 %s）", body.ID)
 	}
-	writeJSON(w, map[string]any{"ok": true})
+	writeJSON(w, okResponse{OK: true})
 }
 
 func notifyClearSourceHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeJSON(w, map[string]any{"error": "method not allowed"})
+		writeAPIError(w, http.StatusMethodNotAllowed, errCodeMethod, "method not allowed")
 		return
 	}
 	var body struct {
@@ -551,20 +551,20 @@ func notifyClearSourceHandler(w http.ResponseWriter, r *http.Request) {
 		App    string `json:"app"` // v0.54: with source="app", clears one app's stack
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Source == "" {
-		writeJSON(w, map[string]any{"error": "参数不对"})
+		apiErrBadRequest(w, errCodeBadRequest, "参数不对")
 		return
 	}
 	if body.Source == notifySrcApp && body.App != "" {
 		if n := notifySt.clearApp(body.App); n > 0 {
 			logf("notify", "info", "通知已清除（应用 %s 整组 %d 条）", body.App, n)
 		}
-		writeJSON(w, map[string]any{"ok": true})
+		writeJSON(w, okResponse{OK: true})
 		return
 	}
 	if n := notifySt.clearSource(body.Source); n > 0 {
 		logf("notify", "info", "通知已清除（%s 整组 %d 条）", notifySourceName(body.Source), n)
 	}
-	writeJSON(w, map[string]any{"ok": true})
+	writeJSON(w, okResponse{OK: true})
 }
 
 // notifyStreamHandler is the banner channel: SSE, one event per

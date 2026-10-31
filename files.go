@@ -171,27 +171,19 @@ func dedupeEntryName(dir, name string) string {
 func filesListHandler(w http.ResponseWriter, r *http.Request) {
 	_ = os.MkdirAll(filesDir(), 0o755)
 	entries, _ := os.ReadDir(filesDir())
-	type fitem struct {
-		Name string `json:"name"`
-		Path string `json:"path"` // Data/files-relative, slash separated
-		Size int64  `json:"size"`
-		Ext  string `json:"ext"`
-		Kind string `json:"kind"`
-		Dir  bool   `json:"dir"`
-		// Mtime is the entry's modification time (unix ms). v0.50:
-		// the Files app's Finder face shows it as 导入时间 -- the
-		// library stores no separate import timestamp, and an
-		// imported file's mtime IS its arrival time (the copy
-		// preserves nothing older; unzip results carry their own).
-		Mtime int64 `json:"mtime"`
-	}
-	out := []fitem{}
+	// Entry shape = libFileItem (apicontract.go). Mtime is the
+	// entry's modification time (unix ms). v0.50: the Files app's
+	// Finder face shows it as 导入时间 -- the library stores no
+	// separate import timestamp, and an imported file's mtime IS
+	// its arrival time (the copy preserves nothing older; unzip
+	// results carry their own).
+	out := []libFileItem{}
 	for _, e := range entries {
 		name := e.Name()
 		if strings.HasPrefix(name, ".") {
 			continue // .thumbs and import temp files are bookkeeping
 		}
-		it := fitem{Name: name, Path: name, Dir: e.IsDir()}
+		it := libFileItem{Name: name, Path: name, Dir: e.IsDir()}
 		if fi, err := e.Info(); err == nil {
 			it.Mtime = fi.ModTime().UnixMilli()
 		}
@@ -214,7 +206,7 @@ func filesListHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
 	})
-	writeJSON(w, map[string]any{"files": out, "dir": filesDir()})
+	writeJSON(w, filesListResponse{Files: out, Dir: filesDir()})
 }
 
 // filesSubListHandler lists one extracted folder (first level only)
@@ -222,29 +214,21 @@ func filesListHandler(w http.ResponseWriter, r *http.Request) {
 func filesSubListHandler(w http.ResponseWriter, r *http.Request) {
 	abs, err := filesResolve(r.URL.Query().Get("path"))
 	if err != nil {
-		writeJSON(w, map[string]any{"error": err.Error()})
+		apiErrBadRequest(w, errCodeBadRequest, err.Error())
 		return
 	}
 	entries, err := os.ReadDir(abs)
 	if err != nil {
-		writeJSON(w, map[string]any{"error": "打不开这个文件夹"})
+		writeAPIError(w, http.StatusInternalServerError, errCodeInternal, "打不开这个文件夹")
 		return
 	}
 	base := strings.TrimPrefix(r.URL.Query().Get("path"), "./")
-	type sitem struct {
-		Name  string `json:"name"`
-		Path  string `json:"path"`
-		Size  int64  `json:"size"`
-		Kind  string `json:"kind"`
-		Dir   bool   `json:"dir"`
-		Mtime int64  `json:"mtime"` // unix ms, see filesListHandler
-	}
-	out := []sitem{}
+	out := []libFileSubItem{}
 	for _, e := range entries {
 		if strings.HasPrefix(e.Name(), ".") {
 			continue
 		}
-		it := sitem{Name: e.Name(), Path: base + "/" + e.Name(), Dir: e.IsDir(), Kind: fileKindOf(e.Name(), e.IsDir())}
+		it := libFileSubItem{Name: e.Name(), Path: base + "/" + e.Name(), Dir: e.IsDir(), Kind: fileKindOf(e.Name(), e.IsDir())}
 		if fi, ierr := e.Info(); ierr == nil {
 			it.Mtime = fi.ModTime().UnixMilli()
 			if !e.IsDir() {
@@ -253,29 +237,25 @@ func filesSubListHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, it)
 	}
-	writeJSON(w, map[string]any{"files": out})
+	writeJSON(w, filesSubListResponse{Files: out})
 }
 
 // ---------- import ----------
 
 func filesImportHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeJSON(w, map[string]any{"error": "method not allowed"})
+		writeAPIError(w, http.StatusMethodNotAllowed, errCodeMethod, "method not allowed")
 		return
 	}
 	_ = os.MkdirAll(filesDir(), 0o755)
 	mr, err := r.MultipartReader()
 	if err != nil {
-		writeJSON(w, map[string]any{"error": "上传格式不对"})
+		apiErrBadRequest(w, errCodeBadRequest, "上传格式不对")
 		return
 	}
 	via := "picker"
-	type imp struct {
-		Name string `json:"name"`
-		Size int64  `json:"size"`
-	}
-	imported := []imp{}
-	errs := []map[string]string{}
+	imported := []fileImportEntry{}
+	errs := []fileImportError{}
 	for {
 		part, err := mr.NextPart()
 		if err == io.EOF {
@@ -298,14 +278,14 @@ func filesImportHandler(w http.ResponseWriter, r *http.Request) {
 		name := filepath.Base(strings.ReplaceAll(rawName, "\\", "/"))
 		if verr := validEntryName(name); verr != nil {
 			_, _ = io.Copy(io.Discard, part)
-			errs = append(errs, map[string]string{"name": rawName, "error": verr.Error()})
+			errs = append(errs, fileImportError{Name: rawName, Error: verr.Error()})
 			logf("files", "warn", "导入被拒绝：%s（%s）", rawName, verr.Error())
 			continue
 		}
 		final := dedupeEntryName(filesDir(), name)
 		tmp, terr := os.CreateTemp(filesDir(), ".import-*")
 		if terr != nil {
-			errs = append(errs, map[string]string{"name": rawName, "error": "写入失败"})
+			errs = append(errs, fileImportError{Name: rawName, Error: "写入失败"})
 			continue
 		}
 		tmpName := tmp.Name()
@@ -321,19 +301,19 @@ func filesImportHandler(w http.ResponseWriter, r *http.Request) {
 				// refusing the over-limit file, e.g. a tiny tmpfs).
 				reason = "超过 500 MB 上限"
 			}
-			errs = append(errs, map[string]string{"name": rawName, "error": reason})
+			errs = append(errs, fileImportError{Name: rawName, Error: reason})
 			logf("files", "warn", "导入失败：%s（%s）", rawName, reason)
 			continue
 		}
 		dest := filepath.Join(filesDir(), final)
 		if rerr := os.Rename(tmpName, dest); rerr != nil {
 			_ = os.Remove(tmpName)
-			errs = append(errs, map[string]string{"name": rawName, "error": "落盘失败"})
+			errs = append(errs, fileImportError{Name: rawName, Error: "落盘失败"})
 			logf("files", "error", "导入落盘失败：%s：%v", rawName, rerr)
 			continue
 		}
 		logf("files", "info", "导入文件：%s（%d 字节，通道 %s）", final, n, via)
-		imported = append(imported, imp{Name: final, Size: n})
+		imported = append(imported, fileImportEntry{Name: final, Size: n})
 	}
 	if len(imported) > 0 {
 		// v0.47 hook (notify): one event per import request. The
@@ -346,8 +326,9 @@ func filesImportHandler(w http.ResponseWriter, r *http.Request) {
 			body = fmt.Sprintf("%s 等 %d 个文件", imported[0].Name, len(imported))
 		}
 		postNotify(notifySrcFiles, "import:"+imported[0].Name, title, body, "")
+		busPublish("files", imported[0].Name) // v0.59 block 3: live sync
 	}
-	writeJSON(w, map[string]any{"imported": imported, "errors": errs})
+	writeJSON(w, filesImportResponse{Imported: imported, Errors: errs})
 }
 
 // ---------- rename / delete ----------
@@ -358,36 +339,37 @@ func filesRenameHandler(w http.ResponseWriter, r *http.Request) {
 		New string `json:"new"`
 	}
 	if err := decodeJSONBody(r, &body); err != nil {
-		writeJSON(w, map[string]any{"error": "请求内容不对"})
+		apiErrBadRequest(w, errCodeBadJSON, "请求内容不对")
 		return
 	}
 	if err := validEntryName(body.Old); err != nil {
-		writeJSON(w, map[string]any{"error": err.Error()})
+		apiErrBadRequest(w, errCodeInvalid, err.Error())
 		return
 	}
 	body.New = strings.TrimSpace(body.New)
 	if err := validEntryName(body.New); err != nil {
-		writeJSON(w, map[string]any{"error": err.Error()})
+		apiErrBadRequest(w, errCodeInvalid, err.Error())
 		return
 	}
 	src := filepath.Join(filesDir(), body.Old)
 	dst := filepath.Join(filesDir(), body.New)
 	if _, err := os.Stat(src); err != nil {
-		writeJSON(w, map[string]any{"error": "原文件不存在"})
+		writeAPIError(w, http.StatusNotFound, errCodeNotFound, "原文件不存在")
 		return
 	}
 	if _, err := os.Stat(dst); err == nil {
-		writeJSON(w, map[string]any{"error": "已经有同名文件了，换个名字"})
+		apiErrBadRequest(w, errCodeInvalid, "已经有同名文件了，换个名字")
 		return
 	}
 	if err := os.Rename(src, dst); err != nil {
 		logf("files", "error", "重命名失败：%s → %s：%v", body.Old, body.New, err)
-		writeJSON(w, map[string]any{"error": "重命名失败：" + err.Error()})
+		writeAPIError(w, http.StatusInternalServerError, errCodeInternal, "重命名失败："+err.Error())
 		return
 	}
 	dropThumbCache(body.Old)
 	logf("files", "info", "文件改名：%s → %s", body.Old, body.New)
-	writeJSON(w, map[string]any{"ok": true, "name": body.New})
+	busPublish("files", body.New) // v0.59 block 3: live sync
+	writeJSON(w, fileRenameResponse{OK: true, Name: body.New})
 }
 
 func filesDeleteHandler(w http.ResponseWriter, r *http.Request) {
@@ -395,17 +377,17 @@ func filesDeleteHandler(w http.ResponseWriter, r *http.Request) {
 		Name string `json:"name"`
 	}
 	if err := decodeJSONBody(r, &body); err != nil {
-		writeJSON(w, map[string]any{"error": "请求内容不对"})
+		apiErrBadRequest(w, errCodeBadJSON, "请求内容不对")
 		return
 	}
 	if err := validEntryName(body.Name); err != nil {
-		writeJSON(w, map[string]any{"error": err.Error()})
+		apiErrBadRequest(w, errCodeInvalid, err.Error())
 		return
 	}
 	p := filepath.Join(filesDir(), body.Name)
 	fi, err := os.Stat(p)
 	if err != nil {
-		writeJSON(w, map[string]any{"error": "文件不存在"})
+		writeAPIError(w, http.StatusNotFound, errCodeNotFound, "文件不存在")
 		return
 	}
 	var rerr error
@@ -416,12 +398,13 @@ func filesDeleteHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if rerr != nil {
 		logf("files", "error", "删除失败：%s：%v", body.Name, rerr)
-		writeJSON(w, map[string]any{"error": "删除失败：" + rerr.Error()})
+		writeAPIError(w, http.StatusInternalServerError, errCodeInternal, "删除失败："+rerr.Error())
 		return
 	}
 	dropThumbCache(body.Name)
 	logf("files", "info", "删除导入的文件副本：%s（电脑上的原文件不受影响）", body.Name)
-	writeJSON(w, map[string]any{"ok": true})
+	busPublish("files", body.Name) // v0.59 block 3: live sync
+	writeJSON(w, okResponse{OK: true})
 }
 
 func dropThumbCache(name string) {
@@ -876,16 +859,16 @@ func filesUnzipHandler(w http.ResponseWriter, r *http.Request) {
 		Path string `json:"path"`
 	}
 	if err := decodeJSONBody(r, &body); err != nil {
-		writeJSON(w, map[string]any{"error": "请求内容不对"})
+		apiErrBadRequest(w, errCodeBadJSON, "请求内容不对")
 		return
 	}
 	abs, err := filesResolve(body.Path)
 	if err != nil {
-		writeJSON(w, map[string]any{"error": err.Error()})
+		apiErrBadRequest(w, errCodeBadRequest, err.Error())
 		return
 	}
 	if strings.ToLower(filepath.Ext(abs)) != ".zip" {
-		writeJSON(w, map[string]any{"error": "这不是 zip 文件"})
+		apiErrBadRequest(w, errCodeInvalid, "这不是 zip 文件")
 		return
 	}
 	name := filepath.Base(abs)
@@ -895,11 +878,12 @@ func filesUnzipHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		_ = os.RemoveAll(target)
 		logf("files", "warn", "解压 %s 失败：%v", name, err)
-		writeJSON(w, map[string]any{"error": "解压失败：" + err.Error()})
+		writeAPIError(w, http.StatusInternalServerError, errCodeInternal, "解压失败："+err.Error())
 		return
 	}
 	logf("files", "info", "解压 %s → 文件夹 %s（%d 个文件）", name, targetName, count)
-	writeJSON(w, map[string]any{"ok": true, "dir": targetName, "count": count})
+	busPublish("files", targetName) // v0.59 block 3: live sync
+	writeJSON(w, filesUnzipResponse{OK: true, Dir: targetName, Count: count})
 }
 
 // filesExtractZip is the store extractor's slip-guarded shape, made
