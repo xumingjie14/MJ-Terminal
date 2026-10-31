@@ -519,6 +519,9 @@ func parseSS(raw string) (*nodeEntry, error) {
 			return nil, fmt.Errorf("ss: bad format")
 		}
 		c := strings.Index(dec[:at], ":")
+		if c < 0 {
+			return nil, fmt.Errorf("ss: bad userinfo")
+		}
 		method, password, hostport = dec[:c], dec[c+1:at], dec[at+1:]
 	}
 	host, port, err := splitHostPort(hostport)

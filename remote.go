@@ -45,11 +45,11 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
+	"mjlight/internal/asec"
 	"mjlight/internal/diag"
 	"net/http"
 	"os"
@@ -208,7 +208,7 @@ func remoteFindOperator(id string) *remoteOperator {
 // public key, so two different nodes practically never share a
 // code, and the same node always shows the same code.
 func remotePairCode(p remotePeer) string {
-	h := sha256.Sum256([]byte(p.KeyFP + "|" + p.ID))
+	h := asec.Sum256([]byte(p.KeyFP + "|" + p.ID))
 	n := binary.BigEndian.Uint32(h[:4])%900000 + 100000
 	return strconv.Itoa(int(n))
 }

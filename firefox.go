@@ -16,11 +16,11 @@ package main
 import (
 	"archive/zip"
 	"context"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"mjlight/internal/asec"
 	"net/http"
 	"os"
 	"os/exec"
@@ -201,7 +201,7 @@ func runFFInstall() {
 		ffSt.set("error", "下载失败："+err.Error())
 		return
 	}
-	h := sha256.New()
+	h := asec.NewSHA256()
 	buf := make([]byte, 256*1024)
 	var written int64
 	for {

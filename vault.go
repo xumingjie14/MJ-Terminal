@@ -51,10 +51,6 @@ package main
 //     so no boot-time code could seal it without the password.
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
@@ -71,7 +67,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"golang.org/x/crypto/argon2"
+	"mjlight/internal/asec"
 	"mjlight/internal/diag"
 )
 
@@ -158,52 +154,34 @@ func vaultSaveMeta(vaultRoot string, m *vaultMeta) error {
 }
 
 // ---------- crypto primitives ----------
+//
+// v0.61 (architecture block 5): the primitives themselves live
+// in internal/asec -- the one auditable crypto module. The
+// wrappers below keep the vault's historical call shapes (and
+// the wire formats they produce) byte-identical: same Argon2id
+// parameter source (the header), same nonce||ciphertext base64
+// shape, same shard streaming hash.
 
 func vaultDeriveKEK(password string, kdf vaultKDF) ([]byte, error) {
 	salt, err := base64.StdEncoding.DecodeString(kdf.Salt)
 	if err != nil {
 		return nil, fmt.Errorf("保险库盐值损坏：%w", err)
 	}
-	return argon2.IDKey([]byte(password), salt, kdf.Time, kdf.Memory, kdf.Threads, vaultKeyLen), nil
+	return asec.DeriveVaultKEK(password, salt, kdf.Time, kdf.Memory, kdf.Threads, vaultKeyLen), nil
 }
 
-func vaultGCM(key []byte) (cipher.AEAD, error) {
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
-	}
-	return cipher.NewGCM(block)
+func vaultGCM(key []byte) (asec.AEAD, error) {
+	return asec.NewAESGCM(key)
 }
 
 // vaultSealWithKey GCM-seals plaintext under key with a fresh
-// random nonce; output = nonce || ciphertext.
+// random nonce; output = base64(nonce || ciphertext).
 func vaultSealWithKey(key, plaintext []byte) (string, error) {
-	g, err := vaultGCM(key)
-	if err != nil {
-		return "", err
-	}
-	nonce := make([]byte, g.NonceSize())
-	if _, err := rand.Read(nonce); err != nil {
-		return "", err
-	}
-	out := g.Seal(nonce, nonce, plaintext, nil)
-	return base64.StdEncoding.EncodeToString(out), nil
+	return asec.SealWithKey(key, plaintext)
 }
 
 func vaultOpenWithKey(key []byte, encoded string) ([]byte, error) {
-	raw, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil {
-		return nil, err
-	}
-	g, err := vaultGCM(key)
-	if err != nil {
-		return nil, err
-	}
-	ns := g.NonceSize()
-	if len(raw) < ns {
-		return nil, errors.New("密文太短")
-	}
-	return g.Open(nil, raw[:ns], raw[ns:], nil)
+	return asec.OpenWithKey(key, encoded)
 }
 
 // vaultNewMeta creates the header for a fresh master key wrapped
@@ -216,7 +194,7 @@ func vaultNewMeta(password string, masterKey []byte) (*vaultMeta, error) {
 
 func vaultNewMetaParams(password string, masterKey []byte, kdf vaultKDF) (*vaultMeta, error) {
 	salt := make([]byte, vaultSaltLen)
-	if _, err := rand.Read(salt); err != nil {
+	if err := asec.FillRandom(salt); err != nil {
 		return nil, err
 	}
 	kdf.Salt = base64.StdEncoding.EncodeToString(salt)
@@ -306,7 +284,7 @@ func vaultWriteShard(dataRoot, vaultRoot, name string, files []string, key []byt
 		return out, err
 	}
 	base := make([]byte, 8)
-	if _, err := rand.Read(base); err != nil {
+	if err := asec.FillRandom(base); err != nil {
 		return out, err
 	}
 	hdr := vaultShardHeader{Nonce: base64.StdEncoding.EncodeToString(base)}
@@ -331,7 +309,7 @@ func vaultWriteShard(dataRoot, vaultRoot, name string, files []string, key []byt
 	if err != nil {
 		return out, err
 	}
-	h := sha256.New()
+	h := asec.NewSHA256()
 	w := io.MultiWriter(f, h)
 	writeAll := func(b []byte) error {
 		_, err := w.Write(b)
@@ -449,16 +427,7 @@ func vaultReadShardHeader(path string) (*vaultShardHeader, int64, error) {
 // vaultHashFile streams a SHA-256 over a file (shard integrity is
 // verified BEFORE any decryption happens).
 func vaultHashFile(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
+	return asec.HashFileHex(path)
 }
 
 // vaultDecryptShard verifies the shard's SHA-256, then streams
@@ -1194,7 +1163,7 @@ func vaultEnableHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	vaultSt.Unlock()
 	master := make([]byte, vaultKeyLen)
-	if _, err := rand.Read(master); err != nil {
+	if err := asec.FillRandom(master); err != nil {
 		writeAPIError(w, http.StatusInternalServerError, errCodeInternal, err.Error())
 		return
 	}

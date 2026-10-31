@@ -49,12 +49,11 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"mjlight/internal/asec"
 	"mjlight/internal/diag"
 	"net"
 	"net/http"
@@ -282,7 +281,7 @@ func runOCInstall() {
 		ocSt.setInstall("error", "下载失败："+err.Error())
 		return
 	}
-	h := sha256.New()
+	h := asec.NewSHA256()
 	buf := make([]byte, 256*1024)
 	var written int64
 	for {
@@ -482,7 +481,7 @@ func ocProvision() error {
 
 func ocGenToken() (string, error) {
 	b := make([]byte, 24)
-	if _, err := rand.Read(b); err != nil {
+	if err := asec.FillRandom(b); err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(b), nil

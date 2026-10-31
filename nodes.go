@@ -46,13 +46,12 @@ package main
 import (
 	"bufio"
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"mjlight/internal/asec"
 	"net"
 	"net/http"
 	"net/url"
@@ -66,7 +65,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"golang.org/x/crypto/curve25519"
 	"gopkg.in/yaml.v3"
 )
 
@@ -158,7 +156,7 @@ func nodeIDFor(outbound map[string]any) string {
 		clean[k] = v
 	}
 	b, _ := json.Marshal(clean)
-	sum := sha256.Sum256(b)
+	sum := asec.Sum256(b)
 	return hex.EncodeToString(sum[:])[:10]
 }
 
@@ -166,7 +164,7 @@ func nodeTag(id string) string { return "node-" + id }
 
 func newRandID(prefix string) string {
 	b := make([]byte, 6)
-	_, _ = rand.Read(b)
+	_ = asec.FillRandom(b)
 	return prefix + hex.EncodeToString(b)
 }
 
@@ -214,7 +212,7 @@ func npLoadStoreLocked() {
 	}
 	if npStore.ClashSecret == "" {
 		sb := make([]byte, 16)
-		_, _ = rand.Read(sb)
+		_ = asec.FillRandom(sb)
 		npStore.ClashSecret = hex.EncodeToString(sb)
 	}
 	npSecretCache.Store(npStore.ClashSecret)
@@ -1713,11 +1711,7 @@ type warpRegResponse struct {
 // WireGuard identity in the node store. Failures are named --
 // no placeholder WARP entry is ever created.
 func npWarpRegister() error {
-	priv := make([]byte, 32)
-	if _, err := rand.Read(priv); err != nil {
-		return err
-	}
-	pub, err := curve25519.X25519(priv, curve25519.Basepoint)
+	priv, pub, err := asec.NewX25519KeyPair()
 	if err != nil {
 		return err
 	}

@@ -18,12 +18,12 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
 	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"mjlight/internal/asec"
 	"net/http"
 	"net/url"
 	"os"
@@ -367,7 +367,7 @@ func runAppInstall(entry storeApp) {
 		logf("apps", "error", "安装 %s 失败：临时文件建不了：%v", entry.Name, err)
 		return
 	}
-	h := sha256.New()
+	h := asec.NewSHA256()
 	buf := make([]byte, 256*1024)
 	var written int64
 	for {

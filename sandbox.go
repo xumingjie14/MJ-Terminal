@@ -49,13 +49,13 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"mjlight/internal/asec"
 	"net/http"
 	"os"
 	"os/exec"
@@ -1463,7 +1463,7 @@ func verifyPinnedFile(path string, wantSize int64, wantSHA string) bool {
 		return false
 	}
 	defer f.Close()
-	h := sha256.New()
+	h := asec.NewSHA256()
 	if _, err := io.Copy(h, f); err != nil {
 		return false
 	}
@@ -1480,7 +1480,7 @@ func embeddedVerifies() bool {
 		if int64(len(sbieEmbedded)) != sbieSize {
 			return
 		}
-		sum := sha256.Sum256(sbieEmbedded)
+		sum := asec.Sum256(sbieEmbedded)
 		sbieEmbeddedOK.ok = strings.EqualFold(hex.EncodeToString(sum[:]), sbieSHA256)
 	})
 	return sbieEmbeddedOK.ok
@@ -1854,7 +1854,7 @@ func acquireComponentPackage() (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
-	h := sha256.New()
+	h := asec.NewSHA256()
 	buf := make([]byte, 256*1024)
 	var written int64
 	for {
@@ -2100,7 +2100,7 @@ func acquireBoxInstaller(url, sha256hex, file string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	h := sha256.New()
+	h := asec.NewSHA256()
 	buf := make([]byte, 256*1024)
 	var written int64
 	for {

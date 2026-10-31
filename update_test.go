@@ -6,6 +6,8 @@ package main
 // field failure "58 MB downloads fine, rename dies on a lock".
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -18,6 +20,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"mjlight/internal/asec"
 )
 
 func stubRenameSleep(t *testing.T) {
@@ -137,16 +141,37 @@ func TestFinalizePartFileHappyPath(t *testing.T) {
 // latest-release endpoint, and per-tag manifests served from
 // the release-download path -- the exact three reads the two
 // check channels perform.
+//
+// v0.61: the fixture SIGNS every manifest it serves. It owns a
+// throwaway Ed25519 keypair whose public half replaces
+// asec.UpdateSigningPublicKey for the test's duration, and the
+// download path also serves update.json.sig -- the signature
+// over the exact manifest bytes served -- unless sigMode[tag]
+// says otherwise:
+//
+//	"missing"  -> the .sig path 404s (release without a signature asset)
+//	"tampered" -> the signature is valid for OTHER bytes (a swapped manifest)
+//	"wrongkey" -> the signature comes from a different key entirely
 type betaFixture struct {
-	srv  *httptest.Server
-	list []ghRelease
-	lat  *ghRelease
-	mans map[string]updateManifest // by tag
+	srv     *httptest.Server
+	list    []ghRelease
+	lat     *ghRelease
+	mans    map[string]updateManifest // by tag
+	priv    ed25519.PrivateKey
+	sigMode map[string]string // by tag; "" = serve the valid signature
 }
 
 func newBetaFixture(t *testing.T) *betaFixture {
 	t.Helper()
-	f := &betaFixture{mans: map[string]updateManifest{}}
+	f := &betaFixture{mans: map[string]updateManifest{}, sigMode: map[string]string{}}
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.priv = priv
+	oldKey := asec.UpdateSigningPublicKey
+	asec.UpdateSigningPublicKey = pub
+	t.Cleanup(func() { asec.UpdateSigningPublicKey = oldKey })
 	mux := http.NewServeMux()
 	mux.HandleFunc("/repos/"+updateRepo+"/releases", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(f.list)
@@ -160,13 +185,42 @@ func newBetaFixture(t *testing.T) *betaFixture {
 	})
 	mux.HandleFunc("/"+updateRepo+"/releases/download/", func(w http.ResponseWriter, r *http.Request) {
 		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/"+updateRepo+"/releases/download/"), "/")
-		if len(parts) == 2 && parts[1] == updateManifestName {
-			if man, ok := f.mans[parts[0]]; ok {
-				_ = json.NewEncoder(w).Encode(man)
-				return
-			}
+		if len(parts) != 2 {
+			http.NotFound(w, r)
+			return
 		}
-		http.NotFound(w, r)
+		man, ok := f.mans[parts[0]]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		// The manifest bytes are marshaled ONCE here: the served
+		// signature must cover exactly these bytes.
+		mb, _ := json.Marshal(man)
+		switch parts[1] {
+		case updateManifestName:
+			_, _ = w.Write(mb)
+		case updateSigName:
+			switch f.sigMode[parts[0]] {
+			case "missing":
+				http.NotFound(w, r)
+			case "tampered":
+				bad := append([]byte{}, mb...)
+				bad[0] ^= 1
+				_, _ = w.Write(ed25519.Sign(f.priv, bad))
+			case "wrongkey":
+				_, otherPriv, kerr := ed25519.GenerateKey(rand.Reader)
+				if kerr != nil {
+					http.Error(w, kerr.Error(), http.StatusInternalServerError)
+					return
+				}
+				_, _ = w.Write(ed25519.Sign(otherPriv, mb))
+			default:
+				_, _ = w.Write(ed25519.Sign(f.priv, mb))
+			}
+		default:
+			http.NotFound(w, r)
+		}
 	})
 	f.srv = httptest.NewServer(mux)
 	t.Cleanup(f.srv.Close)
@@ -174,6 +228,19 @@ func newBetaFixture(t *testing.T) *betaFixture {
 	ghAPIBase, ghDLBase = f.srv.URL, f.srv.URL
 	t.Cleanup(func() { ghAPIBase, ghDLBase = oldAPI, oldDL })
 	return f
+}
+
+// attachSignedAssets points a release's manifest + signature
+// ASSET URLs at the fixture's download path (the official
+// channel reads both through asset URLs).
+func (f *betaFixture) attachSignedAssets(rel *ghRelease) {
+	dl := f.srv.URL + "/" + updateRepo + "/releases/download/" + rel.TagName + "/"
+	for _, name := range []string{updateManifestName, updateSigName} {
+		rel.Assets = append(rel.Assets, struct {
+			Name string `json:"name"`
+			URL  string `json:"url"`
+		}{Name: name, URL: dl + name})
+	}
 }
 
 func fixtureRelease(tag string, prerelease bool) ghRelease {
@@ -403,12 +470,10 @@ func TestOfficialCheckNoDowngradeOffer(t *testing.T) {
 	resetUpd(t)
 	f := newBetaFixture(t)
 	lat := fixtureRelease("v0.58", false)
-	// the official flow reads the manifest through the ASSET
-	// url; point it at the fixture's download path.
-	lat.Assets = append(lat.Assets, struct {
-		Name string `json:"name"`
-		URL  string `json:"url"`
-	}{Name: updateManifestName, URL: f.srv.URL + "/" + updateRepo + "/releases/download/v0.58/" + updateManifestName})
+	// the official flow reads the manifest (and, since v0.61,
+	// its signature) through the ASSET urls; point both at the
+	// fixture's download path.
+	f.attachSignedAssets(&lat)
 	f.lat = &lat
 	f.mans["v0.58"] = updateManifest{Version: "0.58", File: updateZipName, Size: 62_000_000, SHA256: "ab"}
 	checkUpdateOfficial()
