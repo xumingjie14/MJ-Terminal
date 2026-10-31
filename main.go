@@ -22,6 +22,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"mjlight/internal/diag"
 	"net"
 	"net/http"
 	"net/url"
@@ -93,9 +94,11 @@ type nodeEntry struct {
 	LatencyAt   int64  `json:"-"`
 }
 
+// writeJSON forwards to internal/diag.WriteJSON, the canonical
+// implementation since v0.60 (identical bytes: same header,
+// same encoder).
 func writeJSON(w http.ResponseWriter, v any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	_ = json.NewEncoder(w).Encode(v)
+	diag.WriteJSON(w, v)
 }
 
 func homeDir() string {
@@ -2197,9 +2200,9 @@ func runServer(portFlag int, isDaemon bool) {
 	mux.HandleFunc("/api/openclaw/checkupdate", ocCheckUpdateHandler)
 	mux.HandleFunc("/api/openclaw/export", ocExportHandler)
 	mux.HandleFunc("/api/openclaw/import", ocImportHandler)
-	mux.HandleFunc("/api/diag/status", diagStatusHandler)
-	mux.HandleFunc("/api/diag/logs", diagLogsHandler)
-	mux.HandleFunc("/api/diag/export", diagExportHandler)
+	mux.HandleFunc("/api/diag/status", diag.StatusHandler)
+	mux.HandleFunc("/api/diag/logs", diag.LogsHandler)
+	mux.HandleFunc("/api/diag/export", diag.ExportHandler)
 	mux.HandleFunc("/api/remote/state", remoteStateHandler)
 	mux.HandleFunc("/api/remote/pairing", remotePairingHandler)
 	mux.HandleFunc("/api/remote/openlogin", remoteOpenLoginHandler)
@@ -2216,7 +2219,7 @@ func runServer(portFlag int, isDaemon bool) {
 	mux.HandleFunc("/api/sandbox/launch", sandboxLaunchHandler)
 	mux.HandleFunc("/api/sandbox/remove", sandboxRemoveHandler)
 	mux.HandleFunc("/api/sandbox/clear", sandboxClearHandler)
-	srv := &http.Server{Handler: activityMiddleware(diagMiddleware(vaultGateMiddleware(mux)))}
+	srv := &http.Server{Handler: activityMiddleware(diag.Middleware(vaultGateMiddleware(mux)))}
 	daemonSrv = srv
 	mux.HandleFunc("/api/shutdown", func(w http.ResponseWriter, r *http.Request) {
 		// The OTA updater binary also lands here (it asks the old
@@ -2252,7 +2255,7 @@ func runServer(portFlag int, isDaemon bool) {
 	}
 
 	fmt.Println("MJ Light System daemon:", url)
-	daemonPort = actualPort
+	diag.Port = actualPort
 	if lockedBoot {
 		logf("system", "info", "守护进程启动（保险库锁定中）：版本 v%s · 监听 %s，等密码解锁", AppVersion, url)
 	} else {

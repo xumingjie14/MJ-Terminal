@@ -10,6 +10,7 @@ package main
 
 import (
 	"encoding/json"
+	"mjlight/internal/datastore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,18 +20,12 @@ import (
 func dsTestRoot(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
-	oldRoot, oldCache, oldTried := dsRootOverride, dsManifestCache, dsManifestTried
-	dsRootOverride = root
-	dsManifestMu.Lock()
-	dsManifestCache = nil
-	dsManifestTried = false
-	dsManifestMu.Unlock()
+	oldRoot := datastore.RootOverride
+	datastore.RootOverride = root
+	datastore.ResetManifestCache()
 	t.Cleanup(func() {
-		dsRootOverride = oldRoot
-		dsManifestMu.Lock()
-		dsManifestCache = oldCache
-		dsManifestTried = oldTried
-		dsManifestMu.Unlock()
+		datastore.RootOverride = oldRoot
+		datastore.ResetManifestCache()
 	})
 	return root
 }
@@ -204,9 +199,9 @@ func TestDSManifestRecordsAllFilesAtV1(t *testing.T) {
 	if err := json.Unmarshal(raw, &m); err != nil {
 		t.Fatalf("manifest does not parse: %v", err)
 	}
-	for name, spec := range dsRegistry {
-		if v, ok := m.Files[spec.rel]; !ok || v != 1 {
-			t.Errorf("manifest[%q] (file %s) = %d, %v; want 1, present", spec.rel, name, v, ok)
+	for name, spec := range datastore.RegisteredSpecs() {
+		if v, ok := m.Files[spec.Rel]; !ok || v != 1 {
+			t.Errorf("manifest[%q] (file %s) = %d, %v; want 1, present", spec.Rel, name, v, ok)
 		}
 	}
 }

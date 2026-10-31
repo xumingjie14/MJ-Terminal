@@ -72,6 +72,7 @@ import (
 	"time"
 
 	"golang.org/x/crypto/argon2"
+	"mjlight/internal/diag"
 )
 
 // ---------- parameters ----------
@@ -942,7 +943,7 @@ func vaultDetect() {
 	if vaultSt.phase == vaultPhaseSealed {
 		// The on-disk log must not be created inside a sealed
 		// Data: logging is memory-only until unlock.
-		diagHoldFile.Store(true)
+		diag.HoldFile.Store(true)
 	}
 }
 
@@ -1049,8 +1050,8 @@ func vaultQuiesceForSeal() {
 	coreMu.Unlock()
 	// The log file lives in Data/logs: from here to unlock,
 	// logging is memory-only.
-	diagHoldFile.Store(true)
-	diagCloseFileForVault()
+	diag.HoldFile.Store(true)
+	diag.CloseFileForVault()
 }
 
 // vaultSealData runs blockers -> quiesce -> seal for the LOCK
@@ -1105,8 +1106,8 @@ func vaultSealAtExit() error {
 	for i := 0; i < 100 && monInFlight.Load() > 0; i++ {
 		time.Sleep(100 * time.Millisecond)
 	}
-	diagHoldFile.Store(true)
-	diagCloseFileForVault()
+	diag.HoldFile.Store(true)
+	diag.CloseFileForVault()
 	vaultSetPhase(vaultPhaseSealing)
 	vaultSt.Lock()
 	meta := vaultSt.meta
@@ -1282,7 +1283,7 @@ func vaultUnlockHandler(w http.ResponseWriter, r *http.Request) {
 		vaultSt.Unlock()
 		vaultSetPhase(vaultPhaseUnlocked)
 		busPublish("vault", "unlock") // v0.59 block 3: live sync
-		diagHoldFile.Store(false)
+		diag.HoldFile.Store(false)
 		logf("vault", "info", "保险库已解锁：数据恢复完成（%s）", fmtBytes(metaCopy.TotalBytes))
 		if n := vaultFailedUnlocks.Swap(0); n > 0 {
 			logf("vault", "warn", "锁定期间共有 %d 次密码输错（明细只在当时控制台里，日志文件当时已上锁）", n)

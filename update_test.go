@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -205,20 +206,32 @@ func TestBetaOfferRule(t *testing.T) {
 	cases := []struct {
 		name                string
 		tag, man, inst, app string
+		official            bool // an official release exists for man
 		want                bool
 	}{
-		{"newer test line, no baseline", "v0.60-test1", "0.60", "", "0.59", true},
-		{"newer test line, official baseline", "v0.59-test1", "0.59", "v0.58", "0.58", true},
-		{"same-version next iteration", "v0.59-test2", "0.59", "v0.59-test1", "0.59", true},
-		{"same tag as installed", "v0.59-test1", "0.59", "v0.59-test1", "0.59", false},
-		{"older line never offers", "v0.58-test3", "0.58", "v0.58", "0.59", false},
-		{"same version, no baseline (manual swap-in)", "v0.59-test1", "0.59", "", "0.59", false},
-		{"empty tag", "", "0.59", "", "0.58", false},
-		{"official baseline, same-version test", "v0.59-test2", "0.59", "v0.59", "0.59", true},
+		{"newer test line, no baseline", "v0.60-test1", "0.60", "", "0.59", false, true},
+		{"newer test line, official baseline", "v0.59-test1", "0.59", "v0.58", "0.58", false, true},
+		{"same-version next iteration, official exists", "v0.59-test2", "0.59", "v0.59-test1", "0.59", true, true},
+		{"same-version next iteration, no official yet", "v0.59-test2", "0.59", "v0.59-test1", "0.59", false, true},
+		{"same tag as installed", "v0.59-test1", "0.59", "v0.59-test1", "0.59", false, false},
+		{"older line never offers", "v0.58-test3", "0.58", "v0.58", "0.59", false, false},
+		{"same version, no baseline (manual swap-in), official exists", "v0.59-test1", "0.59", "", "0.59", true, false},
+		{"same version, no baseline, no official yet", "v0.59-test1", "0.59", "", "0.59", false, true},
+		{"empty tag", "", "0.59", "", "0.58", false, false},
+		// The v0.60 tightening: an OFFICIAL install is not
+		// offered the same version's test build (identical
+		// code) while the official release exists...
+		{"official baseline, same-version test, official exists", "v0.59-test1", "0.59", "v0.59", "0.59", true, false},
+		{"official baseline, same-version test2, official exists", "v0.59-test2", "0.59", "v0.59", "0.59", true, false},
+		// ...but in the pre-official window (no official
+		// release for that version) the same-version test
+		// build is the stream entry and does offer.
+		{"official baseline, same-version test, no official yet", "v0.59-test2", "0.59", "v0.59", "0.59", false, true},
+		{"official baseline, higher-version test", "v0.60-test1", "0.60", "v0.59", "0.59", true, true},
 	}
 	for _, c := range cases {
-		if got := betaOffer(c.tag, c.man, c.inst, c.app); got != c.want {
-			t.Errorf("%s: betaOffer(%q,%q,%q,%q) = %v, want %v", c.name, c.tag, c.man, c.inst, c.app, got, c.want)
+		if got := betaOffer(c.tag, c.man, c.inst, c.app, c.official); got != c.want {
+			t.Errorf("%s: betaOffer(%q,%q,%q,%q,official=%v) = %v, want %v", c.name, c.tag, c.man, c.inst, c.app, c.official, got, c.want)
 		}
 	}
 }
@@ -242,15 +255,31 @@ func TestPickNewestPrerelease(t *testing.T) {
 	}
 }
 
+// nextVersion returns the version one minor above the running
+// AppVersion, so the "newer test line" fixtures stay newer than
+// the build under test across version bumps.
+func nextVersion() string {
+	parts := strings.Split(AppVersion, ".")
+	if len(parts) < 2 {
+		return AppVersion + ".1"
+	}
+	minor, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return AppVersion + ".1"
+	}
+	return parts[0] + "." + strconv.Itoa(minor+1)
+}
+
 func TestBetaCheckNewerTestOffers(t *testing.T) {
 	dsTestRoot(t)
 	resetUpd(t)
+	nv := nextVersion()
 	f := newBetaFixture(t)
-	f.list = []ghRelease{fixtureRelease("v0.59", false), fixtureRelease("v0.60-test1", true)}
-	f.mans["v0.60-test1"] = updateManifest{Version: "0.60", File: updateZipName, Size: 62_000_000, SHA256: "ab"}
+	f.list = []ghRelease{fixtureRelease("v"+AppVersion, false), fixtureRelease("v"+nv+"-test1", true)}
+	f.mans["v"+nv+"-test1"] = updateManifest{Version: nv, File: updateZipName, Size: 62_000_000, SHA256: "ab"}
 	checkUpdateBeta()
 	snap := upd.snapshotLocal()
-	if snap.Phase != "available" || !snap.Prerelease || snap.SourceTag != "v0.60-test1" || snap.Latest != "0.60" {
+	if snap.Phase != "available" || !snap.Prerelease || snap.SourceTag != "v"+nv+"-test1" || snap.Latest != nv {
 		t.Fatalf("newer test must be offered: %+v", snap)
 	}
 }
@@ -258,28 +287,70 @@ func TestBetaCheckNewerTestOffers(t *testing.T) {
 func TestBetaCheckSameVersionNextIteration(t *testing.T) {
 	dsTestRoot(t)
 	resetUpd(t)
-	if err := dsSave("update-state", []byte(`{"installedTag":"v0.59-test1","installedVersion":"0.59"}`)); err != nil {
+	cur := AppVersion
+	if err := dsSave("update-state", []byte(`{"installedTag":"v`+cur+`-test1","installedVersion":"`+cur+`"}`)); err != nil {
 		t.Fatal(err)
 	}
 	f := newBetaFixture(t)
-	f.list = []ghRelease{fixtureRelease("v0.59-test2", true)}
-	f.mans["v0.59-test2"] = updateManifest{Version: "0.59", File: updateZipName, Size: 62_000_000, SHA256: "ab"}
+	f.list = []ghRelease{fixtureRelease("v"+cur+"-test2", true)}
+	f.mans["v"+cur+"-test2"] = updateManifest{Version: cur, File: updateZipName, Size: 62_000_000, SHA256: "ab"}
 	checkUpdateBeta()
 	snap := upd.snapshotLocal()
-	if snap.Phase != "available" || snap.SourceTag != "v0.59-test2" {
+	if snap.Phase != "available" || snap.SourceTag != "v"+cur+"-test2" {
 		t.Fatalf("same-version next test iteration must be offered: %+v", snap)
+	}
+}
+
+// The v0.60 tightening, end to end: an install recorded from
+// the OFFICIAL tag of the running version must NOT be offered
+// that version's test build (identical code) while the
+// official release exists.
+func TestBetaCheckOfficialInstallNotOfferedSameVersionTest(t *testing.T) {
+	dsTestRoot(t)
+	resetUpd(t)
+	cur := AppVersion
+	if err := dsSave("update-state", []byte(`{"installedTag":"v`+cur+`","installedVersion":"`+cur+`"}`)); err != nil {
+		t.Fatal(err)
+	}
+	f := newBetaFixture(t)
+	f.list = []ghRelease{fixtureRelease("v"+cur, false), fixtureRelease("v"+cur+"-test1", true)}
+	f.mans["v"+cur+"-test1"] = updateManifest{Version: cur, File: updateZipName, Size: 62_000_000, SHA256: "ab"}
+	checkUpdateBeta()
+	snap := upd.snapshotLocal()
+	if snap.Phase != "uptodate" || !strings.Contains(snap.Message, "已是最新测试版") {
+		t.Fatalf("an official install must not be offered the same version's test build: %+v", snap)
+	}
+}
+
+// The other half of the tightening: from an official install,
+// a HIGHER-version test build still offers as before.
+func TestBetaCheckOfficialInstallOfferedHigherTest(t *testing.T) {
+	dsTestRoot(t)
+	resetUpd(t)
+	cur, nv := AppVersion, nextVersion()
+	if err := dsSave("update-state", []byte(`{"installedTag":"v`+cur+`","installedVersion":"`+cur+`"}`)); err != nil {
+		t.Fatal(err)
+	}
+	f := newBetaFixture(t)
+	f.list = []ghRelease{fixtureRelease("v"+cur, false), fixtureRelease("v"+nv+"-test1", true)}
+	f.mans["v"+nv+"-test1"] = updateManifest{Version: nv, File: updateZipName, Size: 62_000_000, SHA256: "ab"}
+	checkUpdateBeta()
+	snap := upd.snapshotLocal()
+	if snap.Phase != "available" || snap.SourceTag != "v"+nv+"-test1" {
+		t.Fatalf("a higher-version test must offer from an official install: %+v", snap)
 	}
 }
 
 func TestBetaCheckAlreadyOnNewestTest(t *testing.T) {
 	dsTestRoot(t)
 	resetUpd(t)
-	if err := dsSave("update-state", []byte(`{"installedTag":"v0.59-test1","installedVersion":"0.59"}`)); err != nil {
+	cur := AppVersion
+	if err := dsSave("update-state", []byte(`{"installedTag":"v`+cur+`-test1","installedVersion":"`+cur+`"}`)); err != nil {
 		t.Fatal(err)
 	}
 	f := newBetaFixture(t)
-	f.list = []ghRelease{fixtureRelease("v0.59-test1", true)}
-	f.mans["v0.59-test1"] = updateManifest{Version: "0.59", File: updateZipName, Size: 62_000_000, SHA256: "ab"}
+	f.list = []ghRelease{fixtureRelease("v"+cur+"-test1", true)}
+	f.mans["v"+cur+"-test1"] = updateManifest{Version: cur, File: updateZipName, Size: 62_000_000, SHA256: "ab"}
 	checkUpdateBeta()
 	snap := upd.snapshotLocal()
 	if snap.Phase != "uptodate" || !strings.Contains(snap.Message, "已是最新测试版") {
@@ -343,7 +414,7 @@ func TestOfficialCheckNoDowngradeOffer(t *testing.T) {
 	checkUpdateOfficial()
 	snap := upd.snapshot()
 	if snap.Phase != "uptodate" {
-		t.Fatalf("official 0.58 must not be offered to a 0.59 build: %+v", snap)
+		t.Fatalf("official 0.58 must not be offered to a newer build: %+v", snap)
 	}
 }
 

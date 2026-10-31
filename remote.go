@@ -50,6 +50,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mjlight/internal/diag"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -584,7 +585,7 @@ func remoteRoutes() []remoteRoute {
 		{"GET", "/api/remote/state", "read", "组网状态、tailnet 地址、已配对人数", remoteRemoteStateHandler},
 		{"GET", "/api/remote/diagstatus", "read", "脱敏版诊断状态总览", remoteDiagStatusHandler},
 		{"GET", "/api/remote/diagexport", "read", "诊断包（mj.log + 脱敏状态）下载", remoteDiagExportHandler},
-		{"GET", "/api/diag/logs", "read", "控制台日志（hub 本就脱敏）", diagLogsHandler},
+		{"GET", "/api/diag/logs", "read", "控制台日志（hub 本就脱敏）", diag.LogsHandler},
 		{"GET", "/api/system", "read", "系统信息（版本/系统/目录）", sysInfo},
 		{"GET", "/api/settings", "read", "全部设置（不含任何秘密）", remoteSettingsGetHandler},
 		{"GET", "/api/storage/usage", "read", "存储占用盘点", storageUsageHandler},
@@ -721,11 +722,11 @@ func remoteRemoteStateHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, remoteStateMap())
 }
 
-// remoteDiagStatusMap is diagStatusMap() passed through an
+// remoteDiagStatusMap is diag.StatusMap() passed through an
 // allowlist: the remote variant is built key by key so a future
 // local field cannot leak out here by accident.
 func remoteDiagStatusMap() map[string]any {
-	src := diagStatusMap()
+	src := diag.StatusMap()
 	out := map[string]any{}
 	for _, k := range []string{
 		"version", "os", "arch", "port", "uptimeSec", "uptimeText",
@@ -759,7 +760,7 @@ func remoteDiagExportHandler(w http.ResponseWriter, r *http.Request) {
 	if b, err := json.MarshalIndent(remoteDiagStatusMap(), "", "  "); err == nil {
 		add("status.json", b)
 	}
-	if b, err := os.ReadFile(diagLogPath()); err == nil {
+	if b, err := os.ReadFile(diag.LogPath()); err == nil {
 		add("mj.log", b)
 	} else {
 		add("mj.log", []byte("(暂无日志文件)"))

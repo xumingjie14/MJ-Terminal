@@ -55,6 +55,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mjlight/internal/diag"
 	"net"
 	"net/http"
 	"os"
@@ -1064,7 +1065,7 @@ func ocStatusMap() map[string]any {
 	}
 	if running {
 		out["since"] = since.Unix()
-		out["uptimeText"] = fmtUptime(time.Since(since))
+		out["uptimeText"] = diag.FmtUptime(time.Since(since))
 	}
 	ocSt.mu.Lock()
 	if ocSt.proc != nil && ocSt.proc.cmd != nil && ocSt.proc.cmd.Process != nil && running {

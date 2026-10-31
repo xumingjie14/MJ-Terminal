@@ -45,7 +45,7 @@ import (
 // AppVersion is the single source of truth for the running version.
 // The CI workflow must publish the Release with the matching tag
 // (v + AppVersion) and update.json.
-const AppVersion = "0.59"
+const AppVersion = "0.60"
 
 const updateRepo = "xumingjie14/MJ-Terminal"
 const updateZipName = "MJ-System-64bit.zip"
@@ -411,18 +411,36 @@ func pickNewestPrerelease(rels []ghRelease) *ghRelease {
 	return nil
 }
 
+// isPrereleaseTag reports whether a release tag names a test
+// build ("v0.59-test1") rather than an official one ("v0.59"):
+// the project's prerelease tags are the version plus a "-testN"
+// suffix.
+func isPrereleaseTag(tag string) bool {
+	return strings.Contains(strings.TrimPrefix(tag, "v"), "-")
+}
+
 // betaOffer is the beta channel's offer rule. Offer when the
 // newest prerelease tag is not the tag this installation was
-// installed from AND its manifest version is not an older
-// line than the running one (>= AppVersion: a test iteration
-// of the same version counts). One refinement: with NO
-// recorded install tag (a manually swapped-in build), a
-// same-version prerelease cannot be told apart from the
-// running build itself, so it is not offered -- entering the
-// beta stream happens through a newer line or a recorded
-// install, after which same-version iterations chain
-// normally.
-func betaOffer(tag, manVersion, installedTag, appVersion string) bool {
+// installed from AND its manifest version is not an older line
+// than the running one. A NEWER line always offers. A
+// SAME-version prerelease (v0.60: tightened) offers only in a
+// genuine test-stream situation:
+//
+//   - the recorded install tag is itself a prerelease tag (the
+//     install came through the beta channel and this is its
+//     next iteration), or
+//   - no official release exists for that version yet (the
+//     pre-official test window, where entering the stream is
+//     the whole point).
+//
+// The case this closes: an official v0.59 install turning the
+// beta channel on was offered v0.59-test1 -- the same version
+// and, promotion being from the same source, the same code.
+// (Pre-v0.60 refinement, subsumed by the above: with no recorded
+// tag and an official release present, a same-version offer is
+// still suppressed, so a manually swapped-in build is never
+// offered itself.)
+func betaOffer(tag, manVersion, installedTag, appVersion string, officialExists bool) bool {
 	if tag == "" || tag == installedTag {
 		return false
 	}
@@ -430,10 +448,10 @@ func betaOffer(tag, manVersion, installedTag, appVersion string) bool {
 	if cmp < 0 {
 		return false // an older line never offers
 	}
-	if installedTag == "" && cmp == 0 {
-		return false
+	if cmp > 0 {
+		return true // a newer line always offers
 	}
-	return true
+	return isPrereleaseTag(installedTag) || !officialExists
 }
 
 // checkUpdateBeta is the beta-channel check: read the
@@ -488,7 +506,18 @@ func checkUpdateBeta() {
 	upd.Latest, upd.Size, upd.sha256, upd.zipAssetURL = man.Version, man.Size, man.SHA256, zipURL
 	upd.sourceTag, upd.prerelease, upd.relName, upd.relBody = rel.TagName, true, rel.Name, rel.Body
 	upd.mu.Unlock()
-	if betaOffer(rel.TagName, man.Version, loadUpdateState().InstalledTag, AppVersion) {
+	// v0.60: the offer rule needs to know whether an official
+	// release exists for the candidate's version (same list,
+	// already in hand): an official install must not be offered
+	// the same version's test build.
+	officialExists := false
+	for i := range rels {
+		if !rels[i].Prerelease && !rels[i].Draft && rels[i].TagName == "v"+man.Version {
+			officialExists = true
+			break
+		}
+	}
+	if betaOffer(rel.TagName, man.Version, loadUpdateState().InstalledTag, AppVersion, officialExists) {
 		upd.set("available", fmt.Sprintf("发现测试版 %s（当前 v%s），大小 %.1f MB", rel.TagName, AppVersion, float64(man.Size)/1024/1024))
 		postNotifyOnce("update-available:"+rel.TagName, notifySrcUpdate, "available",
 			"发现测试版 "+rel.TagName, fmt.Sprintf("测试版 %s 已可下载（当前 v%s）", rel.TagName, AppVersion), "setpage:update")

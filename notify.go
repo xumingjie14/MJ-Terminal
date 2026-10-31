@@ -135,7 +135,7 @@ func (st *notifyStore) loadLocked() {
 	// is restored from its keep-last-good backup there ([data]
 	// logs it) instead of silently resetting the whole store.
 	spec, _ := dsSpecFor("notifications")
-	b, status, err := dsLoadFile(st.filePath(), spec.validate)
+	b, status, err := dsLoadFile(st.filePath(), spec.Validate)
 	if err != nil || status == dsMissing {
 		if status == dsCorrupt {
 			logf("notify", "warn", "notifications.json 解析失败且无可用备份，已按空通知重置")
@@ -180,7 +180,7 @@ func (st *notifyStore) saveLocked() {
 		return
 	}
 	spec, _ := dsSpecFor("notifications")
-	_ = dsSaveFile(st.filePath(), b, spec.perm, spec.validate, spec.backup)
+	_ = dsSaveFile(st.filePath(), b, spec.Perm, spec.Validate, spec.Backup)
 }
 
 // record appends an event unless the same source+key was recorded

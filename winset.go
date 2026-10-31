@@ -45,6 +45,7 @@ package main
 // placement switch -- one less switch, one less confusion).
 
 import (
+	"mjlight/internal/diag"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -1095,11 +1096,11 @@ func onTrayIconRestore() {
 // exit choreography (unhide-all first, then core/openclaw/remote
 // shutdown) can never drift apart between the two entries.
 func onTrayIconExit() {
-	if daemonPort <= 0 {
+	if diag.Port <= 0 {
 		return
 	}
 	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Post(daemonURLForPort(daemonPort)+"api/shutdown", "application/json", nil)
+	resp, err := client.Post(daemonURLForPort(diag.Port)+"api/shutdown", "application/json", nil)
 	if err == nil {
 		_ = resp.Body.Close()
 	}

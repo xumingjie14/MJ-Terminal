@@ -51,6 +51,7 @@ package main
 // set returns, exactly as it does for minimize / tray hides.
 
 import (
+	"mjlight/internal/diag"
 	"net/http"
 	"time"
 )
@@ -181,11 +182,11 @@ func bossRaiseViewDirect() bool {
 // included). Callers run it on a goroutine -- it may wait on
 // the auto-starting core inside the handler.
 func openShellViaHTTP() {
-	if daemonPort <= 0 {
+	if diag.Port <= 0 {
 		return
 	}
 	client := &http.Client{Timeout: 12 * time.Second}
-	resp, err := client.Post(daemonURLForPort(daemonPort)+"api/openshell", "application/json", nil)
+	resp, err := client.Post(daemonURLForPort(diag.Port)+"api/openshell", "application/json", nil)
 	if err == nil {
 		_ = resp.Body.Close()
 	}

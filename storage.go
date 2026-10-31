@@ -27,6 +27,7 @@ package main
 // deleting cache out from under a live browser corrupts profiles.
 
 import (
+	"mjlight/internal/diag"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -115,7 +116,7 @@ func storageUsage() (map[string]any, int64) {
 	ffProf := ffProfileDir()
 	oc := ocDir()
 	appsDir := filepath.Join(data, "apps")
-	logs := diagLogsDir()
+	logs := diag.LogsDir()
 	files := filesDir()
 
 	acc := &usageBuckets{}
