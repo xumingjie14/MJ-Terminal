@@ -1,6 +1,11 @@
 package main
 
-import "testing"
+import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
 
 // v0.52: summonHotkey migration. The v0.50 values (F8 / F9 / F7 /
 // off) survive sanitizing unchanged; any valid combo survives in
@@ -58,5 +63,48 @@ func TestV056SettingDefaults(t *testing.T) {
 	m := settingsMap()
 	if m["stageDisplay"] != "preview" || m["deskSort"] != "manual" {
 		t.Errorf("settingsMap should carry the v0.56 keys, got %v / %v", m["stageDisplay"], m["deskSort"])
+	}
+}
+
+// v0.59: updateBeta rides the settings whitelist like every
+// other key: a bool POST persists (and shows in settingsMap),
+// a non-bool is rejected, and the default is OFF.
+func TestUpdateBetaSettingWhitelist(t *testing.T) {
+	dsTestRoot(t)
+	setState.Lock()
+	oldCur, oldLoaded, oldFresh := setState.cur, setState.loaded, setState.fresh
+	setState.cur, setState.loaded = defaultSettings(), true
+	setState.Unlock()
+	defer func() {
+		setState.Lock()
+		setState.cur, setState.loaded, setState.fresh = oldCur, oldLoaded, oldFresh
+		setState.Unlock()
+	}()
+	if settingsGet().UpdateBeta {
+		t.Fatal("updateBeta default must be OFF")
+	}
+	post := func(body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/api/settings", strings.NewReader(body))
+		rec := httptest.NewRecorder()
+		settingsHandler(rec, req)
+		return rec
+	}
+	rec := post(`{"updateBeta": true}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST updateBeta=true: status %d, body %s", rec.Code, rec.Body.String())
+	}
+	if !settingsGet().UpdateBeta {
+		t.Fatal("updateBeta=true did not persist in the settings store")
+	}
+	if got := settingsMap()["updateBeta"]; got != true {
+		t.Fatalf("settingsMap updateBeta = %v, want true", got)
+	}
+	rec = post(`{"updateBeta": "yes"}`)
+	if !strings.Contains(rec.Body.String(), `"code"`) || settingsGet().UpdateBeta != true {
+		t.Fatalf("non-bool updateBeta must be rejected without changing the value: %s", rec.Body.String())
+	}
+	rec = post(`{"updateBeta": false}`)
+	if rec.Code != http.StatusOK || settingsGet().UpdateBeta {
+		t.Fatalf("updateBeta=false must persist: %d %s", rec.Code, rec.Body.String())
 	}
 }

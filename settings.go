@@ -138,6 +138,14 @@ type mjSettings struct {
 	// without the vault the idle exit leaves them alone).
 	// Default ON.
 	ExitClosesApps bool `json:"exitClosesApps"`
+	// v0.59: the updater's beta channel. false (default) = the
+	// updater checks the newest OFFICIAL release only; true =
+	// checks target the newest prerelease instead (in-app test
+	// builds). Local-only setting: the remote-assist settings
+	// projection carries the key (it is part of settingsMap)
+	// but no remote surface can flip it -- the settings POST is
+	// not on the remote mux.
+	UpdateBeta bool `json:"updateBeta"`
 	// v0.49 node professionalization: durable preferences for the
 	// node subsystem. The live state (current mode, selection,
 	// subscriptions, rules, DNS choice) lives in Data/nodes.json
@@ -912,6 +920,14 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 				} else if v != next.ExitClosesApps {
 					next.ExitClosesApps = v
 					changed = append(changed, boolLog("exitClosesApps", v))
+				}
+			case "updateBeta":
+				var v bool
+				if json.Unmarshal(val, &v) != nil {
+					fail = "updateBeta 必须是 true/false"
+				} else if v != next.UpdateBeta {
+					next.UpdateBeta = v
+					changed = append(changed, boolLog("updateBeta", v))
 				}
 			case "remoteEnabled":
 				var v bool

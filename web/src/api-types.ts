@@ -204,6 +204,7 @@ export interface MjSettings {
   notify_banner_files: boolean;
   nc_widgets: string;
   exitClosesApps: boolean;
+  updateBeta: boolean;
   nodeStartMode: string;
   nodeSubAuto: boolean;
   nodeSubIntervalMin: number;
@@ -300,6 +301,7 @@ export interface SettingsResponse {
   notify_banner_files: boolean;
   nc_widgets: string;
   exitClosesApps: boolean;
+  updateBeta: boolean;
   nodeStartMode: string;
   nodeSubAuto: boolean;
   nodeSubIntervalMin: number;
@@ -341,6 +343,21 @@ export interface UpdateSnapshot {
   size: number;
   progress: number;
   message: string;
+}
+
+export interface UpdateStatusLocalResponse {
+  current: string;
+  token: boolean;
+  phase: string;
+  latest: string;
+  size: number;
+  progress: number;
+  message: string;
+  channel: string;
+  prerelease: boolean;
+  releaseName: string;
+  releaseNotes: string;
+  sourceTag: string;
 }
 
 export interface UpdateTokenResponse {

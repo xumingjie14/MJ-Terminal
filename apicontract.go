@@ -353,6 +353,20 @@ type updateSnapshot struct {
 	Message  string `json:"message"`
 }
 
+// updateStatusLocalResponse is GET /api/update on the LOCAL
+// mux only: the shared updateSnapshot (which the remote-assist
+// update actions also return -- its shape is frozen) plus the
+// v0.59 beta-channel fields the settings page renders. The
+// remote mux never serves this type.
+type updateStatusLocalResponse struct {
+	updateSnapshot
+	Channel      string `json:"channel"` // "official" | "beta" (the current setting)
+	Prerelease   bool   `json:"prerelease"`
+	ReleaseName  string `json:"releaseName"`
+	ReleaseNotes string `json:"releaseNotes"`
+	SourceTag    string `json:"sourceTag"`
+}
+
 // updateTokenResponse is POST /api/update/token.
 type updateTokenResponse struct {
 	OK    bool `json:"ok"`
@@ -406,6 +420,7 @@ var apiContractTypes = []contractType{
 	{"HotkeyStatusResponse", reflect.TypeOf(hotkeyStatusResponse{})},
 	{"UpdateSnapshot", reflect.TypeOf(updateSnapshot{})},
 	{"UpdateTokenResponse", reflect.TypeOf(updateTokenResponse{})},
+	{"UpdateStatusLocalResponse", reflect.TypeOf(updateStatusLocalResponse{})},
 	{"UpdateApplyResponse", reflect.TypeOf(updateApplyResponse{})},
 	{"BusEvent", reflect.TypeOf(busEvent{})},
 	{"ViewCommand", reflect.TypeOf(viewCommand{})},

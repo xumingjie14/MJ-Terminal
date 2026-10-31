@@ -140,8 +140,12 @@ var dsRegistry = map[string]dsSpec{
 	"ffstate":          {rel: "ffstate.json", version: 1, perm: 0o644, backup: true, validate: func(b []byte) error { var r ffProcRecord; return json.Unmarshal(b, &r) }},
 	"accel":            {rel: "accel.txt", version: 1, perm: 0o600, backup: true},
 	"update-token":     {rel: "update-token.txt", version: 1, perm: 0o600, backup: false},
-	"ff-version":       {rel: "firefox-version.txt", version: 1, perm: 0o644, backup: true},
-	"oc-version":       {rel: "openclaw-version.txt", version: 1, perm: 0o644, backup: true},
+	// v0.59: the updater's memory of which release tag the
+	// running build was installed from (drives the beta
+	// channel's offer rule; written by the apply handover).
+	"update-state": {rel: "update-state.json", version: 1, perm: 0o600, backup: true, validate: func(b []byte) error { var s updateStateFile; return json.Unmarshal(b, &s) }},
+	"ff-version":   {rel: "firefox-version.txt", version: 1, perm: 0o644, backup: true},
+	"oc-version":   {rel: "openclaw-version.txt", version: 1, perm: 0o644, backup: true},
 }
 
 // dsMigrations holds per-file schema steps: file name ->

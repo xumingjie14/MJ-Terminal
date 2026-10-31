@@ -51,6 +51,14 @@ const updateRepo = "xumingjie14/MJ-Terminal"
 const updateZipName = "MJ-System-64bit.zip"
 const updateManifestName = "update.json"
 
+// URL bases for the updater's GitHub traffic. Variables (not
+// constants) so the channel tests can point the checks at a
+// fixture server; production values are the real GitHub hosts.
+var (
+	ghAPIBase = "https://api.github.com"
+	ghDLBase  = "https://github.com"
+)
+
 type updateManifest struct {
 	Version string `json:"version"`
 	File    string `json:"file"`
@@ -67,6 +75,16 @@ type updateStatus struct {
 	Message     string
 	zipAssetURL string // api.github.com URL of the zip asset
 	sha256      string
+	// v0.59 beta channel: what the last check actually found.
+	// sourceTag is the release tag the offered/staged update
+	// came from (recorded as the installed tag after a
+	// successful apply); prerelease marks a beta find;
+	// relName/relBody are the release's name/notes for the
+	// settings page.
+	sourceTag  string
+	prerelease bool
+	relName    string
+	relBody    string
 }
 
 var upd = updateStatus{Phase: "idle"}
@@ -101,6 +119,29 @@ func (u *updateStatus) set(phase, msg string) {
 		logf("update", "error", "软件更新：%s", msg)
 	case "available", "uptodate", "ready":
 		logf("update", "info", "软件更新：%s", msg)
+	}
+}
+
+// snapshotLocal is the LOCAL-mux status shape: the frozen
+// shared snapshot plus the v0.59 beta-channel fields. The
+// channel shown is the CURRENT setting (what the next check
+// will use); prerelease/sourceTag/release fields describe the
+// last check's find.
+func (u *updateStatus) snapshotLocal() updateStatusLocalResponse {
+	u.mu.Lock()
+	pre, tag, name, body := u.prerelease, u.sourceTag, u.relName, u.relBody
+	u.mu.Unlock()
+	ch := "official"
+	if settingsGet().UpdateBeta {
+		ch = "beta"
+	}
+	return updateStatusLocalResponse{
+		updateSnapshot: u.snapshot(),
+		Channel:        ch,
+		Prerelease:     pre,
+		ReleaseName:    name,
+		ReleaseNotes:   body,
+		SourceTag:      tag,
 	}
 }
 
@@ -223,15 +264,94 @@ func ghGetAsset(ctx context.Context, url string, limit int64) ([]byte, int, erro
 	return b, resp.StatusCode, err
 }
 
+// ghRelease is the slice of a GitHub release object the
+// updater reads (both channels).
+type ghRelease struct {
+	TagName    string `json:"tag_name"`
+	Name       string `json:"name"`
+	Body       string `json:"body"`
+	Prerelease bool   `json:"prerelease"`
+	Draft      bool   `json:"draft"`
+	Assets     []struct {
+		Name string `json:"name"`
+		URL  string `json:"url"`
+	} `json:"assets"`
+}
+
+func (rel *ghRelease) assetURL(name string) string {
+	for _, a := range rel.Assets {
+		if a.Name == name {
+			return a.URL
+		}
+	}
+	return ""
+}
+
+// ---------- installed-tag state (v0.59 beta channel) ----------
+
+// updateStateFile is the datastore record ("update-state") of
+// the release this installation last came from. The apply
+// handover writes it (runApplyUpdate, after the new daemon is
+// verified healthy); the beta offer rule reads it. Empty tag =
+// no updater-mediated install has happened yet (manual EXE
+// swap, portable copy).
+type updateStateFile struct {
+	InstalledTag     string `json:"installedTag"`
+	InstalledVersion string `json:"installedVersion"`
+}
+
+func loadUpdateState() updateStateFile {
+	b, status, err := dsLoad("update-state")
+	if err != nil || status == dsMissing {
+		return updateStateFile{}
+	}
+	var s updateStateFile
+	_ = json.Unmarshal(b, &s)
+	return s
+}
+
+func recordInstalledTag(tag string) {
+	b, _ := json.Marshal(updateStateFile{InstalledTag: tag, InstalledVersion: AppVersion})
+	if err := dsSave("update-state", b); err != nil {
+		logf("update", "warn", "记录更新来源标签失败：%v", err)
+		return
+	}
+	logf("update", "info", "软件更新：已记录安装来源标签 %s（v%s）", tag, AppVersion)
+}
+
+// pendingSourceTagPath carries the offered update's tag from
+// downloadUpdate (old daemon) to runApplyUpdate (the staged
+// new binary) inside Data/update, next to the staged package.
+func pendingSourceTagPath() string { return filepath.Join(updateDir(), "source-tag.txt") }
+
 // ---------- check ----------
 
-// checkUpdate talks to GitHub and refreshes upd state. Blocking; the
-// HTTP handler runs it inline (bounded by ctx timeouts).
+// checkUpdate dispatches on the update channel (v0.59):
+// settings.updateBeta OFF = the official check, byte-for-byte
+// the pre-v0.59 behavior; ON = the beta check against the
+// newest prerelease. Every check logs its channel under
+// [update]. Blocking; the HTTP handler runs it inline
+// (bounded by ctx timeouts).
 func checkUpdate() {
+	if settingsGet().UpdateBeta {
+		logf("update", "info", "软件更新：开始检查（通道：测试版）")
+		checkUpdateBeta()
+		return
+	}
+	logf("update", "info", "软件更新：开始检查（通道：正式版）")
+	checkUpdateOfficial()
+}
+
+// checkUpdateOfficial is the original latest-release check:
+// newest OFFICIAL release only, offer strictly on
+// manifest version > AppVersion (so a test build of a newer
+// line correctly sees an older official line as up-to-date,
+// never as a downgrade offer).
+func checkUpdateOfficial() {
 	upd.set("checking", "正在检查更新…")
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	body, code, err := ghGetJSON(ctx, "https://api.github.com/repos/"+updateRepo+"/releases/latest", 2*1024*1024)
+	body, code, err := ghGetJSON(ctx, ghAPIBase+"/repos/"+updateRepo+"/releases/latest", 2*1024*1024)
 	if err != nil {
 		upd.set("error", "检查失败：连不上 GitHub（"+err.Error()+"）")
 		return
@@ -240,26 +360,12 @@ func checkUpdate() {
 		upd.set("error", fmt.Sprintf("检查失败：GitHub 返回 %d（多半是网络问题；若仓库改回私有，则需要有效的更新令牌）", code))
 		return
 	}
-	var rel struct {
-		TagName string `json:"tag_name"`
-		Assets  []struct {
-			Name string `json:"name"`
-			URL  string `json:"url"`
-		} `json:"assets"`
-	}
+	var rel ghRelease
 	if err := json.Unmarshal(body, &rel); err != nil {
 		upd.set("error", "检查失败：Release 信息解析不了")
 		return
 	}
-	var manifestURL, zipURL string
-	for _, a := range rel.Assets {
-		switch a.Name {
-		case updateManifestName:
-			manifestURL = a.URL
-		case updateZipName:
-			zipURL = a.URL
-		}
-	}
+	manifestURL, zipURL := rel.assetURL(updateManifestName), rel.assetURL(updateZipName)
 	if manifestURL == "" || zipURL == "" {
 		upd.set("error", "最新 Release 里缺 update.json 或安装包，无法更新")
 		return
@@ -277,6 +383,7 @@ func checkUpdate() {
 	}
 	upd.mu.Lock()
 	upd.Latest, upd.Size, upd.sha256, upd.zipAssetURL = man.Version, man.Size, man.SHA256, zipURL
+	upd.sourceTag, upd.prerelease, upd.relName, upd.relBody = rel.TagName, false, rel.Name, rel.Body
 	upd.mu.Unlock()
 	if compareVersions(man.Version, AppVersion) > 0 {
 		upd.set("available", fmt.Sprintf("发现新版本 v%s（当前 v%s），大小 %.1f MB", man.Version, AppVersion, float64(man.Size)/1024/1024))
@@ -289,6 +396,104 @@ func checkUpdate() {
 			"发现新版本 v"+man.Version, fmt.Sprintf("新版本 v%s 已可下载（当前 v%s）", man.Version, AppVersion), "setpage:update")
 	} else {
 		upd.set("uptodate", "已经是最新版本 v"+AppVersion)
+	}
+}
+
+// pickNewestPrerelease returns the first prerelease entry of
+// the releases list (GitHub returns it newest-first), skipping
+// drafts, or nil when the list carries no prerelease at all.
+func pickNewestPrerelease(rels []ghRelease) *ghRelease {
+	for i := range rels {
+		if rels[i].Prerelease && !rels[i].Draft {
+			return &rels[i]
+		}
+	}
+	return nil
+}
+
+// betaOffer is the beta channel's offer rule. Offer when the
+// newest prerelease tag is not the tag this installation was
+// installed from AND its manifest version is not an older
+// line than the running one (>= AppVersion: a test iteration
+// of the same version counts). One refinement: with NO
+// recorded install tag (a manually swapped-in build), a
+// same-version prerelease cannot be told apart from the
+// running build itself, so it is not offered -- entering the
+// beta stream happens through a newer line or a recorded
+// install, after which same-version iterations chain
+// normally.
+func betaOffer(tag, manVersion, installedTag, appVersion string) bool {
+	if tag == "" || tag == installedTag {
+		return false
+	}
+	cmp := compareVersions(manVersion, appVersion)
+	if cmp < 0 {
+		return false // an older line never offers
+	}
+	if installedTag == "" && cmp == 0 {
+		return false
+	}
+	return true
+}
+
+// checkUpdateBeta is the beta-channel check: read the
+// releases list (public, unauthenticated like the official
+// check), take the newest prerelease, read ITS manifest from
+// the release download URL, and evaluate betaOffer. The
+// download/verify/apply pipeline downstream is the official
+// one, untouched.
+func checkUpdateBeta() {
+	upd.set("checking", "正在检查测试版…")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	body, code, err := ghGetJSON(ctx, ghAPIBase+"/repos/"+updateRepo+"/releases?per_page=20", 4*1024*1024)
+	if err != nil {
+		upd.set("error", "检查失败：连不上 GitHub（"+err.Error()+"）")
+		return
+	}
+	if code != http.StatusOK {
+		upd.set("error", fmt.Sprintf("检查失败：GitHub 返回 %d（多半是网络问题；若仓库改回私有，则需要有效的更新令牌）", code))
+		return
+	}
+	var rels []ghRelease
+	if err := json.Unmarshal(body, &rels); err != nil {
+		upd.set("error", "检查失败：Release 信息解析不了")
+		return
+	}
+	rel := pickNewestPrerelease(rels)
+	if rel == nil {
+		upd.mu.Lock()
+		upd.sourceTag, upd.prerelease, upd.relName, upd.relBody = "", false, "", ""
+		upd.mu.Unlock()
+		upd.set("uptodate", "暂无测试版")
+		return
+	}
+	zipURL := rel.assetURL(updateZipName)
+	if zipURL == "" {
+		upd.set("error", "最新 Release 里缺 update.json 或安装包，无法更新")
+		return
+	}
+	mb, code, err := ghGetAsset(ctx, ghDLBase+"/"+updateRepo+"/releases/download/"+rel.TagName+"/"+updateManifestName, 64*1024)
+	if err != nil || code != http.StatusOK {
+		upd.set("error", "检查失败：读不到更新清单 update.json")
+		return
+	}
+	mb = bytes.TrimPrefix(mb, []byte{0xEF, 0xBB, 0xBF}) // tolerate a BOM
+	var man updateManifest
+	if err := json.Unmarshal(mb, &man); err != nil || man.Version == "" {
+		upd.set("error", "检查失败：更新清单内容不对")
+		return
+	}
+	upd.mu.Lock()
+	upd.Latest, upd.Size, upd.sha256, upd.zipAssetURL = man.Version, man.Size, man.SHA256, zipURL
+	upd.sourceTag, upd.prerelease, upd.relName, upd.relBody = rel.TagName, true, rel.Name, rel.Body
+	upd.mu.Unlock()
+	if betaOffer(rel.TagName, man.Version, loadUpdateState().InstalledTag, AppVersion) {
+		upd.set("available", fmt.Sprintf("发现测试版 %s（当前 v%s），大小 %.1f MB", rel.TagName, AppVersion, float64(man.Size)/1024/1024))
+		postNotifyOnce("update-available:"+rel.TagName, notifySrcUpdate, "available",
+			"发现测试版 "+rel.TagName, fmt.Sprintf("测试版 %s 已可下载（当前 v%s）", rel.TagName, AppVersion), "setpage:update")
+	} else {
+		upd.set("uptodate", "已是最新测试版")
 	}
 }
 
@@ -591,6 +796,17 @@ func downloadUpdate() {
 		upd.set("error", "安装包里没找到 MJ-System.exe")
 		return
 	}
+	// v0.59: hand the offered update's source tag to the apply
+	// step (a different process: the staged new binary), which
+	// records it as the installed tag once the install is
+	// verified. Written on every successful staging, so a stale
+	// tag from an earlier attempt can never be consumed.
+	upd.mu.Lock()
+	srcTag := upd.sourceTag
+	upd.mu.Unlock()
+	if srcTag != "" {
+		_ = os.WriteFile(pendingSourceTagPath(), []byte(srcTag), 0o644)
+	}
 	upd.set("ready", "新版本已下载并验过，点「重启并更新」完成更新（节点会断开几秒，自动重连）")
 	busPublish("update", "") // v0.59 block 3: live sync
 }
@@ -598,7 +814,7 @@ func downloadUpdate() {
 // ---------- HTTP handlers ----------
 
 func updateStatusHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, upd.snapshot())
+	writeJSON(w, upd.snapshotLocal())
 }
 
 func updateTokenHandler(w http.ResponseWriter, r *http.Request) {
@@ -791,6 +1007,7 @@ func runApplyUpdate(target string) {
 	}
 	if !copyOK {
 		applyLog("FAILED: cannot copy new exe, rolling back")
+		_ = os.Remove(pendingSourceTagPath())
 		_ = os.Rename(old, target)
 		_ = exec.Command(target).Start()
 		return
@@ -800,6 +1017,7 @@ func runApplyUpdate(target string) {
 	launch.Dir = filepath.Dir(target)
 	if err := launch.Start(); err != nil {
 		applyLog("FAILED: cannot launch new exe: %v, rolling back", err)
+		_ = os.Remove(pendingSourceTagPath())
 		_ = os.Remove(target)
 		_ = os.Rename(old, target)
 		_ = exec.Command(target).Start()
@@ -809,6 +1027,18 @@ func runApplyUpdate(target string) {
 	for i := 0; i < 50; i++ {
 		if newDaemonHealthy() {
 			applyLog("OK: new daemon v%s is up", AppVersion)
+			// v0.59: the install is verified -- record which
+			// release tag this installation came from (the
+			// beta channel's offer rule reads it). Absent file
+			// = the previous daemon predates the tag handover;
+			// nothing to record.
+			if b, rerr := os.ReadFile(pendingSourceTagPath()); rerr == nil {
+				if tag := strings.TrimSpace(string(b)); tag != "" {
+					recordInstalledTag(tag)
+					applyLog("recorded installed source tag: %s", tag)
+				}
+				_ = os.Remove(pendingSourceTagPath())
+			}
 			_ = os.Remove(old)
 			_ = os.Remove(filepath.Join(updateDir(), "pkg.zip"))
 			return
@@ -816,6 +1046,7 @@ func runApplyUpdate(target string) {
 		time.Sleep(500 * time.Millisecond)
 	}
 	applyLog("FAILED: new daemon never became healthy, rolling back")
+	_ = os.Remove(pendingSourceTagPath())
 	_ = os.Remove(target)
 	_ = os.Rename(old, target)
 	rb := exec.Command(target)

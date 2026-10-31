@@ -4231,7 +4231,8 @@ ${pr.textContent}> ${cmd}\r
           clearInterval(updIv);
           updIv = null;
         }
-        G("set-main").innerHTML = `<div class="set-page"><div class="set-sec">软件更新</div><div class="set-desc">当前版本 <b style="color:#fff" id="upd-cur">…</b>。后台启动时会自动检查新版并预下载，你也可以手动检查；点「重启并更新」完成升级（更新时节点断开几秒，自动重连，节点和数据都不动）。仓库是公开的，<b style="color:#fff">不需要令牌</b>；下面这个令牌框只在仓库改回私有后才用得上，平时留空即可。</div><div class="sm-card"><div class="sm-row"><span>更新令牌（公开仓库不用填）</span><span class="row"><input class="txt" id="upd-token" type="password" placeholder="令牌" autocomplete="off" style="min-width:170px;flex:none"><button class="btn gray" id="upd-token-save">保存令牌</button></span></div><div class="sm-row"><span id="upd-status">…</span><span class="row"><button class="btn" id="upd-check">检查更新</button><button class="btn gray" id="upd-dl" style="display:none">下载更新</button><button class="btn red" id="upd-apply" style="display:none">重启并更新</button></span></div></div></div>`;
+        const s = SETTINGS || SETDEF;
+        G("set-main").innerHTML = `<div class="set-page"><div class="set-sec">软件更新</div><div class="set-desc">当前版本 <b style="color:#fff" id="upd-cur">…</b>。后台启动时会自动检查新版并预下载，你也可以手动检查；点「重启并更新」完成升级（更新时节点断开几秒，自动重连，节点和数据都不动）。仓库是公开的，<b style="color:#fff">不需要令牌</b>；下面这个令牌框只在仓库改回私有后才用得上，平时留空即可。</div><div class="sm-card"><div class="sm-row"><span>更新令牌（公开仓库不用填）</span><span class="row"><input class="txt" id="upd-token" type="password" placeholder="令牌" autocomplete="off" style="min-width:170px;flex:none"><button class="btn gray" id="upd-token-save">保存令牌</button></span></div><div class="sm-row"><span>测试版通道</span><label class="sm-sw"><input type="checkbox" id="upd-beta" ${s.updateBeta ? "checked" : ""}><i></i></label></div><div class="sm-row"><span id="upd-status">…</span><span class="row"><button class="btn" id="upd-check">检查更新</button><button class="btn gray" id="upd-dl" style="display:none">下载更新</button><button class="btn red" id="upd-apply" style="display:none">重启并更新</button></span></div></div><p class="set-note">测试版通道：开启后，「检查更新」改为查找最新的测试版（预发布），找到就能在系统内直接下载、安装，不用再等下载链接；关闭则只查正式版。测试版是正式版之前的验证版本，可能不稳定；装了测试版也不会被正式版「降级」——等更高的正式版发布后会正常升级回去。</p><div class="set-desc" id="upd-rel" style="display:none;white-space:pre-wrap;max-height:200px;overflow:auto"></div></div>`;
         const updStatus = G("upd-status"), updDl = G("upd-dl"), updApply = G("upd-apply");
         const updPaint = (r) => {
           const cur = G("upd-cur");
@@ -4239,11 +4240,22 @@ ${pr.textContent}> ${cmd}\r
           let m = r.message || "";
           if (r.phase === "downloading" && r.size) m = `正在下载… ${((r.progress || 0) / 1048576).toFixed(1)} / ${(r.size / 1048576).toFixed(1)} MB`;
           if (!m) m = "点「检查更新」看看有没有新版";
+          if (r.prerelease && (r.phase === "available" || r.phase === "downloading" || r.phase === "ready")) m = "【测试版】" + m;
           updStatus.textContent = m;
           updDl.style.display = r.phase === "available" ? "" : "none";
           updApply.style.display = r.phase === "ready" ? "" : "none";
           const tk = G("upd-token");
           if (r.token && tk && document.activeElement !== tk) tk.placeholder = "令牌已配置（粘贴新令牌可更换，留空保存 = 删除）";
+          const rel = G("upd-rel");
+          if (rel) {
+            if (r.releaseName || r.releaseNotes) {
+              rel.style.display = "";
+              rel.textContent = (r.prerelease ? "【测试版】" : "") + (r.releaseName || "") + (r.releaseNotes ? "\n" + r.releaseNotes : "");
+            } else {
+              rel.style.display = "none";
+              rel.textContent = "";
+            }
+          }
         };
         const updRefresh = async () => {
           try {
@@ -4267,9 +4279,17 @@ ${pr.textContent}> ${cmd}\r
           updStatus.textContent = r.error ? "保存失败：" + r.error : r.token ? "令牌已保存，可以检查更新了" : "令牌已删除";
           updRefresh();
         };
+        G("upd-beta").onchange = async (e) => {
+          const r = await saveSetting({ updateBeta: e.target.checked });
+          if (r && r.error) {
+            alert("保存失败：" + r.error);
+            e.target.checked = !e.target.checked;
+          }
+        };
         G("upd-check").onclick = async () => {
           updStatus.textContent = "检查中…";
           updPaint(await api("/api/update/check", { method: "POST" }));
+          updRefresh();
         };
         updDl.onclick = async () => {
           updPaint(await api("/api/update/download", { method: "POST" }));
@@ -6309,7 +6329,7 @@ ${pr.textContent}> ${cmd}\r
 
   // web/src/b1/settings.ts
   var SETTINGS = null;
-  var SETDEF = { wallpaper: "tahoe", stageManager: false, idleExitMinutes: 30, phoneMode: true, phoneTriggerWidth: 1200, phoneWidth: 400, chromeCacheMB: 200, stageAutoClaimBrowser: true, filesOnDesktop: true, remoteEnabled: false, winPlaceOnClaim: true, winHideOnMinimize: true, winCloseToTray: true, immersiveMode: false, desktopFullscreen: false, dockPosition: "bottom", dockAutoHide: false, dockIconSize: 52, cc_show_immersive: true, cc_show_stage: true, cc_show_fullscreen: true, cc_show_dockhide: true, cc_show_remote: true, cc_show_wallpaper: true, notify_allow_sandbox: true, notify_allow_update: true, notify_allow_servermon: true, notify_allow_node: true, notify_allow_remote: true, notify_allow_files: true, notify_banner_sandbox: true, notify_banner_update: true, notify_banner_servermon: true, notify_banner_node: true, notify_banner_remote: true, notify_banner_files: true, nc_widgets: '[{"id":"calendar","show":true},{"id":"server","show":true},{"id":"node","show":true}]', exitClosesApps: true, nodeStartMode: "last", nodeSubAuto: true, nodeSubIntervalMin: 360, nodeTestURL: "http://www.gstatic.com/generate_204", nodeTestTimeoutMs: 5e3, nodeClashAPI: true, summonHotkey: "F8", defaultOfficeSuite: "onlyoffice", stageDisplay: "preview", deskIconSize: 54, deskSort: "manual" };
+  var SETDEF = { wallpaper: "tahoe", stageManager: false, idleExitMinutes: 30, phoneMode: true, phoneTriggerWidth: 1200, phoneWidth: 400, chromeCacheMB: 200, stageAutoClaimBrowser: true, filesOnDesktop: true, remoteEnabled: false, winPlaceOnClaim: true, winHideOnMinimize: true, winCloseToTray: true, immersiveMode: false, desktopFullscreen: false, dockPosition: "bottom", dockAutoHide: false, dockIconSize: 52, cc_show_immersive: true, cc_show_stage: true, cc_show_fullscreen: true, cc_show_dockhide: true, cc_show_remote: true, cc_show_wallpaper: true, notify_allow_sandbox: true, notify_allow_update: true, notify_allow_servermon: true, notify_allow_node: true, notify_allow_remote: true, notify_allow_files: true, notify_banner_sandbox: true, notify_banner_update: true, notify_banner_servermon: true, notify_banner_node: true, notify_banner_remote: true, notify_banner_files: true, nc_widgets: '[{"id":"calendar","show":true},{"id":"server","show":true},{"id":"node","show":true}]', exitClosesApps: true, updateBeta: false, nodeStartMode: "last", nodeSubAuto: true, nodeSubIntervalMin: 360, nodeTestURL: "http://www.gstatic.com/generate_204", nodeTestTimeoutMs: 5e3, nodeClashAPI: true, summonHotkey: "F8", defaultOfficeSuite: "onlyoffice", stageDisplay: "preview", deskIconSize: 54, deskSort: "manual" };
   function wallKey() {
     if (SETTINGS) return SETTINGS.wallpaper || "tahoe";
     return localStorage.getItem("mj-wall") || "tahoe";
