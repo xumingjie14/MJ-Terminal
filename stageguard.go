@@ -52,6 +52,27 @@ package main
 //     a group hide folds the book into grpHidden, and always
 //     before daemon exit -- the v0.37 never-strand line.
 //
+// test3 (same trio, the raise half one level deeper): test2's
+// field verification passed the boss key but the raise still
+// failed the user's lived test -- his video shows two Chrome
+// windows opening, one sliding out of sight, and Stage clicks
+// doing nothing, while the daemon log claimed ~50 raises
+// "succeeded". The log recorded SetForegroundWindow's return
+// value, not the pixels: foreground is not on-stage. The shell
+// is a full-size window; any click in it (the browser panel,
+// the Stage strip itself) activates the shell FIRST and plain
+// z-order covers the claimed window; the daemon's foreground
+// call then "succeeds" while the target stays under the shell.
+// The birth path learned this in v0.54 and verifies
+// (platformWindowAbove + presentSweep); the raise path never
+// did. focusClaimedWindow now verifies after the dance
+// (decideRaiseVerify): a raise counts only when the window is
+// above the shell and not iconic; otherwise it is lifted
+// explicitly above the shell, refocused, and re-verified; and
+// a short generation-bound sweep re-lifts it if the click's
+// own activation tail shoves the shell back on top within the
+// first second (decideRaiseSweep).
+//
 // All decisions are pure functions over plain facts, in the
 // house style (winset_test.go / owncheck_test.go); the platform
 // layer only collects facts and performs the outcomes.
@@ -142,25 +163,264 @@ func decideRaiseRetry(attempts int, ok bool) raiseRetryAction {
 
 // focusClaimedWindow runs ONE user-initiated raise of a live
 // claimed window (a Stage card click, or a stage-focus anchor)
-// under decideRaiseRetry and returns the decideRaise-level
-// verdict the caller acts on: raiseOK when either attempt
-// landed, raiseFailed when both failed (the caller then emits
-// its existing WARN -- the registration stays either way). A
-// retry success is named here so the console shows the recovery
-// happened instead of silence.
+// and returns the decideRaise-level verdict the caller acts
+// on: raiseOK only when the window is verified ON STAGE (see
+// verifyRaisedOnStage), raiseFailed when even the escalation
+// could not put it there (the caller then emits its WARN --
+// the registration stays either way). A retry success is named
+// here so the console shows the recovery happened instead of
+// silence. A verified raise also arms the anti-re-cover sweep.
 func focusClaimedWindow(hwnd uint64, label string) raiseOutcome {
+	focusOK := false
 	if decideRaiseRetry(1, platformFocusWindow(hwnd)) == raiseActOK {
-		return raiseOK
+		focusOK = true
+	} else {
+		time.Sleep(raiseRetryDelay)
+		// SW_RESTORE first if the first dance left the window
+		// iconic, then the full foreground dance once more.
+		platformRestoreWindow(hwnd)
+		if decideRaiseRetry(2, platformFocusWindow(hwnd)) == raiseActOKAfterRetry {
+			logf("winmgr", "info", "台前调度：置前重试成功（hwnd=%d，%s）", hwnd, label)
+			focusOK = true
+		}
 	}
-	time.Sleep(raiseRetryDelay)
-	// SW_RESTORE first if the first dance left the window
-	// iconic, then the full foreground dance once more.
-	platformRestoreWindow(hwnd)
-	if decideRaiseRetry(2, platformFocusWindow(hwnd)) == raiseActOKAfterRetry {
-		logf("winmgr", "info", "台前调度：置前重试成功（hwnd=%d，%s）", hwnd, label)
-		return raiseOK
+	// v0.62 test3: the dance's own report is not the verdict --
+	// the stage is. Verify (with one escalation lift in hand)
+	// before answering, so a caller's 已置前 always means the
+	// window is really up where the user can see it.
+	if !verifyRaisedOnStage(hwnd, label, focusOK) {
+		return raiseFailed
 	}
-	return raiseFailed
+	raiseSweepArm(hwnd, label)
+	return raiseOK
+}
+
+// ---------- ① on-stage verification (v0.62 test3) ----------
+//
+// The test2 field failure, precisely: platformFocusWindow
+// trusts SetForegroundWindow, and SetForegroundWindow answers
+// a question about FOCUS, not about the stage. On the user's
+// single-monitor machine the desktop view is a full-size
+// window: clicking anything in it -- the browser panel he
+// opens Chrome from, the Stage strip itself -- activates the
+// shell first, and plain Windows z-order slides the shell over
+// the claimed window ("它就会自动隐藏"). The subsequent card
+// click also lands in the shell first; the daemon's foreground
+// call then returns success while the target stays UNDER the
+// shell, and the user watches his clicks do nothing, fifty
+// logged successes in a row. The birth path solved this exact
+// class in v0.54: presentSweep verifies a newborn is ABOVE the
+// shell (platformWindowAbove) and re-lifts it when it is not.
+// This is the same pattern, moved to the raise path.
+
+type raiseStageFacts struct {
+	FocusOK    bool // the raise dance (test2 retry included) reported success
+	AboveShell bool // the window sits above the shell in z-order (vacuously true when there is no shell)
+	Iconic     bool // minimized: cannot count as on stage
+}
+
+type raiseVerifyAction int
+
+const (
+	raiseVerifyDone raiseVerifyAction = iota // verified on stage: the raise is complete
+	raiseVerifyLift                          // not on stage, escalation unspent: lift above the shell, refocus, verify again
+	raiseVerifyFail                          // still not on stage after the lift: the caller's WARN path
+)
+
+// raiseStageMaxChecks bounds the verification: the first check
+// judges the dance as it landed, the second judges it after the
+// one escalation lift. There is no third -- a window that still
+// cannot be put on stage is the user's to summon by hand, and
+// the WARN now says exactly that instead of claiming a success
+// that never reached the screen.
+const raiseStageMaxChecks = 2
+
+// decideRaiseVerify is the pure on-stage contract for a user
+// raise: focus reported AND above the shell AND not minimized
+// is the only "done". Anything else spends the one escalation
+// lift; a second bad verdict fails -- and per decideRaise's
+// standing rule, failure still never deletes the registration.
+func decideRaiseVerify(checks int, f raiseStageFacts) raiseVerifyAction {
+	if f.FocusOK && f.AboveShell && !f.Iconic {
+		return raiseVerifyDone
+	}
+	if checks >= raiseStageMaxChecks {
+		return raiseVerifyFail
+	}
+	return raiseVerifyLift
+}
+
+// raiseStageFactsNow collects the verification facts for hwnd.
+// The above-shell fact mirrors presentSweep's: with no shell
+// (or the target BEING the shell) nothing can cover the
+// window, so the fact reads true and foreground carries the
+// verdict -- off Windows platformWindowAbove reads true too,
+// so verification there falls back to the dance's own report,
+// exactly as the birth path does.
+func raiseStageFactsNow(hwnd uint64, focusOK bool) raiseStageFacts {
+	shell := shellHWND()
+	above := true
+	if shell != 0 && shell != hwnd {
+		above = platformWindowAbove(hwnd, shell)
+	}
+	return raiseStageFacts{
+		FocusOK:    focusOK,
+		AboveShell: above,
+		Iconic:     platformWindowIconic(hwnd),
+	}
+}
+
+// verifyRaisedOnStage judges a completed raise dance and, if
+// the window is not really up, escalates ONCE: an explicit
+// z-order lift directly above the shell (the z-order guard's
+// own platformInsertAboveShell, NOACTIVATE), one more
+// foreground ask from that footing, then a second verdict.
+// The escalation is named in the console so a recovered raise
+// is distinguishable from a clean one -- and from a failure.
+func verifyRaisedOnStage(hwnd uint64, label string, focusOK bool) bool {
+	for checks := 1; ; checks++ {
+		switch decideRaiseVerify(checks, raiseStageFactsNow(hwnd, focusOK)) {
+		case raiseVerifyDone:
+			return true
+		case raiseVerifyFail:
+			return false
+		}
+		// raiseVerifyLift.
+		if shell := shellHWND(); shell != 0 && shell != hwnd {
+			platformInsertAboveShell(hwnd, shell)
+		}
+		focusOK = platformFocusWindow(hwnd)
+		logf("winmgr", "info", "台前调度：置前未上台，已补提（hwnd=%d，%s）", hwnd, label)
+	}
+}
+
+// ---------- ① anti-re-cover sweep (v0.62 test3) ----------
+//
+// Verification judges the instant the dance ends; the user's
+// click is still landing at that instant. The click that
+// asked for the raise was aimed at the shell (the Stage strip
+// lives in it), and its activation tail can shove the shell
+// back on top a beat AFTER the daemon verified the raise --
+// the window was up, briefly, and then the desktop covered it
+// again with nobody logging a thing. So a verified raise arms
+// a short sweep in presentSweep's spirit: two ticks (~300 ms,
+// ~800 ms) that re-check the one fact that matters -- is the
+// window still above the shell -- and re-lift it (z-order
+// only, focus never touched) when it fell back under.
+//
+// The sweep belongs to a raise GENERATION in the hotkey
+// registrar's style: it serves exactly one window, the most
+// recently verified raise. A newer verified raise (any
+// window) bumps the generation and the old sweep stands down
+// silently -- a sweep must never yank a window back over a
+// stage the user has since re-cast. A target that closed or
+// was pruned, a window the user minimized themselves, and a
+// set the set machine has tucked away all stand the sweep
+// down too: decideRaiseSweep's facts say so, and nothing here
+// ever fights the set machine or the user's own hand.
+
+type raiseSweepFacts struct {
+	Registered bool // still in the registry (not closed / pruned)
+	AboveShell bool // still above the shell in z-order
+	Iconic     bool // user-minimized since: its state is its own business
+	SetHidden  bool // the set machine has the set tucked away: never fight it
+}
+
+type raiseSweepAction int
+
+const (
+	raiseSweepStop raiseSweepAction = iota // nothing owed: stand down silently
+	raiseSweepLift                         // fell below the shell: lift it back, this tick only
+)
+
+// decideRaiseSweep is the pure per-tick contract: re-lift only
+// a live, on-desktop window that has actually fallen below the
+// shell while its set is supposed to be up.
+func decideRaiseSweep(f raiseSweepFacts) raiseSweepAction {
+	if !f.Registered || f.SetHidden || f.Iconic || f.AboveShell {
+		return raiseSweepStop
+	}
+	return raiseSweepLift
+}
+
+// The sweep book: the one raise that currently owns the stage.
+// A generation starts at every verified raise; ticks carry
+// their generation and are inert once it moves on (the
+// hkRetryState discipline, same reason: a stale timer must
+// never act on a stage the user has already re-cast).
+var raiseSweepState = struct {
+	sync.Mutex
+	gen   int
+	hwnd  uint64
+	label string
+}{}
+
+// raiseSweepSchedule is time.AfterFunc behind a var so tests
+// can capture the ticks instead of waiting on the clock (the
+// hkScheduleRetry idiom).
+var raiseSweepSchedule = time.AfterFunc
+
+const (
+	raiseSweepTick1 = 300 * time.Millisecond
+	raiseSweepTick2 = 800 * time.Millisecond
+)
+
+// raiseSweepArm books the anti-re-cover sweep for a verified
+// raise: two ticks, both carrying this raise's generation.
+func raiseSweepArm(hwnd uint64, label string) {
+	raiseSweepState.Lock()
+	raiseSweepState.gen++
+	gen := raiseSweepState.gen
+	raiseSweepState.hwnd = hwnd
+	raiseSweepState.label = label
+	raiseSweepState.Unlock()
+	raiseSweepSchedule(raiseSweepTick1, func() { raiseSweepFire(gen, hwnd) })
+	raiseSweepSchedule(raiseSweepTick2, func() { raiseSweepFire(gen, hwnd) })
+}
+
+// raiseSweepClaim returns the booked label when a tick still
+// owns the stage: its generation is the current one and it
+// names the booked window. The claim is atomic with the label
+// read, so a superseded tick can neither act nor log under a
+// newer raise's name.
+func raiseSweepClaim(gen int, hwnd uint64) (string, bool) {
+	raiseSweepState.Lock()
+	defer raiseSweepState.Unlock()
+	if gen != raiseSweepState.gen || raiseSweepState.hwnd != hwnd {
+		return "", false
+	}
+	return raiseSweepState.label, true
+}
+
+// raiseSweepFire is one sweep tick coming due. Every stand-
+// down is silent by design: a superseded tick, a vanished
+// shell, a pruned window are all ordinary endings, and the
+// console line is reserved for the one event worth naming --
+// a window that had to be put back on stage.
+func raiseSweepFire(gen int, hwnd uint64) {
+	label, live := raiseSweepClaim(gen, hwnd)
+	if !live {
+		return
+	}
+	shell := shellHWND()
+	if shell == 0 || shell == hwnd {
+		return
+	}
+	extMu.Lock()
+	_, registered := extWins[hwnd]
+	extMu.Unlock()
+	facts := raiseSweepFacts{
+		Registered: registered,
+		AboveShell: platformWindowAbove(hwnd, shell),
+		Iconic:     platformWindowIconic(hwnd),
+		SetHidden:  grpIsHidden(),
+	}
+	if decideRaiseSweep(facts) != raiseSweepLift {
+		return
+	}
+	if platformInsertAboveShell(hwnd, shell) {
+		logf("winmgr", "info", "台前调度：置前巡查：窗口被桌面盖回，已再次提上台（hwnd=%d，%s）", hwnd, label)
+	}
 }
 
 // ---------- ③ stage-focus (hide others) ----------

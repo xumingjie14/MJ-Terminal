@@ -1003,10 +1003,15 @@ func extWinFocusHandler(w http.ResponseWriter, r *http.Request) {
 		// v0.62: a failed raise keeps the window claimed and is
 		// named in the console -- pre-v0.62 this returned a bare
 		// 500 and the click simply "did nothing". v0.62 test2:
-		// focusClaimedWindow has already retried once (settle,
-		// restore-if-iconic, second dance), so this warning now
-		// means BOTH attempts failed.
-		logf("winmgr", "warn", "台前调度：窗口置前失败（两次尝试均失败），窗口保留登记（hwnd=%d，%s）", body.HWND, label)
+		// focusClaimedWindow retried the dance once before
+		// failing. v0.62 test3: it also verifies the window is
+		// really ON STAGE (above the shell, not minimized) and
+		// spends an explicit above-shell lift + refocus when it
+		// is not, so this warning now means the window could
+		// not be put on stage even then -- and says so, instead
+		// of reporting a foreground success the screen never
+		// showed.
+		logf("winmgr", "warn", "台前调度：窗口置前未上台（尝试后仍在桌面之下），窗口保留登记（hwnd=%d，%s）", body.HWND, label)
 		writeAPIError(w, http.StatusInternalServerError, errCodeInternal, "窗口置前失败")
 		return
 	}

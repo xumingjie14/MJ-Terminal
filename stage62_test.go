@@ -14,6 +14,7 @@ package main
 import (
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestDecideRaise(t *testing.T) {
@@ -67,6 +68,151 @@ func TestFocusClaimedWindowDeadHandleGivesUp(t *testing.T) {
 	// business, not a failed raise's.
 	if got := focusClaimedWindow(0, "测试窗口"); got != raiseFailed {
 		t.Errorf("focusClaimedWindow(0) = %v, want raiseFailed", got)
+	}
+}
+
+func TestDecideRaiseVerify(t *testing.T) {
+	// v0.62 test3: the field case is (FocusOK, BELOW the
+	// shell): the test2 build logged ~50 raise "successes"
+	// while the window sat under the full-size desktop view
+	// and the user's clicks did nothing -- SetForegroundWindow
+	// reported focus, not stage presence. The table below is
+	// the fix: only focus + above-shell + not-iconic counts as
+	// done; anything else spends the ONE escalation lift; a
+	// second bad verdict fails, which focusClaimedWindow maps
+	// to raiseFailed -- where decideRaise's standing rule
+	// keeps the registration (removal is the patrol's alone,
+	// pinned end-to-end by TestFocusClaimedWindowDeadHandle-
+	// GivesUp above: even the fully-dead path never answers
+	// raiseGone).
+	cases := []struct {
+		name   string
+		checks int
+		f      raiseStageFacts
+		want   raiseVerifyAction
+	}{
+		{"接口成功+在桌面之上+未最小化→核验通过", 1, raiseStageFacts{FocusOK: true, AboveShell: true}, raiseVerifyDone},
+		{"补提后的第二次核验同样通过", 2, raiseStageFacts{FocusOK: true, AboveShell: true}, raiseVerifyDone},
+		{"接口成功却压在桌面之下→补提（真机原案）", 1, raiseStageFacts{FocusOK: true}, raiseVerifyLift},
+		{"补提后仍在桌面之下→判失败", 2, raiseStageFacts{FocusOK: true}, raiseVerifyFail},
+		{"接口成功但窗口还最小化着→补提", 1, raiseStageFacts{FocusOK: true, AboveShell: true, Iconic: true}, raiseVerifyLift},
+		{"补提后仍最小化→判失败", 2, raiseStageFacts{FocusOK: true, AboveShell: true, Iconic: true}, raiseVerifyFail},
+		{"接口失败但已在台上→补提时再问一次前台", 1, raiseStageFacts{AboveShell: true}, raiseVerifyLift},
+		{"接口失败且补提额度已花掉→判失败", 2, raiseStageFacts{AboveShell: true}, raiseVerifyFail},
+		{"全灭→第一次仍先补提", 1, raiseStageFacts{}, raiseVerifyLift},
+		{"全灭→第二次判失败", 2, raiseStageFacts{}, raiseVerifyFail},
+	}
+	for _, c := range cases {
+		if got := decideRaiseVerify(c.checks, c.f); got != c.want {
+			t.Errorf("%s: decideRaiseVerify(%d, %+v) = %v, want %v", c.name, c.checks, c.f, got, c.want)
+		}
+	}
+	if raiseStageMaxChecks != 2 {
+		t.Errorf("raiseStageMaxChecks = %d, want 2 (judge the dance, then judge it once after the lift)", raiseStageMaxChecks)
+	}
+}
+
+func TestDecideRaiseSweep(t *testing.T) {
+	// v0.62 test3: a sweep tick re-lifts ONLY a live window
+	// that has actually fallen back below the shell while its
+	// set is supposed to be up. Everything else stands down
+	// silently: the window is already up, it is gone, the user
+	// minimized it themselves, or the set machine tucked the
+	// whole set away (a sweep must never fight it).
+	cases := []struct {
+		name string
+		f    raiseSweepFacts
+		want raiseSweepAction
+	}{
+		{"在册+被盖回桌面之下+整套在场→再提上台", raiseSweepFacts{Registered: true}, raiseSweepLift},
+		{"仍在桌面之上→收兵", raiseSweepFacts{Registered: true, AboveShell: true}, raiseSweepStop},
+		{"窗口已关/已被巡逻修剪→收兵", raiseSweepFacts{}, raiseSweepStop},
+		{"用户自己最小化了→收兵", raiseSweepFacts{Registered: true, Iconic: true}, raiseSweepStop},
+		{"整套已被藏起→收兵（不和整套状态机打架）", raiseSweepFacts{Registered: true, SetHidden: true}, raiseSweepStop},
+	}
+	for _, c := range cases {
+		if got := decideRaiseSweep(c.f); got != c.want {
+			t.Errorf("%s: decideRaiseSweep(%+v) = %v, want %v", c.name, c.f, got, c.want)
+		}
+	}
+}
+
+// The sweep driver at the seam level (the TestHotkeyRetry-
+// Driver pattern): arming books exactly one generation with
+// two ticks at the pinned delays; a newer verified raise --
+// any window -- retires the older sweep's claim, so its ticks
+// fire into nothing and can never yank a window back over a
+// stage the user has re-cast. The per-tick fact verdict is
+// TestDecideRaiseSweep's; in this test process there is no
+// shell and no host window, so a live tick stands down at the
+// shell check and what is pinned here is the generation
+// bookkeeping the anti-fight guard stands on (the same
+// observable surface TestSoloReconcile pins).
+func TestRaiseSweepDriver(t *testing.T) {
+	raiseSweepState.Lock()
+	raiseSweepState.gen, raiseSweepState.hwnd, raiseSweepState.label = 0, 0, ""
+	raiseSweepState.Unlock()
+
+	type tick struct {
+		d time.Duration
+		f func()
+	}
+	var ticks []tick
+	origSchedule := raiseSweepSchedule
+	raiseSweepSchedule = func(d time.Duration, f func()) *time.Timer {
+		ticks = append(ticks, tick{d, f})
+		return time.NewTimer(time.Hour) // captured, never fires on its own
+	}
+	defer func() { raiseSweepSchedule = origSchedule }()
+
+	raiseSweepArm(101, "窗口甲")
+	if len(ticks) != 2 {
+		t.Fatalf("one arm scheduled %d ticks, want 2", len(ticks))
+	}
+	if ticks[0].d != raiseSweepTick1 || ticks[1].d != raiseSweepTick2 {
+		t.Fatalf("tick delays = %v, %v; want %v, %v", ticks[0].d, ticks[1].d, raiseSweepTick1, raiseSweepTick2)
+	}
+	if raiseSweepTick1 != 300*time.Millisecond || raiseSweepTick2 != 800*time.Millisecond {
+		t.Fatalf("sweep cadence = %v/%v, want ~300ms/~800ms (inside the click's activation tail, gone within a second)", raiseSweepTick1, raiseSweepTick2)
+	}
+	raiseSweepState.Lock()
+	genA := raiseSweepState.gen
+	raiseSweepState.Unlock()
+	if label, live := raiseSweepClaim(genA, 101); !live || label != "窗口甲" {
+		t.Fatalf("fresh arm: claim = %q, %v; want 窗口甲, true", label, live)
+	}
+	if _, live := raiseSweepClaim(genA, 999); live {
+		t.Fatal("claim granted for a window the sweep does not serve")
+	}
+
+	// A newer verified raise retires sweep A. Its captured
+	// ticks fire and must be inert: no claim, no panic, and
+	// sweep B's bookkeeping untouched.
+	raiseSweepArm(102, "窗口乙")
+	raiseSweepState.Lock()
+	genB := raiseSweepState.gen
+	raiseSweepState.Unlock()
+	if genB == genA {
+		t.Fatal("second arm did not bump the generation")
+	}
+	if len(ticks) != 4 {
+		t.Fatalf("two arms scheduled %d ticks, want 4", len(ticks))
+	}
+	for _, tk := range ticks[:2] {
+		tk.f()
+	}
+	if _, live := raiseSweepClaim(genA, 101); live {
+		t.Fatal("stale generation still claims the stage after a newer raise")
+	}
+	if label, live := raiseSweepClaim(genB, 102); !live || label != "窗口乙" {
+		t.Fatalf("newer arm after stale fires: claim = %q, %v; want 窗口乙, true", label, live)
+	}
+	// The live ticks run their course quietly: with no shell
+	// in this process each stands down at the shell check.
+	ticks[2].f()
+	ticks[3].f()
+	if label, live := raiseSweepClaim(genB, 102); !live || label != "窗口乙" {
+		t.Fatalf("live ticks disturbed the book: claim = %q, %v; want 窗口乙, true", label, live)
 	}
 }
 
