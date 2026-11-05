@@ -232,6 +232,72 @@ function baseData() {
   assert(probe2.imgviewIcon.includes('<svg'), 'viewer apps render drawn glyphs, not emoji');
   assert(probe2.cc.includes('<svg'), 'Control Center tiles render drawn glyphs');
 
+  /* ----- v0.62 additions (detail-fix trio) -----
+     * ③ the Stage card right-click menu: three windows of ONE
+       Chrome process render three independent cards; a card's
+       contextmenu opens the per-window menu (the v0.56 build
+       passed ctxOpen's arguments swapped, so it never opened)
+       carrying the new 隐藏其他窗口 item; the act -> endpoint
+       mapping posts to /api/extwin/focusonly.
+     * ① the frontend half: a card click posts its OWN hwnd to
+       /api/extwin/focus.
+     * ⑤ opening a context menu reports the 'ctx' overlay
+       session (and hideCtx closes it) to /api/view/overlay. */
+  const probe3 = await vm.runInContext(`(async function(){
+    const out = { posts: [] };
+    const origFetch = fetch;
+    const wins = { windows: [
+      { hwnd: 101, title: '文档一', app: 'Chrome', ikind: 'chrome' },
+      { hwnd: 102, title: '文档二', app: 'Chrome', ikind: 'chrome' },
+      { hwnd: 103, title: '文档三', app: 'Chrome', ikind: 'chrome' },
+    ] };
+    fetch = async (url, opts) => {
+      const p = String(url).split('?')[0];
+      if (p === '/api/extwin' && !(opts && opts.method === 'POST')) {
+        const t = JSON.stringify(wins);
+        return { ok: true, status: 200, text: async () => t, json: async () => JSON.parse(t) };
+      }
+      if (opts && opts.method === 'POST') out.posts.push(p + ' ' + (opts.body || ''));
+      return origFetch(url, opts);
+    };
+    hideCtx(); /* probe2 left a ctx session open; stageOverlay is transition-only, so close it before measuring */
+    SETTINGS.stageManager = true;
+    SETTINGS.stageDisplay = 'identity';
+    await refreshExtStrip();
+    const strip = document.getElementById('extstrip');
+    out.stripChildren = strip.children.length;
+    const card102 = strip.children.find(c => String(c.dataset.hwnd) === '102');
+    const card101 = strip.children.find(c => String(c.dataset.hwnd) === '101');
+    out.hasCtxHandler = !!(card102 && typeof card102.oncontextmenu === 'function');
+    if (card102) card102.oncontextmenu({ preventDefault(){}, stopPropagation(){}, clientX: 10, clientY: 10 });
+    out.menu = ctxEl.innerHTML;
+    out.epFocus = extCtxEndpoint('focus');
+    out.epFocusOnly = extCtxEndpoint('focusonly');
+    out.epMin = extCtxEndpoint('min');
+    out.epClose = extCtxEndpoint('close');
+    if (card101) { await card101.onclick(); }
+    hideCtx();
+    out.postsJoined = out.posts.join('|');
+    fetch = origFetch;
+    SETTINGS.stageManager = false;
+    await refreshExtStrip();
+    return out;
+  })()`, sandbox);
+
+  assert.strictEqual(probe3.stripChildren, 4, 'three windows of one process render a label + three independent cards');
+  assert(probe3.hasCtxHandler, 'a Stage card carries a contextmenu handler');
+  assert(probe3.menu.includes('切换到该窗口'), 'card menu carries 切换到该窗口');
+  assert(probe3.menu.includes('隐藏其他窗口'), 'card menu carries the new 隐藏其他窗口 (v0.62 item ③)');
+  assert(probe3.menu.includes('data-act="focusonly"'), 'card menu wires 隐藏其他窗口 to the focusonly act');
+  assert(probe3.menu.includes('最小化') && probe3.menu.includes('关闭窗口'), 'card menu keeps 最小化 / 关闭窗口');
+  assert.strictEqual(probe3.epFocusOnly, 'focusonly', 'focusonly act maps to the focusonly endpoint');
+  assert.strictEqual(probe3.epFocus, 'focus', 'focus act maps to the focus endpoint');
+  assert.strictEqual(probe3.epMin, 'minimize', 'min act maps to the minimize endpoint');
+  assert.strictEqual(probe3.epClose, 'close', 'close act maps to the close endpoint');
+  assert(probe3.postsJoined.includes('/api/extwin/focus {"hwnd":101}'), 'clicking card 101 posts its own hwnd to /api/extwin/focus');
+  assert(probe3.postsJoined.includes('/api/view/overlay') && probe3.postsJoined.includes('"kind":"ctx"') && probe3.postsJoined.includes('"on":true'), 'opening the card menu reports the ctx overlay session (⑤)');
+  assert(probe3.postsJoined.includes('"on":false'), 'hideCtx reports the ctx overlay close (⑤)');
+
   console.log('desk56_test: all assertions passed');
   process.exit(0);
 })().catch(e => { console.error('desk56_test FAILED:', e && e.stack || e); process.exit(1); });

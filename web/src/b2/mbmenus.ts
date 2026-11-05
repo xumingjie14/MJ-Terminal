@@ -11,9 +11,11 @@ document.addEventListener('focusin',e=>{
  if(t&&(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.isContentEditable)) lastEditTarget=t;
 });
 export function closeMbMenu(){
+ const wasOpen=mbOpenFor!=null;
  mbdrop.classList.add('hidden');
  document.querySelectorAll('#menubar .mi.on').forEach(x=>x.classList.remove('on'));
  mbOpenFor=null;
+ if(wasOpen) stageOverlay('menu',false);
 }
 export function mbItem(label,opts){
  opts=opts||{};
@@ -38,9 +40,14 @@ export function activeWinEl(){
 export function winOfApp(id){ return document.getElementById('win-'+id); }
 export function openMbMenu(spanId,builder){
  const span=$50(spanId); if(!span) return;
+ /* v0.62: a menubar dropdown is one of the view's overlays --
+    report only the closed->open transition (hover-switching
+    between menus keeps the same session). */
+ const wasOpen=mbOpenFor!=null;
  document.querySelectorAll('#menubar .mi.on').forEach(x=>x.classList.remove('on'));
  span.classList.add('on');
  mbOpenFor=spanId;
+ if(!wasOpen) stageOverlay('menu',true);
  const rect=span.getBoundingClientRect();
  mbdrop.style.left=Math.max(6,Math.min(rect.left-2,innerWidth-270))+'px';
  mbdrop.innerHTML='<div class="mbm-it dis">…</div>';

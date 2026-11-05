@@ -9,6 +9,7 @@ import { applyWallpaper, pollNode } from './menubar';
 import { openApp } from './windows';
 import { stageOn, toggleStage } from './stage';
 import { applyDockLayout, dockBase, dockMagReset } from './dock';
+import { stageOverlay } from './overlay';
 /* ----- control center + notification center (v0.47) -----
    Built from the macOS User Guide (Use Control Center on Mac /
    Use Notification Center on Mac), mapped onto the functions
@@ -51,10 +52,10 @@ export function routeJump(route){
   go(); setTimeout(go,150);
  } else openApp(route);
 }
-export function closeCC(){ if(!ccOpen) return; ccOpen=false; ccEl.classList.add('hidden'); const b=document.getElementById('mb-cc'); if(b) b.classList.remove('on'); }
-export function openCC(){ closeNC(); ccOpen=true; ccEl.classList.remove('hidden'); ccEl.classList.add('pop'); requestAnimationFrame(()=>requestAnimationFrame(()=>ccEl.classList.remove('pop'))); const b=document.getElementById('mb-cc'); if(b) b.classList.add('on'); paintCC(); }
-export function closeNC(){ if(!ncOpen) return; ncOpen=false; ncEl.classList.add('nc-off'); ncEditMode=false; }
-export function openNC(){ closeCC(); ncOpen=true; ncEl.classList.remove('nc-off'); paintNC(); }
+export function closeCC(){ if(!ccOpen) return; ccOpen=false; ccEl.classList.add('hidden'); const b=document.getElementById('mb-cc'); if(b) b.classList.remove('on'); stageOverlay('cc',false); }
+export function openCC(){ closeNC(); ccOpen=true; ccEl.classList.remove('hidden'); ccEl.classList.add('pop'); requestAnimationFrame(()=>requestAnimationFrame(()=>ccEl.classList.remove('pop'))); const b=document.getElementById('mb-cc'); if(b) b.classList.add('on'); paintCC(); stageOverlay('cc',true); }
+export function closeNC(){ if(!ncOpen) return; ncOpen=false; ncEl.classList.add('nc-off'); ncEditMode=false; stageOverlay('nc',false); }
+export function openNC(){ closeCC(); ncOpen=true; ncEl.classList.remove('nc-off'); paintNC(); stageOverlay('nc',true); }
 document.getElementById('mb-cc').onclick=e=>{ e.stopPropagation(); ccOpen?closeCC():openCC(); };
 document.getElementById('mb-clock').onclick=e=>{ e.stopPropagation(); ncOpen?closeNC():openNC(); };
 document.addEventListener('click',e=>{

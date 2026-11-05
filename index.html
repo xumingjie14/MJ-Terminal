@@ -1025,6 +1025,17 @@ function createEvHub(nowFn) {
     return v;
   } };
 
+  // web/src/b1/overlay.ts
+  var overlayState = {};
+  function stageOverlay(kind, on) {
+    if (overlayState[kind] === on) return;
+    overlayState[kind] = on;
+    try {
+      api("/api/view/overlay", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind, on }) }).catch(() => null);
+    } catch (e) {
+    }
+  }
+
   // web/src/b1/ctxmenu.ts
   function ctxItemHTML(it) {
     const sub = it.sub ? `<div class="ctxSub">${it.sub.map(ctxItemHTML).join("")}</div>` : "";
@@ -1032,6 +1043,7 @@ function createEvHub(nowFn) {
     return `<div class="ctxitem${it.sub ? " hasSub" : ""}" data-act="${it.act || ""}" ${it.arg ? `data-arg="${esc(it.arg)}"` : ""} ${it.danger ? 'style="color:#ff9d97"' : ""}>${it.radio ? `<i class="radio">${it.on ? "✓" : ""}</i>` : ""}${ic}${esc(it.label)}${sub}</div>`;
   }
   function ctxOpen(x, y, items, onPick) {
+    stageOverlay("ctx", true);
     ctxEl.innerHTML = items.map((it) => it.sep ? '<div style="height:1px;background:rgba(255,255,255,.16);margin:5px 8px"></div>' : ctxItemHTML(it)).join("");
     ctxEl.classList.remove("hidden");
     const flip = x > innerWidth - 440;
@@ -2066,6 +2078,7 @@ function createEvHub(nowFn) {
   var ctxEl = document.getElementById("ctxmenu");
   function hideCtx() {
     ctxEl.classList.add("hidden");
+    stageOverlay("ctx", false);
   }
   var __bind_fpDrag = { get() {
     return fpDrag;
@@ -2792,15 +2805,18 @@ function createEvHub(nowFn) {
     if (x.ikind === "chrome") return `<img class="extRealIcon" alt="" src="${verQ("/api/chrome/icon")}" onerror="this.remove()">`;
     return webIconHTML({ name: x.app, url: x.url || "" }, true);
   }
+  function extCtxEndpoint(act) {
+    return act === "focus" ? "focus" : act === "focusonly" ? "focusonly" : act === "min" ? "minimize" : "close";
+  }
   function showExtCtx(x, y, hwnd) {
     const items = [
       { act: "focus", label: "切换到该窗口", icon: "switch" },
+      { act: "focusonly", label: "隐藏其他窗口", icon: "eyeoff" },
       { act: "min", label: "最小化", icon: "minimize" },
       { act: "close", label: "关闭窗口", icon: "closex", danger: true }
     ];
-    ctxOpen(items, x, y, async (act) => {
-      const ep = act === "focus" ? "focus" : act === "min" ? "minimize" : "close";
-      await api("/api/extwin/" + ep, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hwnd }) }).catch(() => null);
+    ctxOpen(x, y, items, async (act) => {
+      await api("/api/extwin/" + extCtxEndpoint(act), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hwnd }) }).catch(() => null);
       setTimeout(refreshExtStrip, 350);
     });
   }
@@ -2809,7 +2825,7 @@ function createEvHub(nowFn) {
       { act: "front", label: "切换到", icon: "switch" },
       { act: "close", label: "关闭", icon: "closex", danger: true }
     ];
-    ctxOpen(items, x, y, (act) => {
+    ctxOpen(x, y, items, (act) => {
       if (act === "front") {
         openApp(app.id);
         return;
@@ -6444,6 +6460,7 @@ ${pr.textContent}> ${cmd}\r
     ccEl.classList.add("hidden");
     const b = document.getElementById("mb-cc");
     if (b) b.classList.remove("on");
+    stageOverlay("cc", false);
   }
   function openCC() {
     closeNC();
@@ -6454,18 +6471,21 @@ ${pr.textContent}> ${cmd}\r
     const b = document.getElementById("mb-cc");
     if (b) b.classList.add("on");
     paintCC();
+    stageOverlay("cc", true);
   }
   function closeNC() {
     if (!ncOpen) return;
     ncOpen = false;
     ncEl.classList.add("nc-off");
     ncEditMode = false;
+    stageOverlay("nc", false);
   }
   function openNC() {
     closeCC();
     ncOpen = true;
     ncEl.classList.remove("nc-off");
     paintNC();
+    stageOverlay("nc", true);
   }
   document.getElementById("mb-cc").onclick = (e) => {
     e.stopPropagation();
@@ -7066,6 +7086,10 @@ ${pr.textContent}> ${cmd}\r
   pub("stageOn", { get: () => stageOn });
   pub("toggleStage", { get: () => toggleStage });
   pub("extCardHTML", { get: () => extCardHTML });
+  pub("extCtxEndpoint", { get: () => extCtxEndpoint });
+  pub("refreshExtStrip", { get: () => refreshExtStrip });
+  pub("showExtCtx", { get: () => showExtCtx });
+  pub("stageOverlay", { get: () => stageOverlay });
   pub("cleanWinTitle", { get: () => cleanWinTitle });
   pub("entryMeta", { get: () => entryMeta });
   pub("folderIconHTML", { get: () => folderIconHTML });
@@ -7624,9 +7648,11 @@ function fvRangeSel(paths, anchor, to) {
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) lastEditTarget = t;
   });
   function closeMbMenu() {
+    const wasOpen = mbOpenFor != null;
     mbdrop.classList.add("hidden");
     document.querySelectorAll("#menubar .mi.on").forEach((x) => x.classList.remove("on"));
     mbOpenFor = null;
+    if (wasOpen) stageOverlay("menu", false);
   }
   function mbItem(label, opts) {
     opts = opts || {};
@@ -7662,9 +7688,11 @@ function fvRangeSel(paths, anchor, to) {
   function openMbMenu(spanId, builder) {
     const span = $50(spanId);
     if (!span) return;
+    const wasOpen = mbOpenFor != null;
     document.querySelectorAll("#menubar .mi.on").forEach((x) => x.classList.remove("on"));
     span.classList.add("on");
     mbOpenFor = spanId;
+    if (!wasOpen) stageOverlay("menu", true);
     const rect = span.getBoundingClientRect();
     mbdrop.style.left = Math.max(6, Math.min(rect.left - 2, innerWidth - 270)) + "px";
     mbdrop.innerHTML = '<div class="mbm-it dis">…</div>';
@@ -7858,7 +7886,9 @@ function fvRangeSel(paths, anchor, to) {
     if (vaultLockedNow()) return;
     closeMbMenu();
     closeLP();
+    const wasOpen = spotIsOpen;
     spotIsOpen = true;
+    if (!wasOpen) stageOverlay("spotlight", true);
     spotEl.classList.remove("hidden");
     spotEl.classList.remove("open");
     void spotEl.offsetWidth;
@@ -7878,6 +7908,7 @@ function fvRangeSel(paths, anchor, to) {
     if (!spotIsOpen) return;
     spotIsOpen = false;
     spotEl.classList.add("hidden");
+    stageOverlay("spotlight", false);
   }
   async function loadSpotNodes() {
     if (spotNodesCache && Date.now() - spotNodesAt < 15e3) return;
@@ -8144,9 +8175,11 @@ function fvRangeSel(paths, anchor, to) {
     if (vaultLockedNow()) return;
     closeMbMenu();
     closeSpot();
+    const wasOpen = lpIsOpen;
     lpIsOpen = true;
     lpPage = 0;
     lpQ.value = "";
+    if (!wasOpen) stageOverlay("launchpad", true);
     lpEl.classList.remove("hidden");
     lpEl.classList.remove("open");
     void lpEl.offsetWidth;
@@ -8163,6 +8196,7 @@ function fvRangeSel(paths, anchor, to) {
     if (!lpIsOpen) return;
     lpIsOpen = false;
     lpEl.classList.add("hidden");
+    stageOverlay("launchpad", false);
   }
   window.__lpClose = () => closeLP();
   function lpPageGo(d) {

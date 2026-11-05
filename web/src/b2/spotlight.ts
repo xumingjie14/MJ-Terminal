@@ -13,7 +13,9 @@ export let spotIsOpen=false, spotFlat=[], spotSel=0, spotNodesCache=null, spotNo
 export function openSpot(){
  if(vaultLockedNow()) return;
  closeMbMenu(); closeLP();
+ const wasOpen=spotIsOpen;
  spotIsOpen=true;
+ if(!wasOpen) stageOverlay('spotlight',true);
  spotEl.classList.remove('hidden');
  spotEl.classList.remove('open'); void spotEl.offsetWidth; spotEl.classList.add('open');
  spotIn.value=''; spotSel=0;
@@ -21,7 +23,7 @@ export function openSpot(){
  loadSpotNodes();
  setTimeout(()=>{ try{ spotIn.focus(); }catch(e){} },20);
 }
-export function closeSpot(){ if(!spotIsOpen) return; spotIsOpen=false; spotEl.classList.add('hidden'); }
+export function closeSpot(){ if(!spotIsOpen) return; spotIsOpen=false; spotEl.classList.add('hidden'); stageOverlay('spotlight',false); }
 export async function loadSpotNodes(){
  if(spotNodesCache&&Date.now()-spotNodesAt<15000) return;
  try{

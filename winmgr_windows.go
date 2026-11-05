@@ -477,6 +477,20 @@ func platformWindowTitle(hwnd uint64) (string, bool) {
 // foreground window, so AttachThreadInput is used as the standard
 // workaround before asking.
 func platformFocusWindow(hwnd uint64) bool {
+	// v0.62 (detail-fix ①): the AttachThreadInput workaround is
+	// only valid while every call below runs on ONE OS thread --
+	// it attaches the CALLING thread's input queue, and this
+	// function runs on HTTP-handler goroutines, which Go's async
+	// preemption can migrate between OS threads mid-dance. When
+	// that happened the attach silently named a thread that no
+	// longer ran the SetForegroundWindow call, the call no-oped,
+	// and the Stage Manager click "did nothing" -- worst exactly
+	// in the multi-window case, where the foreground thread, the
+	// target thread and the daemon thread all differ. Pin the
+	// goroutine for the whole dance (the same pattern
+	// platformSetAppID already uses for its COM work).
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 	h := uintptr(hwnd)
 	if r, _, _ := procIsWindow.Call(h); r == 0 {
 		return false
@@ -683,6 +697,34 @@ func platformRaiseBackdrop(hwnd uint64, shell uint64) bool {
 	flags := uintptr(swpNoSize | swpNoMove | swpNoActivate)
 	procSetWindowPos.Call(nw, 0 /* HWND_TOP */, 0, 0, 0, 0, flags)
 	r, _, _ := procSetWindowPos.Call(sh, nw, 0, 0, 0, 0, flags)
+	return r != 0
+}
+
+// platformInsertAboveShell lifts hwnd to the slot directly
+// above the shell window in z-order, NOACTIVATE (v0.62,
+// detail-fix ⑤'s z-order guard). SetWindowPos's hWndInsertAfter
+// names the window that stays ABOVE the positioned one (see
+// platformRaiseBackdrop's v0.54 note), so the insert target is
+// the window currently sitting immediately above the shell
+// (GW_HWNDPREV of the shell); when the shell is topmost that is
+// HWND_TOP itself. Callers lift claimed windows in top-to-bottom
+// z-order, which preserves their relative order above the
+// shell. Z-order only -- focus is never taken.
+func platformInsertAboveShell(hwnd uint64, shell uint64) bool {
+	h, sh := uintptr(hwnd), uintptr(shell)
+	if r, _, _ := procIsWindow.Call(h); r == 0 {
+		return false
+	}
+	if r, _, _ := procIsWindow.Call(sh); r == 0 {
+		return false
+	}
+	const gwHwndPrev = 3
+	prev, _, _ := procGetWindow.Call(sh, gwHwndPrev)
+	const swpNoSize = 0x0001
+	const swpNoMove = 0x0002
+	const swpNoActivate = 0x0010
+	r, _, _ := procSetWindowPos.Call(h, prev, 0, 0, 0, 0,
+		uintptr(swpNoSize|swpNoMove|swpNoActivate))
 	return r != 0
 }
 

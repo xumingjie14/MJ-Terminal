@@ -25,6 +25,7 @@ declare var SETTINGS: any;
 declare const SETDEF: any;
 declare function saveSetting(...args: any[]): any;
 declare function stageOn(...args: any[]): any;
+declare function stageOverlay(...args: any[]): any;
 declare function toggleStage(...args: any[]): any;
 declare function dockAutoHideOn(...args: any[]): any;
 declare function applyDockLayout(...args: any[]): any;

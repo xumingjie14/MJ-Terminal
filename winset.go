@@ -288,12 +288,29 @@ func shellHWND() uint64 {
 
 // ---------- set hide / restore ----------
 
+// reasonForSetEvent names WHY a set-vis transition hides the
+// set (v0.62, detail-fix ⑤): every group hide carries its
+// explicit reason into the console -- a hide with no reason
+// must be impossible, so the reason is derived from the event
+// itself, never passed as an optional extra.
+func reasonForSetEvent(ev setVisEvent) string {
+	switch ev {
+	case evShellMinimized:
+		return "shell-minimized 桌面视图最小化联动"
+	case evShellClosed:
+		return "shell-closed 桌面视图关闭收进托盘"
+	case evBossKeyHide:
+		return "boss-key 老板键"
+	}
+	return "explicit-stage 显式舞台动作"
+}
+
 // grpHideSet hides every claimed window that is currently up on
 // the host desktop and books exactly those into grpHidden. A
 // window the user minimized on their own (iconic) or that is
 // already invisible is skipped: its state is its own business,
 // and group restore must never resurrect what it did not hide.
-func grpHideSet() {
+func grpHideSet(reason string) {
 	extMu.Lock()
 	hwnds := make([]uint64, 0, len(extWins))
 	for h, e := range extWins {
@@ -302,7 +319,7 @@ func grpHideSet() {
 		}
 	}
 	extMu.Unlock()
-	n := 0
+	hidden := []uint64{}
 	for _, h := range hwnds {
 		if !platformWindowExists(h) || !platformWindowVisible(h) || platformWindowIconic(h) {
 			continue
@@ -311,11 +328,11 @@ func grpHideSet() {
 			grpMu.Lock()
 			grpHidden[h] = true
 			grpMu.Unlock()
-			n++
+			hidden = append(hidden, h)
 		}
 	}
-	if n > 0 {
-		logf("winmgr", "info", "开窗礼仪：整套窗口联动隐藏（%d 个）", n)
+	if len(hidden) > 0 {
+		logf("winmgr", "info", "开窗礼仪：整套窗口联动隐藏（%d 个，hwnd=%v，原因：%s）", len(hidden), hidden, reason)
 	}
 }
 
@@ -370,6 +387,9 @@ func grpEnforceHidden() {
 			grpMu.Lock()
 			grpHidden[h] = true
 			grpMu.Unlock()
+			// v0.62: enforcement hides are logged with their
+			// reason and HWND like every other hide.
+			logf("winmgr", "info", "开窗礼仪：整套藏着期间发现可见窗口，已重新隐藏（hwnd=%d，原因：整套隐藏巡逻纠正）", h)
 		}
 	}
 }
@@ -390,7 +410,20 @@ func grpApplyEvent(ev setVisEvent) {
 	grpVis = step.Next
 	grpMu.Unlock()
 	if step.HideSet {
-		grpHideSet()
+		// v0.62 (detail-fix ③): windows hidden SOLO by a
+		// stage-focus action fold into the group book before
+		// the set hides, so the group restore returns them
+		// with everyone else and the two books never own the
+		// same window at once.
+		if _, folded := soloTakeAll(); len(folded) > 0 {
+			grpMu.Lock()
+			for _, h := range folded {
+				grpHidden[h] = true
+			}
+			grpMu.Unlock()
+			logf("winmgr", "info", "台前调度：整套隐藏前，%d 个单独聚焦隐藏的窗口已并入整套账本（hwnd=%v）", len(folded), folded)
+		}
+		grpHideSet(reasonForSetEvent(ev))
 	}
 	if step.RestoreSet {
 		grpRestoreSet()
@@ -497,6 +530,21 @@ func prepareWindowsForDaemonExit() {
 	if was != visShown {
 		grpRestoreSet()
 		logf("winmgr", "info", "开窗礼仪：守护进程退出前已恢复全部联动隐藏的窗口")
+	}
+	// v0.62: solo-hidden windows (detail-fix ③'s stage-focus)
+	// are not in the group book while the set is shown -- they
+	// get the same never-strand guarantee before the daemon
+	// goes away.
+	if _, soloHiddenSet := soloTakeAll(); len(soloHiddenSet) > 0 {
+		n := 0
+		for _, h := range soloHiddenSet {
+			if platformWindowExists(h) && platformShowBackWindow(h) {
+				n++
+			}
+		}
+		if n > 0 {
+			logf("winmgr", "info", "开窗礼仪：守护进程退出前已恢复单独聚焦隐藏的窗口（%d 个）", n)
+		}
 	}
 }
 
@@ -721,6 +769,25 @@ func shellWatchTick() {
 	// guard skips hidden/minimized states), so a view that later
 	// dies for real can be rebuilt where it stood.
 	noteShellGeometry(hwnd)
+	// v0.62 (detail-fix ⑤): the z-order guard. While one of the
+	// desktop view's own overlays (Control Center / Notification
+	// Center / menubar menus / Spotlight / Launchpad / context
+	// menus) is open, plain Windows activation has put this
+	// shell ON TOP of the claimed windows it overlaps -- the app
+	// only LOOKS gone; nothing hid it. Lift the covered claimed
+	// windows back above the shell (stageguard.go). The guard
+	// runs only in that exact shape: overlay session live +
+	// shell foreground. Explicit stage actions never open an
+	// overlay session, so when the shell comes front for one of
+	// those, it keeps the stage.
+	if overlayLive() && decideZGuard(zGuardFacts{
+		OverlayLive:       true,
+		ForegroundIsShell: classifyForeground(hwnd) == fgShell,
+		ShellUsable:       platformWindowExists(hwnd) && !iconic && platformWindowVisible(hwnd),
+		SetHidden:         vis != visShown,
+	}) {
+		liftClaimedAboveShell(hwnd)
+	}
 }
 
 // ---------- birth settlement (placement + backdrop) ----------
@@ -767,7 +834,7 @@ func settleNewWindow(hwnd uint64, launchCtx bool) {
 				label = e.App
 			}
 			extMu.Unlock()
-			logf("winmgr", "info", "开窗礼仪：整套隐藏期间的新窗口已跟随隐藏：%s", label)
+			logf("winmgr", "info", "开窗礼仪：整套隐藏期间的新窗口已跟随隐藏：%s（hwnd=%d，原因：整套隐藏中出生）", label, hwnd)
 		}
 		return
 	}

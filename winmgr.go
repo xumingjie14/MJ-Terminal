@@ -569,16 +569,20 @@ func presentWindowForPIDs(app string, pids map[uint32]bool) (uint64, bool) {
 		return 0, false
 	}
 	if _, alive := platformWindowTitle(hwnd); !alive {
-		extMu.Lock()
-		delete(extWins, hwnd)
-		extMu.Unlock()
-		busWindows(hwnd) // v0.59 block 3: live sync
+		// v0.62 (detail-fix ①): an action path never strikes a
+		// registration -- removal belongs ONLY to the patrol
+		// prune (the same IsWindow-based verdict), so a
+		// transient probe failure cannot make a live window
+		// vanish from the Stage Manager.
+		logf("winmgr", "warn", "二次打开呈现：窗口已不存在，保留登记待巡逻修剪（hwnd=%d，%s）", hwnd, app)
 		return 0, false
 	}
 	grpRestoreForFocus()
 	if !platformFocusWindow(hwnd) {
+		logf("winmgr", "warn", "二次打开呈现：窗口置前失败，窗口保留登记（hwnd=%d，%s）", hwnd, app)
 		return 0, false
 	}
+	soloForget(hwnd) // v0.62: a hand-raised window leaves the solo book
 	extMu.Lock()
 	if e, ok2 := extWins[hwnd]; ok2 {
 		e.presentPending = false
@@ -972,11 +976,22 @@ func extWinFocusHandler(w http.ResponseWriter, r *http.Request) {
 		apiErrBadRequest(w, errCodeBadRequest, "参数不对")
 		return
 	}
-	if _, alive := platformWindowTitle(body.HWND); !alive {
-		extMu.Lock()
-		delete(extWins, body.HWND)
-		extMu.Unlock()
-		busWindows(body.HWND) // v0.59 block 3: live sync
+	extMu.Lock()
+	label := ""
+	if e, ok := extWins[body.HWND]; ok {
+		label = e.App
+	}
+	extMu.Unlock()
+	// v0.62 (detail-fix ①): the aliveness probe decides ONLY the
+	// answer to this click. decideRaise (stageguard.go) rules:
+	// a dead handle answers "gone" but the registration STAYS --
+	// removal belongs only to the patrol prune (the same
+	// IsWindow-based verdict), so a transient probe failure can
+	// no longer strike a live window from the ledger and make
+	// its Stage card vanish.
+	_, alive := platformWindowTitle(body.HWND)
+	if decideRaise(raiseFacts{Alive: alive}) == raiseGone {
+		logf("winmgr", "warn", "台前调度：点击的窗口已不存在，保留登记待巡逻修剪（hwnd=%d，%s）", body.HWND, label)
 		writeAPIError(w, http.StatusNotFound, errCodeNotFound, "这个窗口已经关了")
 		return
 	}
@@ -984,10 +999,16 @@ func extWinFocusHandler(w http.ResponseWriter, r *http.Request) {
 	// tray), a Stage Manager click restores the WHOLE set first,
 	// then raises the target (grpRestoreForFocus, winset.go).
 	grpRestoreForFocus()
-	if !platformFocusWindow(body.HWND) {
+	if decideRaise(raiseFacts{Alive: true, FocusOK: platformFocusWindow(body.HWND)}) != raiseOK {
+		// v0.62: a failed raise keeps the window claimed and is
+		// named in the console -- pre-v0.62 this returned a bare
+		// 500 and the click simply "did nothing".
+		logf("winmgr", "warn", "台前调度：窗口置前失败，窗口保留登记（hwnd=%d，%s）", body.HWND, label)
 		writeAPIError(w, http.StatusInternalServerError, errCodeInternal, "窗口置前失败")
 		return
 	}
+	logf("winmgr", "info", "台前调度：已置前窗口（hwnd=%d，%s，原因：用户点选）", body.HWND, label)
+	soloForget(body.HWND) // v0.62: a hand-raised window leaves the solo book
 	// The user just presented this window by hand: any pending
 	// birth-presentation verification for it is moot.
 	extMu.Lock()
@@ -1013,25 +1034,26 @@ func extWinPost(w http.ResponseWriter, r *http.Request, act func(hwnd uint64) bo
 		apiErrBadRequest(w, errCodeBadRequest, "参数不对")
 		return
 	}
-	if _, alive := platformWindowTitle(body.HWND); !alive {
-		extMu.Lock()
-		delete(extWins, body.HWND)
-		extMu.Unlock()
-		busWindows(body.HWND) // v0.59 block 3: live sync
-		writeAPIError(w, http.StatusNotFound, errCodeNotFound, "这个窗口已经关了")
-		return
-	}
 	extMu.Lock()
 	label := ""
 	if e, ok := extWins[body.HWND]; ok {
 		label = e.App
 	}
 	extMu.Unlock()
+	if _, alive := platformWindowTitle(body.HWND); !alive {
+		// v0.62 (detail-fix ①): same rule as the focus handler --
+		// no action path strikes a registration; the patrol
+		// prune owns removal.
+		logf("winmgr", "warn", "台前调度卡片菜单：目标窗口已不存在，保留登记待巡逻修剪（hwnd=%d，动作：%s，%s）", body.HWND, verb, label)
+		writeAPIError(w, http.StatusNotFound, errCodeNotFound, "这个窗口已经关了")
+		return
+	}
 	if !act(body.HWND) {
+		logf("winmgr", "warn", "台前调度卡片菜单：%s失败（hwnd=%d，%s）", verb, body.HWND, label)
 		writeAPIError(w, http.StatusInternalServerError, errCodeInternal, verb+"失败")
 		return
 	}
-	logf("winmgr", "info", "台前调度卡片菜单：%s窗口（%s）", verb, label)
+	logf("winmgr", "info", "台前调度卡片菜单：%s窗口（hwnd=%d，%s）", verb, body.HWND, label)
 	busWindows(body.HWND) // v0.59 block 3: live sync
 	writeJSON(w, okResponse{OK: true})
 }
@@ -1240,6 +1262,10 @@ func patrolTick() {
 	for _, h := range place {
 		tryPlaceExtWindow(h)
 	}
+	// v0.62: the solo (stage-focus) book follows the prune --
+	// dead bookings leave it, and a dead anchor returns its
+	// solo-hidden windows to the desktop (stageguard.go).
+	soloReconcile(registered)
 	// v0.56: window geometry memory -- flush the final rects of
 	// windows that just closed, then sample the live ones.
 	geomFlushGone()

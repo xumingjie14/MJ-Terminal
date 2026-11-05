@@ -9,6 +9,7 @@ import { LAYOUT, WEBAPPS, entryMeta, folderById, folderItems, folderedKeys, recO
 import { renderDesk } from './desktop';
 import { desktopInsertAt, dragMovedArray, dragShiftMap, folderDissolvesAfter } from './drag';
 import { BOXAPPS, DESKFILES, PRODAPPS, STOREAPPS } from './appsload';
+import { stageOverlay } from './overlay';
 /* ----- folder popup (v0.31): macOS Launchpad folder form -----
    The desktop dims and blurs behind a centered rounded panel; the
    title renames in place (click it; Enter or blur commits, Esc
@@ -207,7 +208,7 @@ export function endFolderDragVisual(st){
 }
 /* ----- desktop context menu ----- */
 export const ctxEl=document.getElementById('ctxmenu');
-export function hideCtx(){ctxEl.classList.add('hidden')}
+export function hideCtx(){ctxEl.classList.add('hidden'); stageOverlay('ctx',false);}
 export const __bind_openFolderEl: any = { get(): any { return openFolderEl; }, set(v: any): any { openFolderEl = v; return v; } };
 
 export const __bind_openFolderId: any = { get(): any { return openFolderId; }, set(v: any): any { openFolderId = v; return v; } };

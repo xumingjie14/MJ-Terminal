@@ -67,17 +67,28 @@ export function extIconHTML(x){
  return webIconHTML({name:x.app,url:x.url||''},true);
 }
 /* v0.56 test2 item 3: right-click on a strip card -- the
-   per-window menu. External windows get the three operations
-   the winmgr honestly has (focus / minimize / WM_CLOSE). */
+   per-window menu. External windows get the operations the
+   winmgr honestly has (focus / minimize / WM_CLOSE).
+   v0.62 (detail-fix ③): the menu never actually opened in the
+   field -- this call passed (items, x, y) into ctxOpen(x, y,
+   items, onPick), so items.map threw on a number and the
+   handler died before painting; the argument order is fixed.
+   The menu also gains 隐藏其他窗口 (focusonly: stage-focus to
+   this window, the others hide as an explicit stage action --
+   stageguard.go). extCtxEndpoint is factored out so the JS
+   suite can pin the act -> endpoint mapping. */
+export function extCtxEndpoint(act){
+ return act==='focus'?'focus':act==='focusonly'?'focusonly':act==='min'?'minimize':'close';
+}
 export function showExtCtx(x,y,hwnd){
  const items=[
   {act:'focus',label:'切换到该窗口',icon:'switch'},
+  {act:'focusonly',label:'隐藏其他窗口',icon:'eyeoff'},
   {act:'min',label:'最小化',icon:'minimize'},
   {act:'close',label:'关闭窗口',icon:'closex',danger:true},
  ];
- ctxOpen(items,x,y,async act=>{
-  const ep=act==='focus'?'focus':act==='min'?'minimize':'close';
-  await api('/api/extwin/'+ep,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hwnd})}).catch(()=>null);
+ ctxOpen(x,y,items,async act=>{
+  await api('/api/extwin/'+extCtxEndpoint(act),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hwnd})}).catch(()=>null);
   setTimeout(refreshExtStrip,350);
  });
 }
@@ -90,7 +101,9 @@ export function showStageCtx(x,y,app){
   {act:'front',label:'切换到',icon:'switch'},
   {act:'close',label:'关闭',icon:'closex',danger:true},
  ];
- ctxOpen(items,x,y,act=>{
+ /* v0.62: same swapped-argument fix as showExtCtx above --
+    this menu never opened either. */
+ ctxOpen(x,y,items,act=>{
   if(act==='front'){ openApp(app.id); return; }
   const w=document.getElementById('win-'+app.id);
   if(w){ w.classList.add('hidden'); onWinClosed(app.id); syncDots(); }

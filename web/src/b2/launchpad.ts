@@ -34,13 +34,15 @@ export function lpVisible(){
 export function openLP(){
  if(vaultLockedNow()) return;
  closeMbMenu(); closeSpot();
+ const wasOpen=lpIsOpen;
  lpIsOpen=true; lpPage=0; lpQ.value='';
+ if(!wasOpen) stageOverlay('launchpad',true);
  lpEl.classList.remove('hidden');
  lpEl.classList.remove('open'); void lpEl.offsetWidth; lpEl.classList.add('open');
  paintLP();
  setTimeout(()=>{ try{ lpQ.focus(); }catch(e){} },40);
 }
-export function closeLP(){ if(!lpIsOpen) return; lpIsOpen=false; lpEl.classList.add('hidden'); }
+export function closeLP(){ if(!lpIsOpen) return; lpIsOpen=false; lpEl.classList.add('hidden'); stageOverlay('launchpad',false); }
 window.__lpClose=()=>closeLP();
 export function lpPageGo(d){
  const pages=lpPageCount(lpVisible().length,innerWidth,innerHeight);

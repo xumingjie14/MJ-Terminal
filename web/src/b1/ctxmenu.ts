@@ -12,6 +12,7 @@ import { renderDesk } from './desktop';
 import { cancelDrag, dragState, __bind_dragState } from './drag';
 import { cancelFolderDrag, closeFolderPop, ctxEl, fpDrag, hideCtx, openFolderPop, __bind_fpDrag } from './folders';
 import { DESKFILES, PRODAPPS, STOREAPPS, loadFFState, loadProdApps, loadStoreApps, showFileCtx, toast } from './appsload';
+import { stageOverlay } from './overlay';
 /* ----- context menus (v0.56: one component, content by kind) -----
    ctxOpen paints items into the shared #ctxmenu; an item with a
    `sub` payload gets a hover submenu (radio items carry a ✓).
@@ -26,6 +27,10 @@ export function ctxItemHTML(it){
  return `<div class="ctxitem${it.sub?' hasSub':''}" data-act="${it.act||''}" ${it.arg?`data-arg="${esc(it.arg)}"`:''} ${it.danger?'style="color:#ff9d97"':''}>${it.radio?`<i class="radio">${it.on?'✓':''}</i>`:''}${ic}${esc(it.label)}${sub}</div>`;
 }
 export function ctxOpen(x,y,items,onPick){
+ /* v0.62: a context menu is one of the view's overlays -- its
+    session arms the daemon's z-order guard like CC/NC do
+    (hideCtx in folders.ts reports the close). */
+ stageOverlay('ctx',true);
  ctxEl.innerHTML=items.map(it=>it.sep?'<div style="height:1px;background:rgba(255,255,255,.16);margin:5px 8px"></div>':ctxItemHTML(it)).join('');
  ctxEl.classList.remove('hidden');
  const flip=x>innerWidth-440;

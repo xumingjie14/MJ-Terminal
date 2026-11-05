@@ -104,7 +104,15 @@ func viewStreamHandler(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		viewCmdState.Lock()
 		delete(viewCmdState.subs, ch)
+		last := len(viewCmdState.subs) == 0
 		viewCmdState.Unlock()
+		// v0.62: the last view stream going away takes its
+		// overlay sessions with it (stageguard.go) -- a close
+		// the dying view never got to report must not leave
+		// the z-order guard armed.
+		if last {
+			overlayClearAll()
+		}
 	}()
 	// v0.59: the same connection also carries the change bus
 	// (all topics). Unsubscribe on return; the bus side is

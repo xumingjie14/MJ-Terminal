@@ -127,6 +127,7 @@ var featureRegistry = []feature{
 		Routes: []featureRoute{
 			lrr("GET", "/api/extwin"),
 			lr("/api/extwin/focus"), lr("/api/extwin/minimize"),
+			lr("/api/extwin/focusonly"), lr("/api/view/overlay"),
 			lr("/api/extwin/close"), lr("/api/extwin/thumb"),
 			lr("/api/wingeom/clear"),
 			lr("/api/openshell"), lr("/api/shell/hide"), lr("/api/shell/restored"),
