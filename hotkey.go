@@ -28,9 +28,21 @@ package main
 // 设置 → 通用 shows 「被占用」 from GET /api/hotkey/status, which
 // reports the combo plus a three-state status (registered /
 // busy / unsupported, plus off / error). Unregistration happens
-// on re-register and, failing everything, the OS drops a
-// process's hotkeys when the process exits -- nothing is left
-// resident.
+// on re-register and at the START of every daemon exit
+// (hotkeyStop, v0.62 test2), and failing everything, the OS
+// drops a process's hotkeys when the process exits -- nothing
+// is left resident.
+//
+// v0.62 test2: a conflict is no longer instantly final. Field
+// forensics (2026-11-05 21:08:16) showed the update handover's
+// successor daemon registering while its predecessor -- still
+// inside its exit sequence -- held Ctrl+F6: ONE "未能注册"
+// warning, no retry, and the whole instance ran with a dead
+// boss key. A conflict is therefore treated as transient: the
+// retrying registrar below re-attempts on a bounded budget
+// (decideHKRetry) before the busy warning is allowed to fire,
+// and the exiting daemon unregisters first (hotkeyStop) so the
+// race window shrinks to near zero from both sides.
 
 import (
 	"errors"
@@ -40,6 +52,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // ---------- combo model (pure) ----------
@@ -240,7 +253,7 @@ func hotkeyApplySetting() {
 	hotkeyState.Lock()
 	hotkeyState.key = key
 	hotkeyState.Unlock()
-	hotkeyPlatformApply(combo)
+	hotkeyBeginApply(combo)
 }
 
 // hotkeySetResult records the platform layer's registration
@@ -263,6 +276,179 @@ func hotkeySetResult(registered bool, note string) {
 	} else if note != "" {
 		logf("system", "warn", "老板键 %s 未能注册：%s", key, note)
 	}
+}
+
+// ---------- registration retry (v0.62 test2, pure seam) ----------
+
+// hotkeyBusyNote is the named reason a combo cannot be
+// registered because another program holds it (Windows error
+// 1409, ERROR_HOTKEY_ALREADY_REGISTERED). The wording is the
+// v0.50 original; since test2 it is surfaced ONLY when the
+// retry budget below is spent, never on a first failure.
+const hotkeyBusyNote = "该组合已被其他程序占用（游戏、录屏或输入法常见），请换一个组合或关闭"
+
+// hkAttemptOutcome is what one platform registration attempt
+// came back with. Only a conflict is transient: at daemon start
+// it almost always means our own exiting predecessor (update
+// handover) has not let go of the combo yet.
+type hkAttemptOutcome int
+
+const (
+	hkOutcomeOK hkAttemptOutcome = iota
+	hkOutcomeConflict
+	hkOutcomeError // any other refusal: hard, never retried
+)
+
+// hkRetryAction is what the registrar does with an outcome.
+type hkRetryAction int
+
+const (
+	hkActSettled   hkRetryAction = iota // success, or a hard failure to report now
+	hkActRetry                          // conflict with budget left: try again after hkRetryDelay
+	hkActExhausted                      // conflict with the budget spent: the busy warning fires now
+)
+
+// The retry budget: attempts 1..hkRetryMaxAttempts, one every
+// hkRetryDelay -- about 15 s of grace, far longer than any
+// handover exit takes, short enough that a genuinely stolen
+// combo still surfaces its warning promptly.
+const (
+	hkRetryMaxAttempts = 30
+	hkRetryDelay       = 500 * time.Millisecond
+)
+
+// decideHKRetry is the whole retry contract in one pure
+// function: given how many attempts the current generation has
+// made and what the last one returned, what happens next.
+func decideHKRetry(attempts int, outcome hkAttemptOutcome) hkRetryAction {
+	if outcome != hkOutcomeConflict {
+		return hkActSettled
+	}
+	if attempts >= hkRetryMaxAttempts {
+		return hkActExhausted
+	}
+	return hkActRetry
+}
+
+// hkRetryState is the retry driver's book. A generation starts
+// at every fresh apply (daemon start, settings kick): it resets
+// the budget and retires any timer an older generation left
+// pending, so a stale retry can never fire into a combo the
+// user has already replaced.
+var hkRetryState = struct {
+	sync.Mutex
+	gen      int
+	attempts int
+	noted    bool // the "正在重试" info line is per-generation, once
+	timer    *time.Timer
+	combo    hotkeyCombo
+}{}
+
+// hkScheduleRetry is time.AfterFunc behind a var so tests can
+// capture scheduled retries instead of waiting on the clock.
+var hkScheduleRetry = time.AfterFunc
+
+// hotkeyBeginApply starts a fresh registration generation for
+// combo and hands it to the platform layer.
+func hotkeyBeginApply(combo hotkeyCombo) {
+	hkRetryState.Lock()
+	hkRetryState.gen++
+	hkRetryState.attempts = 0
+	hkRetryState.noted = false
+	hkRetryState.combo = combo
+	if hkRetryState.timer != nil {
+		hkRetryState.timer.Stop()
+		hkRetryState.timer = nil
+	}
+	hkRetryState.Unlock()
+	hotkeyPlatformApply(combo)
+}
+
+// hotkeyReportAttempt is where the platform layer delivers the
+// outcome of ONE registration attempt. The first-try paths are
+// exactly the pre-test2 behaviour (success logs 已注册， a hard
+// error logs its warning at once); a conflict is the only
+// outcome that engages the retry machinery, and the busy
+// warning fires only when decideHKRetry spends the budget.
+func hotkeyReportAttempt(outcome hkAttemptOutcome, note string) {
+	hkRetryState.Lock()
+	hkRetryState.attempts++
+	attempts := hkRetryState.attempts
+	switch decideHKRetry(attempts, outcome) {
+	case hkActRetry:
+		hotkeyConflict.Store(true)
+		first := !hkRetryState.noted
+		hkRetryState.noted = true
+		gen := hkRetryState.gen
+		hkRetryState.timer = hkScheduleRetry(hkRetryDelay, func() { hotkeyRetryFire(gen) })
+		hkRetryState.Unlock()
+		if first {
+			logf("system", "info", "老板键注册被占用，正在重试…（%s）", hotkeyCurrentKey())
+		}
+	case hkActExhausted:
+		hkRetryState.attempts = 0
+		hkRetryState.Unlock()
+		hotkeyConflict.Store(true)
+		hotkeySetResult(false, hotkeyBusyNote)
+	default: // hkActSettled
+		hkRetryState.attempts = 0
+		hkRetryState.Unlock()
+		switch outcome {
+		case hkOutcomeOK:
+			hotkeyConflict.Store(false)
+			hotkeySetResult(true, "")
+			if attempts > 1 {
+				logf("system", "info", "老板键注册：第 %d 次尝试成功（组合此前被占用）", attempts)
+			}
+		case hkOutcomeError:
+			hotkeyConflict.Store(false)
+			hotkeySetResult(false, note)
+		}
+	}
+}
+
+// hotkeyRetryFire is a scheduled retry coming due: if its
+// generation is still current (no settings change, no daemon
+// stop since it was scheduled) it re-applies the generation's
+// combo -- the platform layer turns that into one more
+// registration attempt, whose outcome lands back in
+// hotkeyReportAttempt.
+func hotkeyRetryFire(gen int) {
+	hkRetryState.Lock()
+	if gen != hkRetryState.gen {
+		hkRetryState.Unlock()
+		return
+	}
+	combo := hkRetryState.combo
+	hkRetryState.timer = nil
+	hkRetryState.Unlock()
+	hotkeyPlatformApply(combo)
+}
+
+// hotkeyStop retires the boss key at the START of the daemon
+// exit sequence (requestDaemonExit, every kind -- the update
+// handover above all): any pending retry is cancelled and the
+// platform registration is dropped immediately, instead of at
+// process death, so a successor daemon registering during the
+// handover finds the combo free. Together with the retrying
+// registrar this closes the 2026-11-05 21:08:16 race from both
+// sides.
+func hotkeyStop() {
+	hkRetryState.Lock()
+	hkRetryState.gen++
+	hkRetryState.attempts = 0
+	if hkRetryState.timer != nil {
+		hkRetryState.timer.Stop()
+		hkRetryState.timer = nil
+	}
+	hkRetryState.Unlock()
+	hotkeyPlatformStop()
+}
+
+func hotkeyCurrentKey() string {
+	hotkeyState.Lock()
+	defer hotkeyState.Unlock()
+	return hotkeyState.key
 }
 
 // hotkeyStatusHandler reports the registration state for

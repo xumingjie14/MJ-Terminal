@@ -17,5 +17,8 @@ func hotkeyPlatformApply(combo hotkeyCombo) {
 		hotkeySetResult(false, "")
 		return
 	}
-	hotkeySetResult(false, "当前平台不支持全局热键")
+	hotkeyReportAttempt(hkOutcomeError, "当前平台不支持全局热键")
 }
+
+// hotkeyPlatformStop: nothing was ever registered off Windows.
+func hotkeyPlatformStop() {}

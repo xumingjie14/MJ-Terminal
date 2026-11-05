@@ -61,6 +61,7 @@ import (
 	"net/http"
 	"sort"
 	"sync"
+	"time"
 )
 
 // ---------- ① raise outcome ----------
@@ -92,6 +93,74 @@ func decideRaise(f raiseFacts) raiseOutcome {
 		return raiseFailed
 	}
 	return raiseOK
+}
+
+// ---------- ① raise retry (v0.62 test2) ----------
+//
+// Field evidence (2026-11-05 21:09:19, the test1 build's own
+// live log): ONE user card-click raise in ~15 failed outright
+// -- "窗口置前失败，窗口保留登记（hwnd=23595422，www.google.com）"
+// -- while its neighbours all succeeded. test1 correctly kept
+// the registration, but a click that does nothing is still a
+// broken click from the user's seat, so a user-initiated raise
+// now retries ONCE: a short settle delay, a restore-if-iconic
+// (platformRestoreWindow), then the full foreground dance
+// again. decideRaise semantics are untouched -- a failure still
+// never deletes the registration; the retry decision is its own
+// pure seam (decideRaiseRetry), and only a double failure earns
+// the WARN.
+
+const (
+	raiseMaxAttempts = 2
+	raiseRetryDelay  = 150 * time.Millisecond
+)
+
+type raiseRetryAction int
+
+const (
+	raiseActOK           raiseRetryAction = iota // an attempt succeeded, first try
+	raiseActOKAfterRetry                         // the retry succeeded
+	raiseActRetry                                // the first attempt failed: wait, restore, raise again
+	raiseActGiveUp                               // both attempts failed: the caller's WARN path
+)
+
+// decideRaiseRetry is the pure retry contract for a user raise:
+// given how many attempts have been made and whether the last
+// one succeeded, what happens next.
+func decideRaiseRetry(attempts int, ok bool) raiseRetryAction {
+	if ok {
+		if attempts > 1 {
+			return raiseActOKAfterRetry
+		}
+		return raiseActOK
+	}
+	if attempts >= raiseMaxAttempts {
+		return raiseActGiveUp
+	}
+	return raiseActRetry
+}
+
+// focusClaimedWindow runs ONE user-initiated raise of a live
+// claimed window (a Stage card click, or a stage-focus anchor)
+// under decideRaiseRetry and returns the decideRaise-level
+// verdict the caller acts on: raiseOK when either attempt
+// landed, raiseFailed when both failed (the caller then emits
+// its existing WARN -- the registration stays either way). A
+// retry success is named here so the console shows the recovery
+// happened instead of silence.
+func focusClaimedWindow(hwnd uint64, label string) raiseOutcome {
+	if decideRaiseRetry(1, platformFocusWindow(hwnd)) == raiseActOK {
+		return raiseOK
+	}
+	time.Sleep(raiseRetryDelay)
+	// SW_RESTORE first if the first dance left the window
+	// iconic, then the full foreground dance once more.
+	platformRestoreWindow(hwnd)
+	if decideRaiseRetry(2, platformFocusWindow(hwnd)) == raiseActOKAfterRetry {
+		logf("winmgr", "info", "台前调度：置前重试成功（hwnd=%d，%s）", hwnd, label)
+		return raiseOK
+	}
+	return raiseFailed
 }
 
 // ---------- ③ stage-focus (hide others) ----------
@@ -255,7 +324,7 @@ func extWinFocusOnlyHandler(w http.ResponseWriter, r *http.Request) {
 	// restores it first (grpRestoreForFocus); the solo hide
 	// below then applies to the restored set.
 	grpRestoreForFocus()
-	if decideRaise(raiseFacts{Alive: true, FocusOK: platformFocusWindow(body.HWND)}) != raiseOK {
+	if focusClaimedWindow(body.HWND, label) != raiseOK {
 		logf("winmgr", "warn", "台前调度聚焦：锚点窗口置前失败，其他窗口不隐藏（hwnd=%d，%s）", body.HWND, label)
 		writeAPIError(w, http.StatusInternalServerError, errCodeInternal, "窗口置前失败")
 		return

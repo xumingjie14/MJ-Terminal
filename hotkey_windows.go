@@ -17,11 +17,13 @@ package main
 // press, not after a goroutine hop (only the dead-view
 // creation fallback leaves the thread, inside bosskey.go).
 //
-// Exit hygiene: the daemon never explicitly unregisters at exit
-// because every exit path ends in os.Exit -- and Windows drops a
-// process's hotkey registrations when the process dies. Nothing
-// is installed, hooked or left resident; the portable promise
-// holds.
+// Exit hygiene: the daemon unregisters at the START of its
+// exit sequence (hotkeyStop -> hotkeyPlatformStop below, v0.62
+// test2) so an update-handover successor never races a
+// registration this process is about to drop; failing
+// everything, Windows drops a process's hotkey registrations
+// when the process dies. Nothing is installed, hooked or left
+// resident; the portable promise holds.
 
 import (
 	"runtime"
@@ -100,17 +102,35 @@ func hkApplyRegistration(hwnd uintptr) {
 	if r == 0 {
 		hkRegVK, hkRegMods = 0, 0
 		if errno != nil && errno.(syscall.Errno) == errHotkeyBusy {
-			hotkeyConflict.Store(true)
-			hotkeySetResult(false, "该组合已被其他程序占用（游戏、录屏或输入法常见），请换一个组合或关闭")
+			// v0.62 test2: a conflict at daemon start is usually
+			// TRANSIENT -- the update handover's exiting
+			// predecessor still holds the combo. The shared
+			// registrar (hotkey.go) retries it on a bounded
+			// budget and surfaces the busy warning only when
+			// the budget is spent.
+			hotkeyReportAttempt(hkOutcomeConflict, "")
 		} else {
-			hotkeyConflict.Store(false)
-			hotkeySetResult(false, "系统拒绝注册（错误 "+errnoText(errno)+"）")
+			hotkeyReportAttempt(hkOutcomeError, "系统拒绝注册（错误 "+errnoText(errno)+"）")
 		}
 		return
 	}
 	hkRegVK, hkRegMods = wantVK, wantMods
-	hotkeyConflict.Store(false)
-	hotkeySetResult(true, "")
+	hotkeyReportAttempt(hkOutcomeOK, "")
+}
+
+// hotkeyPlatformStop unregisters the boss key at daemon exit:
+// clear the wish and wake the hotkey thread, whose reconcile
+// step then drops the OS registration. The rest of the exit
+// sequence (window restore, core stop, HTTP shutdown) takes far
+// longer than the message round-trip, so the registration is
+// gone well before the process dies -- and a successor started
+// by the update handover finds the combo free instead of racing
+// a corpse.
+func hotkeyPlatformStop() {
+	hkWantVK.Store(0)
+	if h := hkHWND.Load(); h != 0 {
+		procPostMessageW.Call(h, hkReconfigMsg, 0, 0)
+	}
 }
 
 func errnoText(e error) string {

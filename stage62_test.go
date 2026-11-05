@@ -34,6 +34,42 @@ func TestDecideRaise(t *testing.T) {
 	}
 }
 
+func TestDecideRaiseRetry(t *testing.T) {
+	// v0.62 test2: the field case is (1, false) -- one user
+	// click in ~15 failed outright. It must buy exactly one
+	// retry; the second failure is final (the caller's WARN
+	// path, registration kept per decideRaise's rule).
+	cases := []struct {
+		name     string
+		attempts int
+		ok       bool
+		want     raiseRetryAction
+	}{
+		{"第一次成功→完成", 1, true, raiseActOK},
+		{"第一次失败→重试一次", 1, false, raiseActRetry},
+		{"重试成功→完成（记置前重试成功）", 2, true, raiseActOKAfterRetry},
+		{"两次都失败→放弃（警告路径）", 2, false, raiseActGiveUp},
+		{"预算外失败→保持放弃", 3, false, raiseActGiveUp},
+		{"预算外成功→仍是重试成功", 3, true, raiseActOKAfterRetry},
+	}
+	for _, c := range cases {
+		if got := decideRaiseRetry(c.attempts, c.ok); got != c.want {
+			t.Errorf("%s: decideRaiseRetry(%d, %v) = %v, want %v", c.name, c.attempts, c.ok, got, c.want)
+		}
+	}
+}
+
+func TestFocusClaimedWindowDeadHandleGivesUp(t *testing.T) {
+	// HWND 0 is never a window on any platform (IsWindow(0)
+	// fails before any other call), so both raise attempts
+	// fail deterministically: the verdict must be raiseFailed
+	// -- never raiseGone, because removal is the patrol's
+	// business, not a failed raise's.
+	if got := focusClaimedWindow(0, "测试窗口"); got != raiseFailed {
+		t.Errorf("focusClaimedWindow(0) = %v, want raiseFailed", got)
+	}
+}
+
 func TestDecideHideOthers(t *testing.T) {
 	cands := []soloCandidate{
 		{HWND: 101, Visible: true},               // the anchor itself

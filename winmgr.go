@@ -999,11 +999,14 @@ func extWinFocusHandler(w http.ResponseWriter, r *http.Request) {
 	// tray), a Stage Manager click restores the WHOLE set first,
 	// then raises the target (grpRestoreForFocus, winset.go).
 	grpRestoreForFocus()
-	if decideRaise(raiseFacts{Alive: true, FocusOK: platformFocusWindow(body.HWND)}) != raiseOK {
+	if focusClaimedWindow(body.HWND, label) != raiseOK {
 		// v0.62: a failed raise keeps the window claimed and is
 		// named in the console -- pre-v0.62 this returned a bare
-		// 500 and the click simply "did nothing".
-		logf("winmgr", "warn", "台前调度：窗口置前失败，窗口保留登记（hwnd=%d，%s）", body.HWND, label)
+		// 500 and the click simply "did nothing". v0.62 test2:
+		// focusClaimedWindow has already retried once (settle,
+		// restore-if-iconic, second dance), so this warning now
+		// means BOTH attempts failed.
+		logf("winmgr", "warn", "台前调度：窗口置前失败（两次尝试均失败），窗口保留登记（hwnd=%d，%s）", body.HWND, label)
 		writeAPIError(w, http.StatusInternalServerError, errCodeInternal, "窗口置前失败")
 		return
 	}

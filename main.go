@@ -1816,6 +1816,16 @@ func onVaultUnlocked() {
 //     exit proceeds, the failure is logged, and the next boot
 //     gates on the password before anything runs.
 func requestDaemonExit(kind exitKind) {
+	// v0.62 test2, before anything else on every path: drop the
+	// boss-key registration. On the update-handover path a
+	// successor daemon starts while this one is still inside
+	// this sequence, and a RegisterHotKey still held here is
+	// exactly what failed the successor's registration at
+	// 2026-11-05 21:08:16 (the successor's registrar now also
+	// retries on a budget -- belt and suspenders). The OS would
+	// drop the registration at process death anyway; doing it
+	// first shrinks the race window to near zero.
+	hotkeyStop()
 	// v0.37 safety line, first on every path (winset.go):
 	// restore every group-hidden / immersed window.
 	prepareWindowsForDaemonExit()

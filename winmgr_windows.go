@@ -560,6 +560,22 @@ func platformShowAppWindow(hwnd uint64) bool {
 	return true
 }
 
+// platformRestoreWindow un-minimizes a window ahead of a raise
+// retry (v0.62 test2): platformFocusWindow already restores an
+// iconic window as part of its dance, but a first failed dance
+// can leave that restore half-done; the retry re-asserts it as
+// its own step before asking for the foreground again.
+func platformRestoreWindow(hwnd uint64) bool {
+	h := uintptr(hwnd)
+	if r, _, _ := procIsWindow.Call(h); r == 0 {
+		return false
+	}
+	if r, _, _ := procIsIconic.Call(h); r != 0 {
+		procShowWindow.Call(h, 9) // SW_RESTORE
+	}
+	return true
+}
+
 // platformWindowExists reports whether the handle is still a window.
 func platformWindowExists(hwnd uint64) bool {
 	r, _, _ := procIsWindow.Call(uintptr(hwnd))
