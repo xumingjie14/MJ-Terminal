@@ -2105,6 +2105,7 @@ func runServer(portFlag int, isDaemon bool) {
 	mux.HandleFunc("/api/view/overlay", viewOverlayHandler)
 	mux.HandleFunc("/api/hotkey/status", hotkeyStatusHandler)
 	mux.HandleFunc("/api/wallpaper", wallpaperHandler)
+	mux.HandleFunc("/api/wallpaper/fromfile", wallpaperFromFileHandler)
 	mux.HandleFunc("/api/list", listFiles)
 	mux.HandleFunc("/api/run", runCmd)
 	mux.HandleFunc("/api/open", openPath)

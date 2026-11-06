@@ -4,7 +4,7 @@
    script scope. */
 import { WALLPAPERS, api, customWall, esc, sysInfo, __bind_customWall, __bind_sysInfo } from './core';
 import { glyph } from './glyphs';
-import { SETDEF, SETTINGS, applyDeskIconSize, deskIconSize, dockPos, loadSettings, saveSetting, wallKey, __bind_SETTINGS } from './settings';
+import { SETDEF, SETTINGS, applyDeskIconSize, deskIconSize, dockPos, loadSettings, saveSetting, wallFit, wallKey, __bind_SETTINGS } from './settings';
 import { applyWallpaper, pollNode } from './menubar';
 import { openApp } from './windows';
 import { stageOn, toggleStage } from './stage';
@@ -156,12 +156,18 @@ export function bind(id){
   };
   const goto=pid=>{ curPage=pid; navPaint(); paintPage(pid) };
   const paintAppearance=()=>{
-   G('set-main').innerHTML=`<div class="set-page"><div class="set-sec">壁纸</div><div class="set-desc">点一张换壁纸，立刻生效。也可以上传你自己的图片当壁纸（存在 EXE 旁的 Data 文件夹，跟着程序走）。</div><div class="wp-grid" id="wp-grid">${Object.entries(WALLPAPERS).map(([k,v])=>`<div class="wp" data-wp="${k}" style="background:${v.css}"><span>${v.n}</span></div>`).join('')}</div><div class="sm-card" style="margin-top:14px"><div class="sm-row"><span>自定义壁纸</span><span class="row"><label class="btn gray" for="wp-file" style="cursor:pointer">上传我的图片…</label><input type="file" id="wp-file" accept="image/*" style="display:none"><button class="btn gray" id="wp-remove">删除自定义壁纸</button></span></div><div class="sm-row"><span>当前</span><span class="set-val" id="wp-status">…</span></div></div><div class="set-sec">桌面图标</div><div class="set-desc">桌面图标的大小和排列方式。大小在桌面空白处右键菜单、控制中心里也能调；手动拖动任何图标，排序会切回「手动」。</div><div class="sm-card"><div class="sm-row"><span>图标大小</span><span class="row"><input type="range" id="ap-size" min="36" max="96" step="2" value="${deskIconSize()}" style="accent-color:#0a84ff"><span class="set-val" id="ap-size-v">${deskIconSize()}</span></span></div><div class="sm-row"><span>排序方式</span><span class="seg" id="ap-sort"><button data-m="manual">手动</button><button data-m="name">名称</button><button data-m="freq">最常用</button><button data-m="kind">种类</button><button data-m="added">添加日期</button></span></div></div><p class="set-note">壁纸选择存在 Data/settings.json，跟着文件夹走，换电脑不丢。</p></div>`;
+   G('set-main').innerHTML=`<div class="set-page"><div class="set-sec">壁纸</div><div class="set-desc">点一张换壁纸，立刻生效。也可以上传你自己的图片当壁纸（存在 EXE 旁的 Data 文件夹，跟着程序走）。</div><div class="wp-grid" id="wp-grid">${Object.entries(WALLPAPERS).map(([k,v])=>`<div class="wp" data-wp="${k}" style="background:${v.css}"><span>${v.n}</span></div>`).join('')}</div><div class="sm-card" style="margin-top:14px"><div class="sm-row"><span>自定义壁纸</span><span class="row"><label class="btn gray" for="wp-file" style="cursor:pointer">上传我的图片…</label><input type="file" id="wp-file" accept="image/*" style="display:none"><button class="btn gray" id="wp-remove">删除自定义壁纸</button></span></div><div class="sm-row"><span>当前</span><span class="set-val" id="wp-status">…</span></div><div class="sm-row"><span>壁纸适配</span><span class="seg" id="ap-wpfit"><button data-m="fill">填充</button><button data-m="fit">适合</button><button data-m="center">居中</button><button data-m="stretch">拉伸</button></span></div><div class="sm-row"><span style="opacity:.6;font-size:12.5px">壁纸适配只作用于自定义壁纸；也可以在桌面或「文件」里右键任意图片选「设为壁纸」，在预览里选适配方式。</span></div></div><div class="set-sec">桌面图标</div><div class="set-desc">桌面图标的大小和排列方式。大小在桌面空白处右键菜单、控制中心里也能调；手动拖动任何图标，排序会切回「手动」。</div><div class="sm-card"><div class="sm-row"><span>图标大小</span><span class="row"><input type="range" id="ap-size" min="36" max="96" step="2" value="${deskIconSize()}" style="accent-color:#0a84ff"><span class="set-val" id="ap-size-v">${deskIconSize()}</span></span></div><div class="sm-row"><span>排序方式</span><span class="seg" id="ap-sort"><button data-m="manual">手动</button><button data-m="name">名称</button><button data-m="freq">最常用</button><button data-m="kind">种类</button><button data-m="added">添加日期</button></span></div></div><p class="set-note">壁纸选择存在 Data/settings.json，跟着文件夹走，换电脑不丢。</p></div>`;
    const markSel=()=>{ const cur=customWall?'':wallKey(); document.querySelectorAll('.wp').forEach(x=>x.classList.toggle('sel',x.dataset.wp===cur)); const st=G('wp-status'); if(st) st.textContent=customWall?'自定义壁纸':(WALLPAPERS[cur]?.n||cur); };
    markSel();
    document.querySelectorAll('.wp').forEach(x=>x.onclick=async()=>{ if(customWall){ await api('/api/wallpaper',{method:'DELETE'}); __bind_customWall.set(false); } await saveSetting({wallpaper:x.dataset.wp}); applyWallpaper(); markSel(); });
    G('wp-file').onchange=async e=>{ const f=e.target.files[0]; if(!f) return; const st=G('wp-status'); st.textContent='上传中…'; const buf=await f.arrayBuffer(); const r=await fetch('/api/wallpaper',{method:'POST',headers:{'Content-Type':f.type||'image/jpeg'},body:buf}); const j=await r.json().catch(()=>({})); if(j.ok){ __bind_customWall.set(true); applyWallpaper(); markSel(); } else st.textContent='失败：'+(j.error||'未知错误'); };
    G('wp-remove').onclick=async()=>{ await api('/api/wallpaper',{method:'DELETE'}); __bind_customWall.set(false); applyWallpaper(); markSel(); };
+   const wpFitSeg=G('ap-wpfit');
+   if(wpFitSeg){
+    const paintFit=()=>wpFitSeg.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.m===wallFit()));
+    paintFit();
+    wpFitSeg.querySelectorAll('button').forEach(b=>b.onclick=async()=>{ await saveSetting({wallpaperFit:b.dataset.m}); applyWallpaper(); paintFit(); });
+   }
    const apSize=G('ap-size');
    if(apSize){
     apSize.oninput=()=>{ const v=+apSize.value; G('ap-size-v').textContent=v; if(SETTINGS) SETTINGS.deskIconSize=v; applyDeskIconSize(); };

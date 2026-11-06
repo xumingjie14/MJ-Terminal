@@ -275,6 +275,17 @@ table.fv-tab{width:100%;border-collapse:collapse;font-size:13px;color:#fff}
    in place; no button bar. Click outside the panel to close. */
 #folderpop{position:fixed;inset:0;z-index:2500;display:flex;align-items:center;justify-content:center;background:rgba(14,14,20,.34);backdrop-filter:blur(16px) saturate(150%);-webkit-backdrop-filter:blur(16px) saturate(150%);color:#fff}
 #folderpop.hidden{display:none}
+/* v0.63: 设为壁纸 fit dialog (web/src/b1/wallfit.ts) -- same
+   sheet grammar as #folderpop; the preview frame is painted
+   with wpFitCSS, the exact background the desktop gets. */
+#wallfit{position:fixed;inset:0;z-index:2800;display:flex;align-items:center;justify-content:center;background:rgba(14,14,20,.34);backdrop-filter:blur(16px) saturate(150%);-webkit-backdrop-filter:blur(16px) saturate(150%);color:#fff}
+.wf-panel{width:472px;max-width:92vw;padding:20px 22px 18px;border-radius:24px;display:flex;flex-direction:column;gap:12px;background:rgba(34,34,44,.72);backdrop-filter:blur(30px) saturate(170%);-webkit-backdrop-filter:blur(30px) saturate(170%);border:1px solid rgba(255,255,255,.22);box-shadow:0 30px 80px rgba(0,0,0,.55)}
+.wf-title{font-size:17px;font-weight:600;color:#fff}
+.wf-name{font-size:12.5px;color:rgba(255,255,255,.65);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:-8px}
+.wf-frame{width:100%;aspect-ratio:16/10;border-radius:12px;border:1px solid rgba(255,255,255,.22);background:#101014}
+.wf-seg{align-self:center}
+.wf-err{font-size:13px;color:#ff9d97}
+.wf-btns{display:flex;justify-content:flex-end;gap:10px}
 .fp-panel{width:452px;max-width:92vw;max-height:80vh;overflow:auto;padding:22px 22px 18px;border-radius:24px;background:rgba(34,34,44,.72);backdrop-filter:blur(30px) saturate(170%);-webkit-backdrop-filter:blur(30px) saturate(170%);border:1px solid rgba(255,255,255,.22);box-shadow:0 30px 80px rgba(0,0,0,.55)}
 .fp-title{font-size:17px;font-weight:650;text-align:center;color:#fff;cursor:text;padding:5px 10px;border-radius:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .fp-title:hover{background:rgba(255,255,255,.08)}
@@ -1460,6 +1471,84 @@ function createEvHub(nowFn) {
     return v;
   } };
 
+  // web/src/b1/wallfit.ts
+  var wfEl = null;
+  var wfEsc = null;
+  function closeWallFitDialog() {
+    if (!wfEl) return;
+    wfEl.remove();
+    wfEl = null;
+    stageOverlay("wallfit", false);
+    if (wfEsc) {
+      document.removeEventListener("keydown", wfEsc);
+      wfEsc = null;
+    }
+  }
+  function openWallFitDialog(f) {
+    closeWallFitDialog();
+    const rawURL = "/api/files/raw?path=" + encodeURIComponent(f.path);
+    let mode = wallFit();
+    let ready = false;
+    const el = document.createElement("div");
+    el.id = "wallfit";
+    el.innerHTML = `<div class="wf-panel glasspanel">
+    <div class="wf-title">设为壁纸</div>
+    <div class="wf-name">${esc(f.name)}</div>
+    <div class="wf-frame"></div>
+    <div class="seg wf-seg">${WPFIT_MODES.map((m) => `<button data-m="${m.id}">${m.n}</button>`).join("")}</div>
+    <div class="wf-err" style="display:none"></div>
+    <div class="wf-btns"><button class="btn gray" data-wf="cancel">取消</button><button class="btn" data-wf="ok" disabled>设定</button></div>
+  </div>`;
+    document.body.appendChild(el);
+    wfEl = el;
+    stageOverlay("wallfit", true);
+    const frame = el.querySelector(".wf-frame");
+    const errEl = el.querySelector(".wf-err");
+    const okBtn = el.querySelector('[data-wf="ok"]');
+    const paint = () => {
+      frame.style.background = wpFitCSS(mode, rawURL);
+      el.querySelectorAll(".wf-seg button").forEach((b) => b.classList.toggle("on", b.dataset.m === mode));
+    };
+    paint();
+    el.querySelectorAll(".wf-seg button").forEach((b) => b.onclick = () => {
+      mode = b.dataset.m;
+      paint();
+    });
+    const probe = new Image();
+    probe.onload = () => {
+      ready = true;
+      okBtn.disabled = false;
+    };
+    probe.onerror = () => {
+      errEl.textContent = "这张图片读不出来，无法设为壁纸。";
+      errEl.style.display = "";
+    };
+    probe.src = rawURL;
+    el.addEventListener("mousedown", (ev) => {
+      if (ev.target === el) closeWallFitDialog();
+    });
+    el.querySelector('[data-wf="cancel"]').onclick = () => closeWallFitDialog();
+    okBtn.onclick = async () => {
+      if (!ready) return;
+      okBtn.disabled = true;
+      const r = await api("/api/wallpaper/fromfile", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path: f.path, fit: mode }) }).catch(() => null);
+      if (!r || r.error) {
+        errEl.textContent = "设定失败：" + (r && r.error || "接口没回应");
+        errEl.style.display = "";
+        okBtn.disabled = false;
+        return;
+      }
+      __bind_customWall.set(true);
+      applyWallpaper();
+      closeWallFitDialog();
+      toast("已设为壁纸");
+    };
+    wfEsc = (ev) => {
+      if (ev.key === "Escape") closeWallFitDialog();
+    };
+    document.addEventListener("keydown", wfEsc);
+  }
+
   // web/src/b1/appsload.ts
   var STORECAT = [];
   var STOREAPPS = [];
@@ -1700,6 +1789,7 @@ function createEvHub(nowFn) {
   function showFileCtx(x, y, f) {
     ctxEl.innerHTML = [
       { act: "fc-open", label: "打开", icon: "open" },
+      ...wpFitShowsWallItem(f) ? [{ act: "fc-wall", label: "设为壁纸…", icon: "image" }] : [],
       { act: "fc-reveal", label: "在「文件」中显示", icon: "folder" },
       { act: "fc-rename", label: "重命名…", icon: "rename" },
       { act: "fc-export", label: "导出到电脑（下载文件夹）", icon: "export" },
@@ -1714,6 +1804,11 @@ function createEvHub(nowFn) {
       hideCtx();
       recOpen("file:" + f.name);
       openDeskFile(f.path, f.kind);
+    };
+    const fcw = fc("fc-wall");
+    if (fcw) fcw.onclick = () => {
+      hideCtx();
+      openWallFitDialog(f);
     };
     fc("fc-reveal").onclick = () => {
       hideCtx();
@@ -3445,7 +3540,7 @@ ${pr.textContent}> ${cmd}\r
         paintPage(pid);
       };
       const paintAppearance = () => {
-        G("set-main").innerHTML = `<div class="set-page"><div class="set-sec">壁纸</div><div class="set-desc">点一张换壁纸，立刻生效。也可以上传你自己的图片当壁纸（存在 EXE 旁的 Data 文件夹，跟着程序走）。</div><div class="wp-grid" id="wp-grid">${Object.entries(WALLPAPERS).map(([k, v]) => `<div class="wp" data-wp="${k}" style="background:${v.css}"><span>${v.n}</span></div>`).join("")}</div><div class="sm-card" style="margin-top:14px"><div class="sm-row"><span>自定义壁纸</span><span class="row"><label class="btn gray" for="wp-file" style="cursor:pointer">上传我的图片…</label><input type="file" id="wp-file" accept="image/*" style="display:none"><button class="btn gray" id="wp-remove">删除自定义壁纸</button></span></div><div class="sm-row"><span>当前</span><span class="set-val" id="wp-status">…</span></div></div><div class="set-sec">桌面图标</div><div class="set-desc">桌面图标的大小和排列方式。大小在桌面空白处右键菜单、控制中心里也能调；手动拖动任何图标，排序会切回「手动」。</div><div class="sm-card"><div class="sm-row"><span>图标大小</span><span class="row"><input type="range" id="ap-size" min="36" max="96" step="2" value="${deskIconSize()}" style="accent-color:#0a84ff"><span class="set-val" id="ap-size-v">${deskIconSize()}</span></span></div><div class="sm-row"><span>排序方式</span><span class="seg" id="ap-sort"><button data-m="manual">手动</button><button data-m="name">名称</button><button data-m="freq">最常用</button><button data-m="kind">种类</button><button data-m="added">添加日期</button></span></div></div><p class="set-note">壁纸选择存在 Data/settings.json，跟着文件夹走，换电脑不丢。</p></div>`;
+        G("set-main").innerHTML = `<div class="set-page"><div class="set-sec">壁纸</div><div class="set-desc">点一张换壁纸，立刻生效。也可以上传你自己的图片当壁纸（存在 EXE 旁的 Data 文件夹，跟着程序走）。</div><div class="wp-grid" id="wp-grid">${Object.entries(WALLPAPERS).map(([k, v]) => `<div class="wp" data-wp="${k}" style="background:${v.css}"><span>${v.n}</span></div>`).join("")}</div><div class="sm-card" style="margin-top:14px"><div class="sm-row"><span>自定义壁纸</span><span class="row"><label class="btn gray" for="wp-file" style="cursor:pointer">上传我的图片…</label><input type="file" id="wp-file" accept="image/*" style="display:none"><button class="btn gray" id="wp-remove">删除自定义壁纸</button></span></div><div class="sm-row"><span>当前</span><span class="set-val" id="wp-status">…</span></div><div class="sm-row"><span>壁纸适配</span><span class="seg" id="ap-wpfit"><button data-m="fill">填充</button><button data-m="fit">适合</button><button data-m="center">居中</button><button data-m="stretch">拉伸</button></span></div><div class="sm-row"><span style="opacity:.6;font-size:12.5px">壁纸适配只作用于自定义壁纸；也可以在桌面或「文件」里右键任意图片选「设为壁纸」，在预览里选适配方式。</span></div></div><div class="set-sec">桌面图标</div><div class="set-desc">桌面图标的大小和排列方式。大小在桌面空白处右键菜单、控制中心里也能调；手动拖动任何图标，排序会切回「手动」。</div><div class="sm-card"><div class="sm-row"><span>图标大小</span><span class="row"><input type="range" id="ap-size" min="36" max="96" step="2" value="${deskIconSize()}" style="accent-color:#0a84ff"><span class="set-val" id="ap-size-v">${deskIconSize()}</span></span></div><div class="sm-row"><span>排序方式</span><span class="seg" id="ap-sort"><button data-m="manual">手动</button><button data-m="name">名称</button><button data-m="freq">最常用</button><button data-m="kind">种类</button><button data-m="added">添加日期</button></span></div></div><p class="set-note">壁纸选择存在 Data/settings.json，跟着文件夹走，换电脑不丢。</p></div>`;
         const markSel = () => {
           const cur = customWall ? "" : wallKey();
           document.querySelectorAll(".wp").forEach((x) => x.classList.toggle("sel", x.dataset.wp === cur));
@@ -3482,6 +3577,16 @@ ${pr.textContent}> ${cmd}\r
           applyWallpaper();
           markSel();
         };
+        const wpFitSeg = G("ap-wpfit");
+        if (wpFitSeg) {
+          const paintFit = () => wpFitSeg.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.m === wallFit()));
+          paintFit();
+          wpFitSeg.querySelectorAll("button").forEach((b) => b.onclick = async () => {
+            await saveSetting({ wallpaperFit: b.dataset.m });
+            applyWallpaper();
+            paintFit();
+          });
+        }
         const apSize = G("ap-size");
         if (apSize) {
           apSize.oninput = () => {
@@ -6279,7 +6384,7 @@ ${pr.textContent}> ${cmd}\r
   // web/src/b1/menubar.ts
   function applyWallpaper() {
     if (customWall) {
-      wallEl.style.background = `center/cover no-repeat url(/api/wallpaper?v=${Date.now()})`;
+      wallEl.style.background = wpFitCSS(wallFit(), `/api/wallpaper?v=${Date.now()}`);
       return;
     }
     const key = wallKey();
@@ -6345,10 +6450,13 @@ ${pr.textContent}> ${cmd}\r
 
   // web/src/b1/settings.ts
   var SETTINGS = null;
-  var SETDEF = { wallpaper: "tahoe", stageManager: false, idleExitMinutes: 30, phoneMode: true, phoneTriggerWidth: 1200, phoneWidth: 400, chromeCacheMB: 200, stageAutoClaimBrowser: true, filesOnDesktop: true, remoteEnabled: false, winPlaceOnClaim: true, winHideOnMinimize: true, winCloseToTray: true, immersiveMode: false, desktopFullscreen: false, dockPosition: "bottom", dockAutoHide: false, dockIconSize: 52, cc_show_immersive: true, cc_show_stage: true, cc_show_fullscreen: true, cc_show_dockhide: true, cc_show_remote: true, cc_show_wallpaper: true, notify_allow_sandbox: true, notify_allow_update: true, notify_allow_servermon: true, notify_allow_node: true, notify_allow_remote: true, notify_allow_files: true, notify_banner_sandbox: true, notify_banner_update: true, notify_banner_servermon: true, notify_banner_node: true, notify_banner_remote: true, notify_banner_files: true, nc_widgets: '[{"id":"calendar","show":true},{"id":"server","show":true},{"id":"node","show":true}]', exitClosesApps: true, updateBeta: false, nodeStartMode: "last", nodeSubAuto: true, nodeSubIntervalMin: 360, nodeTestURL: "http://www.gstatic.com/generate_204", nodeTestTimeoutMs: 5e3, nodeClashAPI: true, summonHotkey: "F8", defaultOfficeSuite: "onlyoffice", stageDisplay: "preview", deskIconSize: 54, deskSort: "manual" };
+  var SETDEF = { wallpaper: "tahoe", wallpaperFit: "fill", stageManager: false, idleExitMinutes: 30, phoneMode: true, phoneTriggerWidth: 1200, phoneWidth: 400, chromeCacheMB: 200, stageAutoClaimBrowser: true, filesOnDesktop: true, remoteEnabled: false, winPlaceOnClaim: true, winHideOnMinimize: true, winCloseToTray: true, immersiveMode: false, desktopFullscreen: false, dockPosition: "bottom", dockAutoHide: false, dockIconSize: 52, cc_show_immersive: true, cc_show_stage: true, cc_show_fullscreen: true, cc_show_dockhide: true, cc_show_remote: true, cc_show_wallpaper: true, notify_allow_sandbox: true, notify_allow_update: true, notify_allow_servermon: true, notify_allow_node: true, notify_allow_remote: true, notify_allow_files: true, notify_banner_sandbox: true, notify_banner_update: true, notify_banner_servermon: true, notify_banner_node: true, notify_banner_remote: true, notify_banner_files: true, nc_widgets: '[{"id":"calendar","show":true},{"id":"server","show":true},{"id":"node","show":true}]', exitClosesApps: true, updateBeta: false, nodeStartMode: "last", nodeSubAuto: true, nodeSubIntervalMin: 360, nodeTestURL: "http://www.gstatic.com/generate_204", nodeTestTimeoutMs: 5e3, nodeClashAPI: true, summonHotkey: "F8", defaultOfficeSuite: "onlyoffice", stageDisplay: "preview", deskIconSize: 54, deskSort: "manual" };
   function wallKey() {
     if (SETTINGS) return SETTINGS.wallpaper || "tahoe";
     return localStorage.getItem("mj-wall") || "tahoe";
+  }
+  function wallFit() {
+    return wpFitKey(SETTINGS ? SETTINGS.wallpaperFit : null);
   }
   function dockPos() {
     const p = SETTINGS && SETTINGS.dockPosition;
@@ -7309,6 +7417,26 @@ function fvRangeSel(paths, anchor, to) {
   if (i < 0 || j < 0) return [to];
   const a = Math.min(i, j), b = Math.max(i, j);
   return paths.slice(a, b + 1);
+}
+const WPFIT_MODES = [
+  { id: "fill", n: "填充" },
+  { id: "fit", n: "适合" },
+  { id: "center", n: "居中" },
+  { id: "stretch", n: "拉伸" }
+];
+const WPFIT_BASE = "#101014";
+function wpFitValid(v) {
+  return WPFIT_MODES.some((m) => m.id === v);
+}
+function wpFitKey(v) {
+  return wpFitValid(v) ? v : "fill";
+}
+function wpFitCSS(mode, url) {
+  const size = { fill: "cover", fit: "contain", center: "auto", stretch: "100% 100%" }[wpFitKey(mode)];
+  return WPFIT_BASE + " center/" + size + ' no-repeat url("' + String(url).replace(/["\\]/g, "") + '")';
+}
+function wpFitShowsWallItem(f) {
+  return !!f && f.kind === "image";
 }
 /* === end fv pure === */
 (() => {

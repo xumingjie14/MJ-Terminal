@@ -3,13 +3,13 @@
    from -- the same names the pre-modular page shared through one
    script scope. */
 import { WALLPAPERS, api, customWall, wallEl, __bind_customWall } from './core';
-import { wallKey } from './settings';
+import { wallFit, wallKey } from './settings';
 import { openApp } from './windows';
 import { stageOn, toggleStage, updateStageUI } from './stage';
 import { toast } from './appsload';
 /* ----- wallpaper ----- */
 export function applyWallpaper(){
- if(customWall){wallEl.style.background=`center/cover no-repeat url(/api/wallpaper?v=${Date.now()})`;return}
+ if(customWall){wallEl.style.background=wpFitCSS(wallFit(),`/api/wallpaper?v=${Date.now()}`);return}
  const key=wallKey();
  wallEl.style.background=(WALLPAPERS[key]||WALLPAPERS.tahoe).css;
 }

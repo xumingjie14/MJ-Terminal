@@ -12,6 +12,7 @@ import { renderDesk } from './desktop';
 import { ctxEl, hideCtx } from './folders';
 import { ctxItemHTML } from './ctxmenu';
 import { openDeskFile } from './viewers';
+import { openWallFitDialog } from './wallfit';
 /* ----- portable apps from the store (v0.24): desktop icons ----- */
 export let STORECAT=[], STOREAPPS=[];
 export function storeIconHTML(a){
@@ -207,9 +208,13 @@ document.getElementById('deskimp').addEventListener('change',e=>{ importFiles(e.
    real delete, confirmed) are deliberately separate items. */
 export function showFileCtx(x,y,f){
  /* test2: painted by the shared ctxItemHTML (one component,
-    unified glyphs) instead of hand-rolled rows. */
+    unified glyphs) instead of hand-rolled rows. v0.63: image
+    files gain 设为壁纸… (detail-fix ②) -- this menu is the one
+    funnel for the desktop icons AND the Files view, so both
+    surfaces get the item from this single list. */
  ctxEl.innerHTML=[
   {act:'fc-open',label:'打开',icon:'open'},
+  ...(wpFitShowsWallItem(f)?[{act:'fc-wall',label:'设为壁纸…',icon:'image'}]:[]),
   {act:'fc-reveal',label:'在「文件」中显示',icon:'folder'},
   {act:'fc-rename',label:'重命名…',icon:'rename'},
   {act:'fc-export',label:'导出到电脑（下载文件夹）',icon:'export'},
@@ -221,6 +226,7 @@ export function showFileCtx(x,y,f){
  ctxEl.style.top=Math.min(y,innerHeight-260)+'px';
  const fc=a=>ctxEl.querySelector(`[data-act="${a}"]`);
  fc('fc-open').onclick=()=>{ hideCtx(); recOpen('file:'+f.name); openDeskFile(f.path,f.kind); };
+ const fcw=fc('fc-wall'); if(fcw) fcw.onclick=()=>{ hideCtx(); openWallFitDialog(f); };
  fc('fc-reveal').onclick=()=>{ hideCtx(); openApp('files'); let n=0; const t=setInterval(()=>{ if((window.__filesReveal&&window.__filesReveal(f.path))||++n>12) clearInterval(t); },120); };
  fc('fc-unpin').onclick=()=>{
   hideCtx();

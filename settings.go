@@ -36,7 +36,15 @@ import (
 )
 
 type mjSettings struct {
-	Wallpaper         string `json:"wallpaper"`         // preset key, see WALLPAPERS in index.html
+	Wallpaper string `json:"wallpaper"` // preset key, see WALLPAPERS in index.html
+	// v0.63 (detail-fix ②): how the CUSTOM wallpaper image
+	// (Data/wallpaper.bin) is fitted to the desktop -- "fill"
+	// (cover, the pre-v0.63 behaviour and the default), "fit"
+	// (whole image visible), "center" (natural size, centered)
+	// or "stretch". Preset wallpapers are CSS and ignore it.
+	// Written by 设置 → 外观， the Control Center is unaffected,
+	// and the right-click 设为壁纸 dialog (wallpaper.go).
+	WallpaperFit      string `json:"wallpaperFit"`
 	StageManager      bool   `json:"stageManager"`      // Stage Manager on/off
 	IdleExitMinutes   int    `json:"idleExitMinutes"`   // daemon idle auto-exit; 0 = never
 	PhoneMode         bool   `json:"phoneMode"`         // phone-width landing on/off
@@ -213,6 +221,7 @@ type mjSettings struct {
 func defaultSettings() mjSettings {
 	return mjSettings{
 		Wallpaper:             "tahoe",
+		WallpaperFit:          "fill",
 		StageManager:          false,
 		IdleExitMinutes:       30,
 		PhoneMode:             true,
@@ -433,6 +442,31 @@ var wallpaperKeys = map[string]bool{
 	"ventura": true, "aurora": true, "graphite": true,
 }
 
+// v0.63: the custom wallpaper's fit modes (detail-fix ②). The
+// view maps them to CSS background-size in wpFitCSS
+// (web/src/pure/fv.ts) -- fill=cover, fit=contain, center=auto,
+// stretch=100% 100%. "fill" is the default: it is what the
+// custom wallpaper did before fit modes existed.
+var wallpaperFits = map[string]bool{
+	"fill": true, "fit": true, "center": true, "stretch": true,
+}
+
+func validWallpaperFit(v string) bool { return wallpaperFits[v] }
+
+// wallpaperFitLabel is the user-facing name used in console
+// logs; an unknown value reports as the default's label.
+func wallpaperFitLabel(v string) string {
+	switch v {
+	case "fit":
+		return "适合"
+	case "center":
+		return "居中"
+	case "stretch":
+		return "拉伸"
+	}
+	return "填充"
+}
+
 var setState struct {
 	sync.Mutex
 	loaded bool
@@ -478,6 +512,9 @@ func sanitizeSettings(s mjSettings) mjSettings {
 	d := defaultSettings()
 	if !wallpaperKeys[s.Wallpaper] {
 		s.Wallpaper = d.Wallpaper
+	}
+	if !wallpaperFits[s.WallpaperFit] {
+		s.WallpaperFit = d.WallpaperFit
 	}
 	if s.IdleExitMinutes < 0 || s.IdleExitMinutes > 240 {
 		s.IdleExitMinutes = d.IdleExitMinutes
@@ -765,6 +802,14 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 				} else if v != next.Wallpaper {
 					next.Wallpaper = v
 					changed = append(changed, "wallpaper = "+v)
+				}
+			case "wallpaperFit":
+				var v string
+				if json.Unmarshal(val, &v) != nil || !validWallpaperFit(v) {
+					fail = "wallpaperFit 不是有效的适配方式（fill/fit/center/stretch）"
+				} else if v != next.WallpaperFit {
+					next.WallpaperFit = v
+					changed = append(changed, "wallpaperFit = "+v)
 				}
 			case "stageManager":
 				var v bool

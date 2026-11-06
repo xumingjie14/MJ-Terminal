@@ -84,3 +84,26 @@ function fvRangeSel(paths,anchor,to){
  const a=Math.min(i,j), b=Math.max(i,j);
  return paths.slice(a,b+1);
 }
+/* v0.63 （细节修复 ②): the custom wallpaper's fit modes. One
+   mapping shared by the desktop application (applyWallpaper in
+   the menubar module), the 设为壁纸 dialog's preview (the same
+   CSS against a desktop-shaped frame, so the preview is the
+   applied rendering at model scale) and the Settings page.
+   The daemon persists the mode as the settings key
+   wallpaperFit and validates it against the same four ids.
+   Bands a non-covering mode leaves show WPFIT_BASE -- the
+   desktop's base tone (the graphite preset's deep tone). */
+const WPFIT_MODES=[
+ {id:'fill',n:'填充'},{id:'fit',n:'适合'},
+ {id:'center',n:'居中'},{id:'stretch',n:'拉伸'},
+];
+const WPFIT_BASE='#101014';
+function wpFitValid(v){ return WPFIT_MODES.some(m=>m.id===v); }
+function wpFitKey(v){ return wpFitValid(v)?v:'fill'; }
+function wpFitCSS(mode,url){
+ const size={fill:'cover',fit:'contain',center:'auto',stretch:'100% 100%'}[wpFitKey(mode)];
+ return WPFIT_BASE+' center/'+size+' no-repeat url("'+String(url).replace(/["\\]/g,'')+'")';
+}
+/* The 设为壁纸 menu item exists exactly for image files (the
+   daemon's fileKindOf classification) -- nothing else. */
+function wpFitShowsWallItem(f){ return !!f&&f.kind==='image'; }

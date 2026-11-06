@@ -167,6 +167,7 @@ export interface LibFileSubItem {
 
 export interface MjSettings {
   wallpaper: string;
+  wallpaperFit: string;
   stageManager: boolean;
   idleExitMinutes: number;
   phoneMode: boolean;
@@ -264,6 +265,7 @@ export interface OkResponse {
 
 export interface SettingsResponse {
   wallpaper: string;
+  wallpaperFit: string;
   stageManager: boolean;
   idleExitMinutes: number;
   phoneMode: boolean;

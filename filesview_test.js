@@ -12,8 +12,8 @@ const assert = require('assert');
 const html = fs.readFileSync(__dirname + '/index.html', 'utf8');
 const m = html.match(/\/\* === fv pure \(node-testable\) === \*\/([\s\S]*?)\/\* === end fv pure === \*\//);
 assert(m, 'fv pure block not found in index.html');
-const { FV_GROUPS, fvGroupOf, fvInGroup, fvSortList, fvVisible, fvToggleSel, fvRangeSel, FV_RECENT_CAP, fvMediaGroup, fvExtOf } = new Function(
-  m[1] + '\nreturn { FV_GROUPS, fvGroupOf, fvInGroup, fvSortList, fvVisible, fvToggleSel, fvRangeSel, FV_RECENT_CAP, fvMediaGroup, fvExtOf };'
+const { FV_GROUPS, fvGroupOf, fvInGroup, fvSortList, fvVisible, fvToggleSel, fvRangeSel, FV_RECENT_CAP, fvMediaGroup, fvExtOf, WPFIT_MODES, WPFIT_BASE, wpFitValid, wpFitKey, wpFitCSS, wpFitShowsWallItem } = new Function(
+  m[1] + '\nreturn { FV_GROUPS, fvGroupOf, fvInGroup, fvSortList, fvVisible, fvToggleSel, fvRangeSel, FV_RECENT_CAP, fvMediaGroup, fvExtOf, WPFIT_MODES, WPFIT_BASE, wpFitValid, wpFitKey, wpFitCSS, wpFitShowsWallItem };'
 )();
 
 const F = (name, kind, size, mtime) => ({ name, path: name, kind, size, mtime, ext: name.split('.').pop() });
@@ -101,5 +101,25 @@ assert.strictEqual(fvVisible(media, 'all', '', 'name', 1).length, 3, 'media stil
 assert.strictEqual(fvVisible(media, 'recent', '', 'mtime', -1).length, 3, 'media still in 最近');
 assert(!fvInGroup(F('song.mp3', 'other', 1, 1), 'other'), 'an mp3 is music now, not 其他');
 assert(fvInGroup(F('song.mp3', 'other', 1, 1), 'music'), 'mp3 in music');
+
+// --- v0.63: wallpaper fit modes (the 设为壁纸 dialog, the
+// desktop application and 设置 → 外观 share this mapping) ---
+assert.deepStrictEqual(WPFIT_MODES.map(m => m.id), ['fill', 'fit', 'center', 'stretch'], 'four fit modes in macOS order');
+assert.deepStrictEqual(WPFIT_MODES.map(m => m.n), ['填充', '适合', '居中', '拉伸'], 'fit mode labels');
+for (const id of ['fill', 'fit', 'center', 'stretch']) assert(wpFitValid(id), id + ' is a valid fit');
+for (const bad of ['', 'cover', 'contain', 'FILL', null, undefined]) assert(!wpFitValid(bad), String(bad) + ' is not a valid fit');
+assert.strictEqual(wpFitKey('fit'), 'fit', 'a valid fit passes through');
+assert.strictEqual(wpFitKey('bogus'), 'fill', 'an unknown fit normalizes to fill');
+assert.strictEqual(wpFitKey(null), 'fill', 'a missing fit normalizes to fill');
+assert.strictEqual(wpFitCSS('fill', '/api/wallpaper?v=1'), WPFIT_BASE + ' center/cover no-repeat url("/api/wallpaper?v=1")', 'fill = cover');
+assert.strictEqual(wpFitCSS('fit', '/api/wallpaper?v=1'), WPFIT_BASE + ' center/contain no-repeat url("/api/wallpaper?v=1")', 'fit = contain over the base tone');
+assert.strictEqual(wpFitCSS('center', '/api/wallpaper?v=1'), WPFIT_BASE + ' center/auto no-repeat url("/api/wallpaper?v=1")', 'center = natural size');
+assert.strictEqual(wpFitCSS('stretch', '/api/wallpaper?v=1'), WPFIT_BASE + ' center/100% 100% no-repeat url("/api/wallpaper?v=1")', 'stretch = exact frame');
+assert.strictEqual(wpFitCSS('bogus', '/x'), wpFitCSS('fill', '/x'), 'an unknown mode renders as fill');
+// the 设为壁纸 menu item exists exactly for image files
+assert(wpFitShowsWallItem(F('a.png', 'image', 1, 1)), 'an image gets the menu item');
+assert(!wpFitShowsWallItem(F('a.pdf', 'pdf', 1, 1)), 'a pdf does not');
+assert(!wpFitShowsWallItem(F('d', 'dir', 0, 1)), 'a folder does not');
+assert(!wpFitShowsWallItem(null) && !wpFitShowsWallItem(undefined), 'no file, no item');
 
 console.log('filesview_test: all assertions passed');

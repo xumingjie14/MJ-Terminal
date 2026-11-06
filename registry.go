@@ -103,19 +103,20 @@ var featureRegistry = []feature{
 	},
 	{
 		ID: "desktop", Name: "桌面与 Web 应用",
-		Modules: []string{"layout", "icons", "browser"},
+		Modules: []string{"layout", "icons", "browser", "wallpaper"},
 		Routes: []featureRoute{
 			lr("/"),
 			lr("/api/layout"), lr("/api/layout/save"),
 			lr("/api/apps"), lr("/api/apps/save"), lr("/api/appopen"),
 			lr("/api/browser"), lr("/api/wallpaper"),
+			lr("/api/wallpaper/fromfile"),
 			lr("/api/appicon/"), lr("/api/chrome/icon"),
 			// legacy workstation action endpoints (command
 			// results, not view state -- see apicontract.go)
 			lr("/api/list"), lr("/api/run"), lr("/api/open"), lr("/api/openurl"),
 		},
 		Settings: []string{
-			"wallpaper", "filesOnDesktop", "deskIconSize", "deskSort",
+			"wallpaper", "wallpaperFit", "filesOnDesktop", "deskIconSize", "deskSort",
 			"dockPosition", "dockAutoHide", "dockIconSize",
 			"cc_show_wallpaper", "cc_show_dockhide", "nc_widgets",
 			"chromeCacheMB",
