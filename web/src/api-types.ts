@@ -79,9 +79,18 @@ export interface FFStatusResponse {
   message: string;
   procAlive: boolean;
   procMode: string;
+  instances: FfInstanceStatus[];
   available?: string;
   availableSize?: number;
   updateAvailable?: boolean;
+}
+
+export interface FfInstanceStatus {
+  id: string;
+  name: string;
+  appmode: boolean;
+  alive: boolean;
+  pid?: number;
 }
 
 export interface FileImportEntry {

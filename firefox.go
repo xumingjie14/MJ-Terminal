@@ -5,13 +5,24 @@ package main
 // An optional second browser, distributed as a separate Release
 // asset (MJ-Firefox.zip + firefox.json) and downloaded on demand so
 // the main package stays small. It lives under core/firefox (next to
-// sing-box) and always runs with its own profile in
-// Data/FirefoxProfile, so logins/cookies/history travel with the
-// folder — Firefox profiles keep their keys inside the profile,
-// unlike Chrome whose cookies are bound to the Windows account.
+// sing-box) and always runs with its own profile in Data, so
+// logins/cookies/history travel with the folder — Firefox profiles
+// keep their keys inside the profile, unlike Chrome whose cookies
+// are bound to the Windows account.
 // The daemon seeds the profile before every launch: proxy prefs in
 // user.js (through the node, or direct) and, for app mode, a
 // userChrome.css that hides the tab bar and address bar.
+//
+// v0.64 (detail-fix ④, option A): the single profile became TWO
+// entries with one profile each — 窗口版 (normal chrome,
+// Data/FirefoxProfile, the pre-v0.64 profile with all its state)
+// and 应用化版 (app chrome, Data/FirefoxProfileApp, created fresh
+// on first launch). Before this, one profile served both modes
+// and the mode was fixed at process birth, so a launch in the
+// other mode could only conflict and offer a restart-and-switch.
+// Now each entry owns its profile and its process, both may run
+// at the same time, and there is no mode to switch: an entry's
+// chrome is a property of the entry. The binary stays shared.
 
 import (
 	"archive/zip"
@@ -26,7 +37,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -107,6 +117,71 @@ func ffInstalledVersion() string {
 
 func ffProfileDir() string { return filepath.Join(dataDir(), "FirefoxProfile") }
 
+// ffAppProfileDir is the 应用化 entry's own profile (v0.64). It is
+// created fresh by the first app-entry launch; the pre-v0.64
+// single profile stays with the window entry (see ffProfileDir),
+// so no existing login/bookmark/history moves or is lost.
+func ffAppProfileDir() string { return filepath.Join(dataDir(), "FirefoxProfileApp") }
+
+// ffProfileDirs lists every profile the component owns, in entry
+// order. Patrol ownership, storage accounting and the cleanup
+// guards all run over this list so the second profile is never a
+// blind spot.
+func ffProfileDirs() []string { return []string{ffProfileDir(), ffAppProfileDir()} }
+
+// ---------- v0.64: the two Firefox entries ----------
+//
+// An entry is one launchable Firefox: a fixed chrome mode and its
+// own profile directory. The mode is no longer chosen per launch
+// against a shared process — it is a property of the entry, which
+// is what makes the old fresh/join/conflict question a purely
+// per-entry one (decideFFLaunch survives unchanged, asked about
+// THIS entry's profile and process only).
+
+const (
+	ffEntryWindow = "window" // 普通： normal chrome, pre-v0.64 profile
+	ffEntryApp    = "app"    // 应用化： app chrome, fresh profile
+)
+
+type ffEntry struct {
+	ID      string
+	AppMode bool
+}
+
+var ffEntries = []ffEntry{
+	{ID: ffEntryWindow, AppMode: false},
+	{ID: ffEntryApp, AppMode: true},
+}
+
+func ffEntryByID(id string) (ffEntry, bool) {
+	for _, e := range ffEntries {
+		if e.ID == id {
+			return e, true
+		}
+	}
+	return ffEntry{}, false
+}
+
+func ffEntryForMode(appMode bool) ffEntry {
+	for _, e := range ffEntries {
+		if e.AppMode == appMode {
+			return e
+		}
+	}
+	return ffEntries[0]
+}
+
+// Name is the entry's display name, which is also its chrome
+// mode's name （普通 / 应用化） — mode and entry are one axis now.
+func (e ffEntry) Name() string { return ffModeName(e.AppMode) }
+
+func (e ffEntry) ProfileDir() string {
+	if e.AppMode {
+		return ffAppProfileDir()
+	}
+	return ffProfileDir()
+}
+
 func fetchFFManifest(ctx context.Context) (*ffManifest, error) {
 	resp, err := dlGet(ctx, ffBase()+"/"+ffManifestName, "MJ-Terminal-Firefox/"+AppVersion)
 	if err != nil {
@@ -134,17 +209,32 @@ func ffStatusHandler(w http.ResponseWriter, r *http.Request) {
 		Message:   msg,
 	}
 	// v0.56: the live process truth for the Firefox page (the
-	// conflict banner reads these): whether a process holds the
+	// conflict banner read these): whether a process holds the
 	// profile, and the mode it was born in ("" when none,
 	// "未知" when a process predates the birth-mode record).
-	alive, birthApp, known := ffReconcileProc()
-	out.ProcAlive = alive
-	if alive {
-		out.ProcMode = "未知"
-		if known {
-			out.ProcMode = ffModeName(birthApp)
+	// v0.64: reconciliation is per entry — each entry's profile
+	// lock and birth record are its own, so one entry dying
+	// never touches the other's state. The aggregate fields
+	// keep their pre-v0.64 wire meaning for older readers:
+	// procAlive = any entry runs; procMode names what runs
+	// (ffProcModeSummary). The per-entry truth rides in
+	// instances, which the page now renders directly.
+	var parts []string
+	for _, e := range ffEntries {
+		alive, birthApp, known, pid := ffReconcileEntry(e)
+		inst := ffInstanceStatus{ID: e.ID, Name: e.Name(), AppMode: e.AppMode, Alive: alive}
+		if alive {
+			out.ProcAlive = true
+			inst.PID = pid // 0 (omitted) when the birth is unrecorded
+			if known {
+				parts = append(parts, ffModeName(birthApp))
+			} else {
+				parts = append(parts, "未知")
+			}
 		}
+		out.Instances = append(out.Instances, inst)
 	}
+	out.ProcMode = ffProcModeSummary(parts)
 	ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
 	defer cancel()
 	if m, err := fetchFFManifest(ctx); err == nil {
@@ -266,7 +356,11 @@ func runFFInstall() {
 		return
 	}
 	_ = dsSave("ff-version", []byte(m.Version))
-	_ = seedFFProfile(true, false)
+	// Pre-seed the WINDOW entry's profile so the first launch is
+	// ready out of the box (v0.64: the app entry's profile is
+	// seeded by its own first launch instead — same seeding,
+	// applied per profile).
+	_ = seedFFProfile(ffProfileDir(), true, false)
 	ffSt.set("ready", "安装完成：Firefox "+m.Version)
 	// v0.54: an app-category notification (通知中心 → 应用通知）.
 	postAppNotify("firefox", "Firefox", "installed",
@@ -338,9 +432,14 @@ func extractZipTo(zipPath, dir string) error {
 	return nil
 }
 
-// seedFFProfile (re)writes the launch-time prefs: proxy choice and,
-// for app mode, the chrome-hiding stylesheet. user.js is reapplied
-// by Firefox at every start, so the last launch's choices win.
+// seedFFProfile (re)writes one profile's launch-time prefs: proxy
+// choice and, for app mode, the chrome-hiding stylesheet. user.js
+// is reapplied by Firefox at every start, so the last launch's
+// choices win. The dir is the caller's entry profile (v0.64):
+// both entries are seeded by this one function, so the fresh
+// app-entry profile gets exactly the seeding the window profile
+// always got — same proxy routing, same prefs, only the chrome
+// differs (by the entry's mode).
 //
 // v0.56: every seed write is logged -- the console used to have a
 // blind spot here (neither the seed nor the process's birth/death
@@ -349,8 +448,7 @@ func extractZipTo(zipPath, dir string) error {
 // files (see decideFFLaunch): seeding for a launch that merely
 // joins the running process rewrites the disk copy while the live
 // process keeps its birth chrome, and the two diverge silently.
-func seedFFProfile(proxy bool, appMode bool) error {
-	dir := ffProfileDir()
+func seedFFProfile(dir string, proxy bool, appMode bool) error {
 	if err := os.MkdirAll(filepath.Join(dir, "chrome"), 0o755); err != nil {
 		return err
 	}
@@ -410,7 +508,7 @@ func seedFFProfile(proxy bool, appMode bool) error {
 	return os.WriteFile(filepath.Join(dir, "chrome", "userChrome.css"), []byte(css), 0o644)
 }
 
-// ---------- v0.56: Firefox process birth-mode tracking ----------
+// ---------- Firefox process birth-mode tracking (v0.56, dual-entry v0.64) ----------
 //
 // Field-proven root cause (2026-10-30): Firefox is a single
 // process per profile, and userChrome.css is read ONCE, when
@@ -422,17 +520,23 @@ func seedFFProfile(proxy bool, appMode bool) error {
 // profile on every launch, so the disk copy and the live
 // process's chrome diverged silently.
 //
-// The fix is to know and respect the birth mode:
-//   - every FRESH launch (no process alive before, one alive
-//     after) records {appmode, pid, startedAt} in Data/ffstate.json;
-//   - a launch request whose mode matches the birth mode joins
-//     the process WITHOUT seeding (the disk seed stays whatever
-//     the live process was born with);
-//   - a conflicting (or unknown-mode) request neither seeds nor
-//     opens: the Firefox page is told the running mode and
-//     offers a one-click 重启并切换 (ffRestartHandler);
-//   - process birth and death are logged (the console blind
-//     spot that made the field failure hard to see).
+// v0.56's fix was to know and respect the birth mode of THE
+// profile: a fresh launch recorded {appmode, pid, startedAt};
+// a same-mode launch joined without seeding; a conflicting
+// launch was refused and the page offered a restart-and-switch.
+//
+// v0.64 removes the reason conflicts existed: each entry owns a
+// profile, so an entry's launches can only ever meet a process
+// born in that entry's own mode. The birth record survives —
+// one per entry now — because the truth it carries is still
+// needed exactly once: during the upgrade, a pre-v0.64 process
+// born in 应用化 mode may still hold the WINDOW entry's profile
+// (the old single profile). That entry's launches conflict
+// honestly until the process exits (the page explains; no
+// restart machinery remains), while the app entry launches
+// freely the whole time. Process birth and death stay logged
+// per entry — the console blind spot that made the original
+// field failure hard to see does not come back.
 
 type ffProcRecord struct {
 	AppMode   bool  `json:"appmode"`
@@ -442,27 +546,100 @@ type ffProcRecord struct {
 
 func ffStatePath() string { return filepath.Join(dataDir(), "ffstate.json") }
 
-func ffLoadRecord() (ffProcRecord, bool) {
-	b, status, err := dsLoad("ffstate")
-	if err != nil || status == dsMissing {
-		return ffProcRecord{}, false
+// ffState guards the records map's read-modify-write cycles:
+// the status poll and an open call can reconcile concurrently.
+var ffStateMu sync.Mutex
+
+// ffParseState decodes a persisted ffstate blob (pure). The
+// current format is {"records": {"window": {...}, "app": {...}}};
+// a pre-v0.64 blob is a single bare ffProcRecord and is reported
+// as legacy so the caller can migrate it (ffMigrateLegacyRecords).
+// Anything unparseable is neither — callers treat it as empty.
+func ffParseState(b []byte) (records map[string]ffProcRecord, legacy *ffProcRecord) {
+	var probe map[string]json.RawMessage
+	if json.Unmarshal(b, &probe) != nil {
+		return nil, nil
 	}
-	var rec ffProcRecord
-	if json.Unmarshal(b, &rec) != nil {
-		return ffProcRecord{}, false
+	if raw, ok := probe["records"]; ok {
+		records = map[string]ffProcRecord{}
+		_ = json.Unmarshal(raw, &records)
+		return records, nil
 	}
-	return rec, true
+	if _, ok := probe["pid"]; ok {
+		var rec ffProcRecord
+		if json.Unmarshal(b, &rec) == nil {
+			r := rec
+			return nil, &r
+		}
+	}
+	return nil, nil
 }
 
-func ffSaveRecord(appMode bool, pid int) {
-	rec := ffProcRecord{AppMode: appMode, PID: pid, StartedAt: time.Now().Unix()}
-	if b, err := json.Marshal(rec); err == nil {
+// ffMigrateLegacyRecords attributes a pre-v0.64 single record to
+// the WINDOW entry (pure): the process it describes holds
+// Data/FirefoxProfile, which is the window entry's profile now.
+// The birth mode is kept verbatim — a legacy app-born process
+// really does hold that profile in app mode until it exits, and
+// the window entry's launch rule must see that conflict rather
+// than paper over it. Idempotent by construction: the migrated
+// blob is in the new format, so a second load parses it as new
+// and migrates nothing.
+func ffMigrateLegacyRecords(legacy ffProcRecord) map[string]ffProcRecord {
+	return map[string]ffProcRecord{ffEntryWindow: legacy}
+}
+
+// ffLoadRecords reads the per-entry birth records, migrating a
+// legacy single record on first sight (persisted immediately,
+// logged once). Called by every state accessor, so the
+// migration lands at the first status poll or launch after the
+// upgrade — no separate startup hook needed.
+func ffLoadRecords() map[string]ffProcRecord {
+	b, status, err := dsLoad("ffstate")
+	if err != nil || status == dsMissing {
+		return map[string]ffProcRecord{}
+	}
+	records, legacy := ffParseState(b)
+	if legacy != nil {
+		records = ffMigrateLegacyRecords(*legacy)
+		ffSaveRecords(records)
+		logf("firefox", "info", "Firefox 双档案迁移：旧版单档案的进程记录已归到窗口版入口（出生模式：%s，PID %d）；既有档案 Data/FirefoxProfile 归窗口版，应用化版将使用全新档案 Data/FirefoxProfileApp",
+			ffModeName(legacy.AppMode), legacy.PID)
+		return records
+	}
+	if records == nil {
+		return map[string]ffProcRecord{}
+	}
+	return records
+}
+
+func ffSaveRecords(records map[string]ffProcRecord) {
+	if b, err := json.Marshal(struct {
+		Records map[string]ffProcRecord `json:"records"`
+	}{Records: records}); err == nil {
 		_ = dsSave("ffstate", b)
 	}
 }
 
-// ffClearRecord removes the record AND its keep-last-good backup:
-// a cleared record must not be able to resurrect from the .bak.
+func ffSaveRecord(entry ffEntry, pid int) {
+	ffStateMu.Lock()
+	defer ffStateMu.Unlock()
+	records := ffLoadRecords()
+	records[entry.ID] = ffProcRecord{AppMode: entry.AppMode, PID: pid, StartedAt: time.Now().Unix()}
+	ffSaveRecords(records)
+}
+
+func ffClearEntryRecord(entry ffEntry) {
+	records := ffLoadRecords()
+	if _, ok := records[entry.ID]; !ok {
+		return
+	}
+	delete(records, entry.ID)
+	ffSaveRecords(records)
+}
+
+// ffClearRecord removes ALL entries' records AND the
+// keep-last-good backup: a cleared record must not be able to
+// resurrect from the .bak. Used by uninstall.
 func ffClearRecord() {
 	if p, err := dsPath("ffstate"); err == nil {
 		dsRemoveFile(p)
@@ -476,12 +653,12 @@ func ffModeName(appMode bool) string {
 	return "普通"
 }
 
-// ffProfileLocked reports whether a Firefox process currently
-// holds the profile (its parent.lock file exists) -- the same
+// ffDirLocked reports whether a Firefox process currently holds
+// the given profile (its parent.lock file exists) -- the same
 // probe storage.go's cleanup guard uses.
-func ffProfileLocked() bool {
+func ffDirLocked(dir string) bool {
 	locked := false
-	_ = filepath.WalkDir(ffProfileDir(), func(p string, d os.DirEntry, err error) error {
+	_ = filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
 		if err == nil && !d.IsDir() && (d.Name() == "parent.lock" || d.Name() == ".parentlock") {
 			locked = true
 			return filepath.SkipAll
@@ -491,26 +668,49 @@ func ffProfileLocked() bool {
 	return locked
 }
 
-// ffReconcileProc folds the record and the live lock into the
-// current truth: alive = a process holds the profile now;
-// known/birthAppMode = the mode that process was born in (from
-// the record). A record whose process has died is logged and
-// cleared here, so the death lands in the console even if
-// nobody opens the Firefox page afterwards (the status handler
-// and every open call reconcile).
-func ffReconcileProc() (alive bool, birthAppMode bool, known bool) {
-	rec, has := ffLoadRecord()
-	if !ffProfileLocked() {
-		if has {
-			logf("firefox", "info", "Firefox 进程已退出（出生模式：%s，PID %d）", ffModeName(rec.AppMode), rec.PID)
-			ffClearRecord()
+// ffAnyProfileLocked reports whether ANY entry's profile is held
+// (the uninstall guard: the component cannot go away under a
+// live process of either entry).
+func ffAnyProfileLocked() bool {
+	for _, dir := range ffProfileDirs() {
+		if ffDirLocked(dir) {
+			return true
 		}
-		return false, false, false
+	}
+	return false
+}
+
+// ffReconcileEntry folds one entry's record and its profile's
+// live lock into the current truth: alive = a process holds THIS
+// entry's profile now; known/birthAppMode = the mode that
+// process was born in (from the record); pid = the recorded PID
+// (0 when unknown). A record whose process has died is logged
+// and cleared here, so the death lands in the console even if
+// nobody opens the Firefox page afterwards (the status handler
+// and every open call reconcile both entries).
+func ffReconcileEntry(entry ffEntry) (alive bool, birthAppMode bool, known bool, pid int) {
+	ffStateMu.Lock()
+	defer ffStateMu.Unlock()
+	rec, has := ffLoadRecords()[entry.ID]
+	if !ffDirLocked(entry.ProfileDir()) {
+		if has {
+			logf("firefox", "info", "Firefox 进程已退出（入口：%s，出生模式：%s，PID %d）", entry.Name(), ffModeName(rec.AppMode), rec.PID)
+			ffClearEntryRecord(entry)
+		}
+		return false, false, false, 0
 	}
 	if !has {
-		return true, false, false
+		return true, false, false, 0
 	}
-	return true, rec.AppMode, true
+	return true, rec.AppMode, true, rec.PID
+}
+
+// ffProcModeSummary renders the aggregate procMode wire field
+// from the per-entry truths (pure): "" when nothing runs; the
+// single running entry's birth-mode name (or 未知）; both names
+// joined with + when both entries run.
+func ffProcModeSummary(parts []string) string {
+	return strings.Join(parts, "+")
 }
 
 type ffLaunchDecision int
@@ -522,10 +722,15 @@ const (
 )
 
 // decideFFLaunch is the pure launch rule (ffstate_test.go pins
-// it): no process -> fresh; a process born in the requested
-// mode -> join; anything else (other mode, or a process whose
-// birth mode we never recorded) -> conflict, because joining
-// would silently hand the user a window in the wrong mode.
+// it), asked PER ENTRY since v0.64: no process on this entry's
+// profile -> fresh; a process born in this entry's mode -> join;
+// anything else -> conflict. Post-upgrade the conflict case is
+// reachable only on the window entry, against a pre-v0.64
+// process born in the other mode that still holds the old
+// profile (or a process whose birth was never recorded):
+// joining it would silently hand the user a window in the
+// wrong chrome, so the open is refused with an explanation
+// until that process exits — the other entry is unaffected.
 func decideFFLaunch(alive bool, known bool, birthAppMode bool, wantAppMode bool) ffLaunchDecision {
 	if !alive {
 		return ffFresh
@@ -536,13 +741,15 @@ func decideFFLaunch(alive bool, known bool, birthAppMode bool, wantAppMode bool)
 	return ffConflict
 }
 
-// startFFProcess performs one firefox.exe start. fresh=true
-// means the caller has established that no process holds the
-// profile: the profile is seeded for this launch and the birth
-// is recorded. fresh=false is a join: NO seeding -- the running
-// process keeps its birth chrome and the disk copy must not
-// diverge from it.
-func startFFProcess(proxy bool, appMode bool, target string, fresh bool) error {
+// startFFProcess performs one firefox.exe start for an entry.
+// fresh=true means the caller has established that no process
+// holds the entry's profile: the profile is seeded for this
+// launch (the app entry's very first launch creates its profile
+// here, with the same seeding the window profile gets) and the
+// birth is recorded under the entry. fresh=false is a join: NO
+// seeding -- the running process keeps its birth chrome and the
+// disk copy must not diverge from it.
+func startFFProcess(entry ffEntry, proxy bool, target string, fresh bool) error {
 	exe := filepath.Join(ffInstallDir(), "firefox.exe")
 	if _, err := os.Stat(exe); err != nil {
 		return fmt.Errorf("还没安装 Firefox 组件，先在 Firefox 页点「下载组件」")
@@ -556,14 +763,14 @@ func startFFProcess(proxy bool, appMode bool, target string, fresh bool) error {
 		}
 	}
 	if fresh {
-		if err := seedFFProfile(proxy, appMode); err != nil {
+		if err := seedFFProfile(entry.ProfileDir(), proxy, entry.AppMode); err != nil {
 			return err
 		}
 	}
 	if target == "" {
 		target = "about:home"
 	}
-	args := []string{"-profile", ffProfileDir(), "-no-remote", "-new-window", target}
+	args := []string{"-profile", entry.ProfileDir(), "-no-remote", "-new-window", target}
 	cmd := exec.Command(exe, args...)
 	hideConsole(cmd)
 	if err := cmd.Start(); err != nil {
@@ -573,50 +780,72 @@ func startFFProcess(proxy bool, appMode bool, target string, fresh bool) error {
 	// Manager -- launchFirefox never registered the window, so its
 	// PID could never enter the old patrol's watched set. The
 	// inventory patrol now claims it from the spawn ledger and the
-	// -profile command-line fingerprint.
+	// -profile command-line fingerprint (v0.64: per entry — each
+	// entry's process carries its own profile path).
 	noteSpawnedProcess(uint32(cmd.Process.Pid), "Firefox")
 	if fresh {
-		ffSaveRecord(appMode, cmd.Process.Pid)
-		logf("firefox", "info", "Firefox 进程启动（模式：%s，PID %d）", ffModeName(appMode), cmd.Process.Pid)
+		ffSaveRecord(entry, cmd.Process.Pid)
+		logf("firefox", "info", "Firefox 进程启动（入口：%s，PID %d）", entry.Name(), cmd.Process.Pid)
 	}
 	return nil
 }
 
+// ffOpenHandler serves POST /api/firefox/open. The body names
+// the entry two ways for wire compatibility: "instance"
+// ("window"|"app", preferred) and the pre-v0.64 "appmode" bool,
+// which selects the same entry — mode and entry are one axis
+// now, so both spellings resolve through ffEntryForMode /
+// ffEntryByID to the same thing. The launch rule runs against
+// the CHOSEN entry only: the other entry's state can never
+// refuse, delay or alter this launch.
 func ffOpenHandler(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Proxy   bool   `json:"proxy"`
-		AppMode bool   `json:"appmode"`
-		URL     string `json:"url"`
+		Proxy    bool   `json:"proxy"`
+		AppMode  bool   `json:"appmode"`
+		Instance string `json:"instance"`
+		URL      string `json:"url"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 	if runtime.GOOS != "windows" {
 		apiErrBadRequest(w, errCodeInvalid, "当前不是 Windows 环境（这是测试环境），到 Windows 上会正常打开 Firefox")
 		return
 	}
+	entry := ffEntryForMode(body.AppMode)
+	if body.Instance != "" {
+		if e, ok := ffEntryByID(body.Instance); ok {
+			entry = e
+		}
+	}
 	target := strings.TrimSpace(body.URL)
-	alive, birthApp, known := ffReconcileProc()
-	switch decideFFLaunch(alive, known, birthApp, body.AppMode) {
+	alive, birthApp, known, _ := ffReconcileEntry(entry)
+	switch decideFFLaunch(alive, known, birthApp, entry.AppMode) {
 	case ffConflict:
+		// Reachable only on the window entry, against a
+		// pre-v0.64 process born in app mode that still holds
+		// the old profile (or a process whose birth was never
+		// recorded). There is no restart-and-switch anymore:
+		// the answer is to let that process exit; the other
+		// entry opens normally in the meantime.
 		running := "未知"
 		if known {
 			running = ffModeName(birthApp)
 		}
-		logf("firefox", "warn", "Firefox 模式冲突：进程正以%s模式运行（出生模式%s），本次%s请求未执行，等待用户选择重启并切换",
-			running, map[bool]string{true: "有记录", false: "无记录"}[known], ffModeName(body.AppMode))
+		logf("firefox", "warn", "Firefox 打开被拒（遗留进程）：%s入口的档案正被以%s模式启动的进程占用（出生模式%s），本次请求未执行",
+			entry.Name(), running, map[bool]string{true: "有记录", false: "无记录"}[known])
 		writeJSON(w, map[string]any{
 			"conflict":    true,
 			"runningMode": running,
-			"error":       "Firefox 正以" + running + "模式运行，模式在进程启动时就定死了，本次打开没有执行。点「重启并切换」会关掉 Firefox 再以" + ffModeName(body.AppMode) + "模式重开（标签页会按 Firefox 的会话恢复回来）。",
+			"error":       "「" + entry.Name() + "」入口的档案正被一个以" + running + "模式启动的 Firefox 进程占着——那是升级到双档案之前启动的进程，模式在它出生时就定死了，它退出之前这个入口打不开。把那个 Firefox 的窗口全部关掉让它退出，再点打开就行；另一个入口不受影响，可以照常打开。",
 		})
 		return
 	case ffJoin:
-		if err := startFFProcess(body.Proxy, body.AppMode, target, false); err != nil {
+		if err := startFFProcess(entry, body.Proxy, target, false); err != nil {
 			logf("firefox", "error", "打开 Firefox 失败：%v", err)
 			writeAPIError(w, http.StatusInternalServerError, errCodeInternal, err.Error())
 			return
 		}
 	default: // ffFresh
-		if err := startFFProcess(body.Proxy, body.AppMode, target, true); err != nil {
+		if err := startFFProcess(entry, body.Proxy, target, true); err != nil {
 			logf("firefox", "error", "打开 Firefox 失败：%v", err)
 			writeAPIError(w, http.StatusInternalServerError, errCodeInternal, err.Error())
 			return
@@ -626,202 +855,70 @@ func ffOpenHandler(w http.ResponseWriter, r *http.Request) {
 	if body.Proxy {
 		kind = "走节点"
 	}
-	if body.AppMode {
-		kind += " · 应用化"
-	}
+	kind += " · " + entry.Name()
 	logf("firefox", "info", "已打开 Firefox（%s）", kind)
 	writeJSON(w, map[string]any{"ok": true, "mode": kind})
 }
 
-// ---------- v0.56 test2: restart close/kill sets ----------
+// ---------- v0.64: per-entry claim attribution (winmgr) ----------
 //
-// Field failure on test1: 「重启并切换」 timed out twice with
-// "等了 15 秒 Firefox 还没完全退出（档案仍被占用）". The old code
-// WM_CLOSEd only the windows the Stage Manager happened to have
-// CLAIMED -- a Firefox window the patrol never claimed (or one
-// claimed under a different registration) kept the single
-// process alive, the profile lock never released, and the
-// restart aborted. The close set is now computed from a full
-// top-level window enumeration matched against the component
-// exe's full path, unioned with the claimed set. And when even
-// that is not enough there is an explicit second step: the page
-// offers 「强制结束并切换」 (force=true), which terminates the
-// component process TREE -- by PID set computed from full image
-// paths, never a name-wide kill, so a host Firefox installed
-// elsewhere is untouchable.
+// The two entries run the same firefox.exe, so the window
+// patrol tells their processes apart by the -profile path on
+// the command line — the same fingerprint classifyOwnership
+// claims them by. ffEntryForProfile is the pure attribution
+// (ffstate_test.go pins it, including the sibling trap:
+// FirefoxProfile must not match a FirefoxProfileApp command
+// line, which cmdlineHasProfile's boundary rule prevents).
 
-// ffCloseSet decides which top-level windows a restart closes:
-// every window owned by a process whose image path IS the
-// component firefox.exe. Pure (ffstate_test.go pins it).
-func ffCloseSet(wins []windowFact, procs []procFact, exePath string) []uint64 {
-	want := normalizeWinPath(exePath)
-	if want == "" {
-		return nil
+// ffEntryForProfile returns the entry ID whose profile dir the
+// command line carries, or "" when neither matches (a host
+// Firefox, an empty command line). The app dir is checked
+// first; the boundary rule makes the order belt-and-braces,
+// not load-bearing.
+func ffEntryForProfile(cmdline, windowDir, appDir string) string {
+	if cmdlineHasProfile(cmdline, appDir) {
+		return ffEntryApp
 	}
-	byPID := map[uint32]string{}
-	for _, p := range procs {
-		byPID[p.PID] = p.ImagePath
+	if cmdlineHasProfile(cmdline, windowDir) {
+		return ffEntryWindow
 	}
-	seen := map[uint64]bool{}
-	var out []uint64
-	for _, wf := range wins {
-		if wf.HWND == 0 || seen[wf.HWND] {
-			continue
-		}
-		img, ok := byPID[wf.PID]
-		if !ok || img == "" || normalizeWinPath(img) != want {
-			continue
-		}
-		seen[wf.HWND] = true
-		out = append(out, wf.HWND)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
-	return out
+	return ""
 }
 
-// ffKillRoots picks the root PIDs for the force step: processes
-// whose full image path IS the component firefox.exe. The kill
-// set proper is computeKillSet over these roots (the house
-// tree-expansion, with its self/kernel exclusions). A process
-// whose path could not be queried is never a root -- safety
-// over recall, here as everywhere in this codebase.
-func ffKillRoots(procs []procFact, exePath string) map[uint32]bool {
-	want := normalizeWinPath(exePath)
-	roots := map[uint32]bool{}
-	if want == "" {
-		return roots
+// ffClaimTag names the entry a Firefox process belongs to, for
+// the Stage Manager label: "普通" / "应用化", or "" when the
+// process is not one of ours (host Firefox, unqueryable command
+// line) — those windows keep their plain label.
+func ffClaimTag(p procFact) string {
+	if !strings.EqualFold(filepath.Base(p.ImagePath), "firefox.exe") {
+		return ""
 	}
-	for _, p := range procs {
-		if p.ImagePath != "" && normalizeWinPath(p.ImagePath) == want {
-			roots[p.PID] = true
-		}
+	id := ffEntryForProfile(p.CmdLine, ffProfileDir(), ffAppProfileDir())
+	if id == "" {
+		return ""
 	}
-	return roots
+	e, _ := ffEntryByID(id)
+	return e.Name()
 }
 
-func ffWaitUnlocked(d time.Duration) bool {
-	deadline := time.Now().Add(d)
-	for ffProfileLocked() && time.Now().Before(deadline) {
-		time.Sleep(300 * time.Millisecond)
+// ffEntryLabel decorates a window label with its entry tag
+// (pure): "标题 · 应用化". An empty entry leaves the label
+// untouched.
+func ffEntryLabel(base, entryName string) string {
+	if entryName == "" {
+		return base
 	}
-	return !ffProfileLocked()
-}
-
-// ffRestartHandler serves POST /api/firefox/restart: the
-// one-click answer to a mode conflict. Graceful phase: close
-// EVERY top-level window of the profile's processes (see
-// ffCloseSet) and wait for the profile lock (~15 s). If the
-// lock survives, the response carries stillRunning=true and
-// the page offers the explicit 「强制结束并切换」 action,
-// which re-enters here with force=true and terminates the
-// process tree by PID set. Force never happens implicitly.
-func ffRestartHandler(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Proxy   bool   `json:"proxy"`
-		AppMode bool   `json:"appmode"`
-		URL     string `json:"url"`
-		Force   bool   `json:"force"`
-	}
-	_ = json.NewDecoder(r.Body).Decode(&body)
-	if runtime.GOOS != "windows" {
-		apiErrBadRequest(w, errCodeInvalid, "当前不是 Windows 环境（这是测试环境），到 Windows 上才能重启 Firefox")
-		return
-	}
-	_, birthApp, known := ffReconcileProc()
-	from := "未知"
-	if known {
-		from = ffModeName(birthApp)
-	}
-	exe := filepath.Join(ffInstallDir(), "firefox.exe")
-	logf("firefox", "info", "重启并切换：开始关闭 Firefox（%s → %s，强制=%v）", from, ffModeName(body.AppMode), body.Force)
-	// Graceful close: the full enumeration set, unioned with
-	// the Stage Manager's claimed Firefox windows.
-	closeSet := ffCloseSet(platformAllTopWindows(), platformProcessSnapshot(), exe)
-	inSet := map[uint64]bool{}
-	for _, h := range closeSet {
-		inSet[h] = true
-	}
-	extMu.Lock()
-	claimed := 0
-	for h, e := range extWins {
-		if e.Shell || platformProcessImageBase(e.pid) != "firefox.exe" {
-			continue
-		}
-		claimed++
-		if !inSet[h] {
-			inSet[h] = true
-			closeSet = append(closeSet, h)
-		}
-	}
-	extMu.Unlock()
-	logf("firefox", "info", "重启并切换：向 %d 个 Firefox 窗口发出关闭请求（台前调度在册 %d 个）", len(closeSet), claimed)
-	for _, h := range closeSet {
-		platformCloseWindow(h)
-	}
-	if !ffWaitUnlocked(15 * time.Second) {
-		if !body.Force {
-			logf("firefox", "error", "重启并切换失败：等了 15 秒 Firefox 还没完全退出（档案仍被占用），等待用户决定是否强制结束")
-			writeJSON(w, map[string]any{
-				"error":        "Firefox 还没完全退出，等了 15 秒档案仍被占用。可以点「强制结束并切换」直接结束它的进程再重开（没保存的东西会丢，标签页按会话恢复），或者手动把 Firefox 窗口全关掉再点打开。",
-				"stillRunning": true,
-			})
-			return
-		}
-		// Force phase (explicit user click only): terminate the
-		// component's process tree by PID set, with the same
-		// pre-kill image re-verification closeAppsForExit uses
-		// (a recycled PID shows a different image and is spared).
-		procs := platformProcessSnapshot()
-		roots := ffKillRoots(procs, exe)
-		kill := computeKillSet(procs, roots, uint32(os.Getpid()))
-		imageByPID := map[uint32]string{}
-		for _, p := range procs {
-			imageByPID[p.PID] = p.ImagePath
-		}
-		logf("firefox", "warn", "强制结束并切换：档案仍被占用，结束 Firefox 进程树（根进程 %d 个，连子进程共 %d 个）", len(roots), len(kill))
-		procs2 := platformProcessSnapshot()
-		image2 := map[uint32]string{}
-		for _, p := range procs2 {
-			image2[p.PID] = p.ImagePath
-		}
-		killed := 0
-		for pid := range kill {
-			if img, ok := image2[pid]; !ok || img != imageByPID[pid] {
-				continue
-			}
-			proc, err := os.FindProcess(int(pid))
-			if err != nil {
-				continue
-			}
-			if err := proc.Kill(); err == nil {
-				killed++
-			}
-		}
-		logf("firefox", "info", "强制结束并切换：已结束 %d 个进程，等档案释放", killed)
-		if !ffWaitUnlocked(10 * time.Second) {
-			logf("firefox", "error", "强制结束并切换失败：进程已结束但档案仍被占用")
-			apiErrBadRequest(w, errCodeInvalid, "已经强制结束 Firefox 进程，等了 10 秒档案还是被占用。可能有别的程序占着档案，稍等一下再点打开试试。")
-			return
-		}
-	}
-	ffClearRecord()
-	target := strings.TrimSpace(body.URL)
-	if err := startFFProcess(body.Proxy, body.AppMode, target, true); err != nil {
-		logf("firefox", "error", "重启并切换失败：%v", err)
-		writeAPIError(w, http.StatusInternalServerError, errCodeInternal, err.Error())
-		return
-	}
-	logf("firefox", "info", "重启并切换完成：Firefox 已以%s模式重开", ffModeName(body.AppMode))
-	writeJSON(w, map[string]any{"ok": true, "mode": ffModeName(body.AppMode)})
+	return base + " · " + entryName
 }
 
 // ffUninstallHandler serves POST /api/firefox/uninstall (the
 // desktop right-click menu's 卸载组件）: removes the component
-// program. The profile (Data/FirefoxProfile -- the user's
-// logins) is deliberately kept, and the confirm text in the UI
-// says so; a running Firefox blocks the uninstall.
+// program. BOTH profiles (Data/FirefoxProfile and
+// Data/FirefoxProfileApp — the user's logins) are deliberately
+// kept, and the confirm text in the UI says so; a Firefox of
+// either entry still running blocks the uninstall.
 func ffUninstallHandler(w http.ResponseWriter, r *http.Request) {
-	if ffProfileLocked() {
+	if ffAnyProfileLocked() {
 		apiErrBadRequest(w, errCodeInvalid, "Firefox 还在运行，先把它的窗口全关掉再卸载")
 		return
 	}
@@ -835,6 +932,6 @@ func ffUninstallHandler(w http.ResponseWriter, r *http.Request) {
 	_ = os.Remove(filepath.Join(dataDir(), "ff-icon.ico"))
 	ffClearRecord()
 	ffSt.set("idle", "")
-	logf("firefox", "info", "已卸载 Firefox 组件（程序已删除；档案保留在 Data/FirefoxProfile）")
+	logf("firefox", "info", "已卸载 Firefox 组件（程序已删除；两个档案保留在 Data/FirefoxProfile 与 Data/FirefoxProfileApp）")
 	writeJSON(w, map[string]any{"ok": true})
 }

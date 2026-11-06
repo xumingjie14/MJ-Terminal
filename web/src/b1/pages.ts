@@ -30,7 +30,7 @@ export function render(id){
   b.innerHTML=`<div class="fv"><div class="fv-path">文稿库 <span style="opacity:.6">›</span> <b id="fv-crumb">全部文件</b><span style="opacity:.55;font-size:12px">　· 单层文稿库（Data/files），不是电脑上的文件夹</span></div><div class="fv-main"><div class="fv-side" id="fv-side"></div><div class="fv-center"><div class="fv-tools"><span class="seg" id="fv-viewseg"><button data-v="icon">图标</button><button data-v="list">列表</button><button data-v="cols">分栏</button></span><select class="fv-sorts" id="fv-sort" title="排序"><option value="name">名称</option><option value="size">大小</option><option value="kind">类型</option><option value="mtime">导入时间</option></select><button class="btn gray" id="fv-import">导入…</button><input class="fv-q" id="fv-q" type="text" placeholder="搜索当前分组" autocomplete="off"></div><div class="fv-body" id="fv-body"></div></div><div class="fv-prev" id="fv-prev"></div></div></div>`;
  }
  if(id==='browser') b.innerHTML=`<h3>谷歌浏览器（独立窗口）</h3><p class="mut" style="margin-top:8px">这个浏览器和公用电脑自己的浏览器是分开的：独立档案存在 EXE 旁边的 Data 文件夹，历史、Cookie、登录都在你自己的档案里。<br><b style="color:#fff">走节点打开时，只有这个窗口的流量走节点</b>，不会改这台电脑的系统代理。</p><div class="row" style="margin-top:14px"><input class="txt" id="burl" value="https://www.google.com"></div><div class="row" style="margin-top:10px"><button class="btn" id="bproxy">走节点打开 Chrome</button><button class="btn gray" id="bdirect">直连打开 Chrome</button><button class="btn gray" id="btest">代理自检</button></div><p style="margin-top:12px"><span class="tag" id="bstatus">连不上时先点「代理自检」，它会告诉你卡在哪一步</span></p><hr style="border-color:rgba(255,255,255,.14);margin:18px 0"><h3>网站应用（钉到桌面）</h3><p class="mut" style="margin-top:6px">下面的网站已经钉在桌面右侧，点开就是<b style="color:#fff">应用化的干净窗口</b>：没有地址栏、没有标签页，像打开一个 App，自动走节点（全局加速开着时）。适合 X、YouTube 这种固定要去的网站。</p><div id="walist" class="mut" style="margin-top:10px">加载中…</div><div class="row" style="margin-top:12px"><input class="txt" id="waname" placeholder="名字，如 GitHub" style="max-width:150px"><input class="txt" id="waurl" placeholder="网址，如 https://github.com"></div><div class="row" style="margin-top:8px"><button class="btn" id="waadd">＋ 钉到桌面</button><span class="tag" id="wastatus"></span></div><hr style="border-color:rgba(255,255,255,.14);margin:18px 0"><h3>谷歌云同步（换电脑不丢登录）</h3><p class="mut" style="margin-top:6px">Chrome 的登录搬不了家（被那台电脑的 Windows 账户锁着），但<b style="color:#fff">开启谷歌同步</b>后，换一台电脑打开终端机，在隔离 Chrome 里登一次谷歌，密码、书签、历史就会同步回来，各网站的登录基本点一下就恢复。同步的开关在 Chrome 里面，下面这个按钮会直接把同步设置页在隔离 Chrome 中打开。</p><div class="row" style="margin-top:10px"><button class="btn" id="bsync">打开同步设置</button><span class="tag" id="bsyncst">打开后在 Chrome 里点「开启同步」并登录谷歌账户</span></div>`;
- if(id==='firefox') b.innerHTML=`<h3>Firefox（系统内浏览器 · 登录可搬家）</h3><p class="mut" style="margin-top:8px">这是装在咱们系统里面的 Firefox，用自己的档案（EXE 旁 Data/FirefoxProfile）。和 Chrome 不一样，<b style="color:#fff">Firefox 的登录、Cookie、历史都锁在档案自己身上</b>：把文件夹带到另一台电脑打开，登录状态样，这是专门用来装需要登录的网站的浏览器。建议进 Firefox 后给档案设一个<b style="color:#fff">主密码</b>（设置 → 隐私与安全 → 主密码），文件夹在别人手里也解不开。宿主机自己的 Firefox 与它互不相干。</p><p style="margin-top:12px"><span class="tag" id="ffinfo">组件状态读取中…</span></p><div class="row" style="margin-top:10px"><button class="btn" id="ffdl">下载 Firefox 组件</button><span class="tag" id="ffprog"></span></div><div class="row" style="margin-top:14px"><input class="txt" id="ffurl" placeholder="网址（留空开主页），如 https://github.com"></div><div class="row" style="margin-top:10px"><button class="btn" id="ffopen">走节点打开</button><button class="btn gray" id="ffopenapp">应用化打开（走节点）</button><button class="btn gray" id="ffopend">直连打开</button></div><div id="ffconflict" style="display:none;margin-top:12px;padding:10px 12px;border-radius:10px;background:rgba(255,159,10,.14);border:1px solid rgba(255,159,10,.45)"><p style="font-size:13px;line-height:1.6" id="ffconflict-t"></p><div class="row" style="margin-top:8px"><button class="btn" id="ffrestart">重启并切换</button><button class="btn" id="ffforce" style="display:none;background:#ff453a">强制结束并切换</button><span class="mut" style="font-size:12px">会关掉现在的 Firefox 窗口再重开；标签页按 Firefox 的会话恢复回来。强制结束只在温和关闭退不干净时才出现：它会结束本组件的 Firefox 进程树（按进程路径认人，不碰宿主机的 Firefox），未保存的表单内容可能丢失。</span></div></div><p class="mut" style="margin-top:10px">应用化＝隐藏标签栏和地址栏的干净窗口。Firefox 是单进程浏览器：<b style="color:#fff">普通/应用化在进程启动那一刻就定死了</b>，开着的时候再点另一种打开不会生效——页面会提示冲突，点「重启并切换」一键处理。</p><p style="margin-top:8px"><span class="tag" id="ffstatus"></span></p>`;
+ if(id==='firefox') b.innerHTML=`<h3>Firefox（系统内浏览器 · 登录可搬家）</h3><p class="mut" style="margin-top:8px">这是装在咱们系统里面的 Firefox。和 Chrome 不一样，<b style="color:#fff">Firefox 的登录、Cookie、历史都锁在档案自己身上</b>：把文件夹带到另一台电脑打开，登录状态还在，这是专门用来装需要登录的网站的浏览器。现在有<b style="color:#fff">两个入口，各用各的档案</b>：窗口版用 EXE 旁 Data/FirefoxProfile（一直以来攒下的登录、书签都在这儿，原样保留），应用化版用 Data/FirefoxProfileApp（第一次打开时新建，干净起步）。<b style="color:#fff">两个入口可以同时开着</b>，各是各的进程、各记各的登录，互不影响，也不用再切换什么模式。建议进 Firefox 后给档案设一个<b style="color:#fff">主密码</b>（设置 → 隐私与安全 → 主密码），文件夹在别人手里也解不开。宿主机自己的 Firefox 与它互不相干。</p><p style="margin-top:12px"><span class="tag" id="ffinfo">组件状态读取中…</span></p><div class="row" style="margin-top:10px"><button class="btn" id="ffdl">下载 Firefox 组件</button><span class="tag" id="ffprog"></span></div><div class="row" style="margin-top:14px"><input class="txt" id="ffurl" placeholder="网址（留空开主页），如 https://github.com"></div><div class="row" style="margin-top:14px"><span style="font-weight:600;color:#fff">窗口版（普通）</span><span class="tag" id="ffwin-st">…</span></div><div class="row" style="margin-top:8px"><button class="btn" id="ffopen">走节点打开</button><button class="btn gray" id="ffopend">直连打开</button></div><div class="row" style="margin-top:14px"><span style="font-weight:600;color:#fff">应用化版</span><span class="tag" id="ffapp-st">…</span></div><div class="row" style="margin-top:8px"><button class="btn" id="ffopenapp">应用化打开（走节点）</button><button class="btn gray" id="ffopenappd">应用化直连打开</button></div><p class="mut" style="margin-top:12px">应用化＝隐藏标签栏和地址栏的干净窗口。两个入口共用同一个 Firefox 程序，但档案和进程完全分开：窗口版开着的时候应用化版照样能开，反过来也一样；台前调度里两个入口的窗口会标明是「· 普通」还是「· 应用化」，不会认错。</p><p style="margin-top:8px"><span class="tag" id="ffstatus"></span></p>`;
  if(id==='ssh') b.innerHTML=`<h3>SSH 远程终端</h3><p class="mut" style="margin-top:6px">连接、私钥、服务器指纹都存在 EXE 旁的 <b style="color:#fff">Data/ssh</b> 里，跟着文件夹走。密码和私钥口令只在连接时输入、<b style="color:#fff">不保存</b>。第一次连某台服务器会记下它的指纹，之后每次校验，对不上会拦住。</p><div class="row" style="margin-top:10px"><select id="sshconn" class="txt" style="max-width:250px"></select><button class="btn gray" id="sshnew">＋ 新建</button><button class="btn gray" id="sshedit">编辑</button><button class="btn gray" id="sshdel">删除</button></div><div id="sshform" style="display:none;margin-top:10px"><div class="row"><input class="txt" id="sf_name" placeholder="名字，如 新加坡服务器" style="max-width:170px"><input class="txt" id="sf_host" placeholder="主机 / IP"><input class="txt" id="sf_port" placeholder="端口" value="22" style="max-width:80px"><input class="txt" id="sf_user" placeholder="用户名" style="max-width:120px"></div><div class="row" style="margin-top:8px"><label class="mut">登录方式 <select id="sf_auth" class="txt"><option value="key">密钥</option><option value="password">密码</option></select></label><select id="sf_key" class="txt" style="max-width:170px"></select><label class="mut"><input type="checkbox" id="sf_proxy"> 走节点连接</label></div><div class="row" style="margin-top:8px"><input class="txt" id="sf_keyname" placeholder="新密钥名（导入时填，如 id_sg）" style="max-width:210px"></div><textarea id="sf_keydata" rows="3" style="width:100%;margin-top:6px" placeholder="粘贴私钥内容导入（可选，存进 Data/ssh/keys；已存的密钥在上面选）"></textarea><div class="row" style="margin-top:8px"><button class="btn" id="sfsave">保存连接</button><span class="tag" id="sfst"></span></div></div><div class="row" style="margin-top:12px"><input class="txt" id="sshpass" type="password" placeholder="密码 / 私钥口令（连接时输，不保存）" style="max-width:250px" autocomplete="off"><button class="btn" id="sshgo">连接</button><button class="btn gray" id="sshstop">断开</button><span class="tag" id="sshst">未连接</span></div><div id="sshterm" style="margin-top:10px;height:300px;background:#0b0e14;border-radius:10px;padding:6px;overflow:hidden"></div><hr style="border-color:rgba(255,255,255,.14);margin:16px 0"><h3>文件（SFTP）</h3><p class="mut" style="margin-top:4px">共用上面的终端连接传文件，不用再输一次密码。</p><div class="row" style="margin-top:8px"><span class="tag" id="sfpath">未连接</span><button class="btn gray" id="sfup">↑ 上级</button><button class="btn gray" id="sfrefresh">刷新</button><button class="btn gray" id="sfmkdir">新建文件夹</button><button class="btn gray" id="sfupload">上传文件</button><input type="file" id="sffile" style="display:none"></div><div id="sflist" class="mut" style="margin-top:8px">连上服务器后，这里能浏览、上传、下载、删除远程文件。</div>`;
  if(id==='servermon') b.innerHTML=`<div class="sm-wrap"><div class="sm-side"><div class="sm-hd">服务器</div><div id="sm-list"></div><p class="mut" style="font-size:11.5px;padding:10px 8px 0;line-height:1.6">监控走 SSH 通道读服务器数据，不用在服务器上装任何东西。密钥连接可自动采样；密码连接先在 SSH 里连上，或在详情里输一次密码手动采样。</p></div><div class="sm-main" id="sm-main"><p class="mut">加载中…</p></div></div>`;
  if(id==='console'){ b.style.padding='0'; b.style.background='#0b0e14'; b.style.display='flex'; b.style.flexDirection='column';
@@ -556,6 +556,14 @@ export function bind(id){
      if(r.installed) t='已安装 Firefox '+(r.version||'')+(r.updateAvailable?(' · 有新版 '+(r.available||'')+' 可更新'):' · 已是最新');
      else t='未安装组件'+(r.available?(' · 可下载版本 '+(r.available||'')+'（约 '+Math.round((r.availableSize||0)/1048576)+' MB）'):'');
      info.textContent=t;
+     /* v0.64: per-entry live status from instances[] -- the two
+        entries run independently, so each gets its own tag.
+        Tolerates an answer without the field (older daemon,
+        test mocks). */
+     const inst=id2=>((r.instances||[]).find(x=>x.id===id2));
+     const paintInst=(el,it)=>{ if(el) el.textContent=!it?'状态未知':(it.alive?('运行中'+(it.pid?(' · PID '+it.pid):'')):'未运行'); };
+     paintInst(document.getElementById('ffwin-st'),inst('window'));
+     paintInst(document.getElementById('ffapp-st'),inst('app'));
      if(dl) dl.textContent=r.installed?(r.updateAvailable?'更新 Firefox 组件':'重新下载组件'):('下载 Firefox 组件（约 '+Math.round((r.availableSize||0)/1048576)+' MB，走节点下载）');
      if(r.phase==='downloading'){ prog.textContent='下载中… '+((r.progress||0)/1048576).toFixed(1)+' / '+((r.size||0)/1048576).toFixed(1)+' MB'; if(!ffTimer) ffTimer=setInterval(paintFF,800); }
      else if(r.phase==='extracting'){ prog.textContent='正在释放组件…'; if(!ffTimer) ffTimer=setInterval(paintFF,800); }
@@ -563,49 +571,24 @@ export function bind(id){
    };
    paintFF();
    document.getElementById('ffdl').onclick=async()=>{ await api('/api/firefox/download',{method:'POST'}); paintFF(); };
-   let ffWant=null; // last open request, reused by 重启并切换
+   /* v0.64: an open names ONE entry (instance + the legacy
+      appmode spelling of the same choice). There is no mode to
+      switch and no restart flow anymore: the only conflict the
+      daemon can still answer is the upgrade-era one (a
+      pre-v0.64 process born in the other mode still holding
+      the window entry's profile), and its error text is
+      complete on its own -- show it and stop. */
    const openFF=async(proxy,appmode)=>{
      const s=document.getElementById('ffstatus'); s.textContent='正在打开 Firefox…';
-     ffWant={proxy,appmode,url:document.getElementById('ffurl').value};
-     const r=await api('/api/firefox/open',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(ffWant)});
-     const cf=document.getElementById('ffconflict');
-     if(r.conflict){
-       document.getElementById('ffconflict-t').textContent='Firefox 正以'+(r.runningMode||'未知')+'模式运行，本次想开的是'+(appmode?'应用化':'普通')+'模式。模式在进程启动时定死，不重启切换不了。';
-       const fb0=document.getElementById('ffforce'); if(fb0) fb0.style.display='none';
-       cf.style.display='block'; s.textContent='模式冲突，等你决定';
-       return;
-     }
-     cf.style.display='none';
+     const r=await api('/api/firefox/open',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({proxy,appmode,instance:appmode?'app':'window',url:document.getElementById('ffurl').value})});
+     if(r.conflict){ s.textContent='没打开：'+(r.error||'该入口的档案正被一个旧进程占用'); return; }
      s.textContent=r.error?('失败：'+r.error):('已打开 · '+(r.mode||''));
+     setTimeout(paintFF,600);
    };
-   const rb=document.getElementById('ffrestart');
-   const fb=document.getElementById('ffforce');
-   /* test2 item 1: the restart first tries the gentle path
-      (close EVERY window of the component's processes, not
-      just claimed ones). If the daemon answers stillRunning,
-      the explicit 强制结束并切换 button appears -- the force
-      kill (this profile's process tree only) happens ONLY on
-      that second, deliberate click. */
-   const doRestart=async force=>{
-     if(!ffWant) return;
-     const s=document.getElementById('ffstatus'); s.textContent=force?'正在强制结束 Firefox 并切换模式…':'正在关闭 Firefox 并切换模式…';
-     rb.disabled=true; if(fb) fb.disabled=true;
-     const r=await api('/api/firefox/restart',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...ffWant,force:!!force})});
-     rb.disabled=false; if(fb) fb.disabled=false;
-     if(r.error){
-       s.textContent='失败：'+r.error;
-       if(r.stillRunning&&fb) fb.style.display='';
-       return;
-     }
-     if(fb) fb.style.display='none';
-     document.getElementById('ffconflict').style.display='none';
-     s.textContent='已切换 · '+(r.mode||'');
-   };
-   if(rb) rb.onclick=()=>doRestart(false);
-   if(fb) fb.onclick=()=>doRestart(true);
    document.getElementById('ffopen').onclick=()=>openFF(true,false);
-   document.getElementById('ffopenapp').onclick=()=>openFF(true,true);
    document.getElementById('ffopend').onclick=()=>openFF(false,false);
+   document.getElementById('ffopenapp').onclick=()=>openFF(true,true);
+   document.getElementById('ffopenappd').onclick=()=>openFF(false,true);
  }
  if(id==='servermon'){
    const G=(x: any): any=>document.getElementById(x);

@@ -450,3 +450,126 @@ func TestOverlaySessions(t *testing.T) {
 		t.Fatal("empty overlay kind armed the guard")
 	}
 }
+
+// v0.64 detail-fix ④: TWO Firefox processes of the SAME binary,
+// one per entry, must claim independently — the app entry's
+// windows are not the window entry's, neither process's claim
+// may leak into the other, and a host Firefox (same binary name,
+// different install, its own default profile) is never claimed.
+// The discrimination is the -profile fingerprint, pinned here
+// exactly the way the patrol runs it (both profile dirs in the
+// ownership context).
+func TestStageTwoFirefoxEntriesTwoProcesses(t *testing.T) {
+	ffAppP := `C:\MJ-Terminal\Data\FirefoxProfileApp`
+	ffExe := `C:\MJ-Terminal\core\firefox\firefox.exe`
+	hostExe := `C:\Program Files\Mozilla Firefox\firefox.exe`
+	ctx := ownContext{RootDir: tRoot, ProfileDirs: []string{tChromeP, tFFP, ffAppP}, SelfPID: 999}
+	procs := []procFact{
+		{PID: 5150, PPID: 4, ImagePath: ffExe,
+			CmdLine: `"` + ffExe + `" -profile ` + tFFP + ` -no-remote -new-window about:home`},
+		{PID: 6160, PPID: 4, ImagePath: ffExe,
+			CmdLine: `"` + ffExe + `" -profile ` + ffAppP + ` -no-remote -new-window about:home`},
+		{PID: 7170, PPID: 4, ImagePath: hostExe,
+			CmdLine: `"` + hostExe + `" -profile C:\Users\x\AppData\Roaming\Mozilla\Firefox\Profiles\a.default`},
+	}
+	owned := classifyOwnership(procs, nil, ctx)
+	if owned[5150] != ownProfile {
+		t.Fatalf("window-entry Firefox PID owned as %q, want %q", owned[5150], ownProfile)
+	}
+	if owned[6160] != ownProfile {
+		t.Fatalf("app-entry Firefox PID owned as %q, want %q (its own profile fingerprint)", owned[6160], ownProfile)
+	}
+	if owned[7170] != "" {
+		t.Fatalf("host Firefox PID claimed as %q, want unowned", owned[7170])
+	}
+
+	// Entry attribution is disjoint: each MJ process names
+	// exactly its own entry, the host process names none.
+	if got := ffEntryForProfile(procs[0].CmdLine, tFFP, ffAppP); got != ffEntryWindow {
+		t.Fatalf("window process attributed to %q, want %q", got, ffEntryWindow)
+	}
+	if got := ffEntryForProfile(procs[1].CmdLine, tFFP, ffAppP); got != ffEntryApp {
+		t.Fatalf("app process attributed to %q, want %q", got, ffEntryApp)
+	}
+	if got := ffEntryForProfile(procs[2].CmdLine, tFFP, ffAppP); got != "" {
+		t.Fatalf("host process attributed to %q, want none", got)
+	}
+
+	opts := claimOpts{AutoClaimBrowser: true, BrowserPIDs: map[uint32]bool{}, ShellPIDs: map[uint32]bool{}}
+	wins := []windowFact{
+		{HWND: 501, PID: 5150, Class: "MozillaWindowClass", Title: "新闻页 - Mozilla Firefox", Visible: true, W: 1200, H: 800},
+		{HWND: 502, PID: 5150, Class: "MozillaWindowClass", Title: "邮箱 - Mozilla Firefox", Visible: true, W: 1200, H: 800},
+		{HWND: 601, PID: 6160, Class: "MozillaWindowClass", Title: "视频站 - Mozilla Firefox", Visible: true, W: 1200, H: 800},
+		{HWND: 701, PID: 7170, Class: "MozillaWindowClass", Title: "宿主页 - Mozilla Firefox", Visible: true, W: 1200, H: 800},
+	}
+	reg := map[uint64]bool{}
+	claimed := map[uint64]uint32{}
+	for _, w := range wins {
+		v := decideClaim(w, owned, reg, opts)
+		if w.HWND == 701 {
+			if v.Claim {
+				t.Errorf("host Firefox window claimed (%+v): the patrol must never pull a host window in", v)
+			}
+			continue
+		}
+		if !v.Claim || !v.Browser {
+			t.Errorf("window %d (PID %d): verdict %+v, want an independent browser claim", w.HWND, w.PID, v)
+			continue
+		}
+		claimed[w.HWND] = w.PID
+		reg[w.HWND] = true
+	}
+	if len(claimed) != 3 {
+		t.Fatalf("claimed %v, want both window-entry windows and the app-entry window", claimed)
+	}
+
+	// Labels: the patrol's label is the cleaned page title
+	// decorated with the owning entry's tag, so the two
+	// entries' Stage cards read differently even for the same
+	// page title.
+	byPID := map[uint32]procFact{}
+	for _, p := range procs {
+		byPID[p.PID] = p
+	}
+	labelOf := func(w windowFact) string {
+		id := ffEntryForProfile(byPID[w.PID].CmdLine, tFFP, ffAppP)
+		tag := ""
+		if e, ok := ffEntryByID(id); ok {
+			tag = e.Name()
+		}
+		return ffEntryLabel(cleanAutoClaimTitle(w.Title), tag)
+	}
+	if got := labelOf(wins[0]); got != "新闻页 · 普通" {
+		t.Errorf("window-entry label = %q, want 新闻页 · 普通", got)
+	}
+	same := wins[2]
+	same.Title = "新闻页 - Mozilla Firefox"
+	if got := labelOf(same); got != "新闻页 · 应用化" {
+		t.Errorf("app-entry label for the same title = %q, want 新闻页 · 应用化", got)
+	}
+
+	// Registry level: picking is per process AND per label —
+	// asking for the app entry's window can only return the app
+	// process's window, and the window entry's windows survive
+	// the app window going away.
+	extWinsTest := map[uint64]*extWindow{
+		501: {HWND: 501, App: "新闻页 · 普通", pid: 5150},
+		502: {HWND: 502, App: "邮箱 · 普通", pid: 5150},
+		601: {HWND: 601, App: "视频站 · 应用化", pid: 6160},
+	}
+	got, ok := pickRegisteredForPIDs(extWinsTest, "视频站 · 应用化", map[uint32]bool{6160: true})
+	if !ok || got != 601 {
+		t.Fatalf("pick app entry = %d, %v; want its own window 601", got, ok)
+	}
+	if _, ok := pickRegisteredForPIDs(extWinsTest, "视频站 · 应用化", map[uint32]bool{5150: true}); ok {
+		t.Error("app label picked under the window entry's PID set — cross-claim")
+	}
+	if _, ok := pickRegisteredForPIDs(extWinsTest, "新闻页 · 普通", map[uint32]bool{6160: true}); ok {
+		t.Error("window label picked under the app entry's PID set — cross-claim")
+	}
+	delete(extWinsTest, 601)
+	got, ok = pickRegisteredForPIDs(extWinsTest, "邮箱 · 普通", map[uint32]bool{5150: true})
+	if !ok || got != 502 {
+		t.Fatalf("after the app window closed: pick window entry = %d, %v; want 502", got, ok)
+	}
+}

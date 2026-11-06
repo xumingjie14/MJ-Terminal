@@ -1,11 +1,18 @@
 package main
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
-// v0.56: the Firefox launch rule. A process's birth mode is
-// destiny: matching requests join, everything else conflicts
-// (including a running process whose birth was never recorded,
-// e.g. one started by a pre-v0.56 build).
+// The Firefox launch rule (v0.56 semantics, asked PER ENTRY
+// since v0.64). A process's birth mode is destiny: a request
+// matching the birth mode of the process holding THIS entry's
+// profile joins it; everything else conflicts (including a
+// running process whose birth was never recorded, e.g. one
+// started by a pre-v0.56 build). Since v0.64 the conflicting
+// process can only be a pre-upgrade one on the window entry —
+// each entry's own launches always match by construction.
 func TestDecideFFLaunch(t *testing.T) {
 	cases := []struct {
 		name                         string
@@ -28,51 +35,144 @@ func TestDecideFFLaunch(t *testing.T) {
 	}
 }
 
-// v0.56 test2: the restart close set is enumerated from ALL
-// top-level windows matched by the component exe's full path --
-// test1 closed only the Stage Manager's claimed windows and a
-// live unclaimed window kept the profile locked forever. The
-// host's own Firefox (a different install path) must never be
-// in either set: path equality is the whole safety story.
-func TestFFCloseSetAndKillRoots(t *testing.T) {
-	exe := `C:\MJ\Data\components\firefox\firefox.exe`
-	procs := []procFact{
-		{PID: 100, ImagePath: exe},
-		{PID: 101, ImagePath: exe},
-		{PID: 200, ImagePath: `C:\Program Files\Mozilla Firefox\firefox.exe`}, // host Firefox
-		{PID: 300, ImagePath: `C:\Windows\explorer.exe`},
-		{PID: 400, ImagePath: ""}, // unqueryable: never matched
+// v0.64: the one-time state migration. A pre-v0.64 ffstate blob
+// is a single bare record; it must land on the WINDOW entry
+// with its birth mode preserved verbatim (a legacy app-born
+// process really holds that profile in app mode — the window
+// entry's launch rule depends on seeing it). The migration is
+// a fixed point: the migrated blob is in the new format, so
+// parsing it again yields the same records and no legacy.
+func TestFFStateMigration(t *testing.T) {
+	legacyApp := []byte(`{"appmode":true,"pid":4242,"startedAt":1700000000}`)
+	records, legacy := ffParseState(legacyApp)
+	if legacy == nil {
+		t.Fatal("legacy app-born blob not detected as legacy")
 	}
-	wins := []windowFact{
-		{HWND: 11, PID: 100},
-		{HWND: 12, PID: 101},
-		{HWND: 13, PID: 200}, // host Firefox window: hands off
-		{HWND: 14, PID: 300},
-		{HWND: 15, PID: 400},
-		{HWND: 11, PID: 100}, // duplicate enumeration entry
-		{HWND: 16, PID: 999}, // pid not in the snapshot
+	if records != nil {
+		t.Fatalf("legacy blob produced records %v, want nil", records)
 	}
-	got := ffCloseSet(wins, procs, exe)
-	if len(got) != 2 || got[0] != 11 || got[1] != 12 {
-		t.Fatalf("ffCloseSet = %v, want [11 12]", got)
+	if !legacy.AppMode || legacy.PID != 4242 || legacy.StartedAt != 1700000000 {
+		t.Fatalf("legacy record mangled in parse: %+v", *legacy)
 	}
-	// Case and separator differences in the exe path must not
-	// matter (the snapshot's spelling vs the install dir's).
-	got2 := ffCloseSet(wins, procs, `c:/mj/data/components/firefox/firefox.exe`)
-	if len(got2) != 2 {
-		t.Fatalf("ffCloseSet with differently-spelled exe = %v, want 2 windows", got2)
+	migrated := ffMigrateLegacyRecords(*legacy)
+	if len(migrated) != 1 {
+		t.Fatalf("migrated records = %v, want exactly the window entry", migrated)
 	}
-	roots := ffKillRoots(procs, exe)
-	if len(roots) != 2 || !roots[100] || !roots[101] {
-		t.Fatalf("ffKillRoots = %v, want {100,101}", roots)
+	rec, ok := migrated[ffEntryWindow]
+	if !ok || !rec.AppMode || rec.PID != 4242 || rec.StartedAt != 1700000000 {
+		t.Fatalf("window entry record = %+v (ok=%v), want the legacy record verbatim", rec, ok)
 	}
-	if roots[200] {
-		t.Fatal("host Firefox (different path) became a kill root")
+	if _, ok := migrated[ffEntryApp]; ok {
+		t.Fatal("migration invented an app-entry record")
 	}
-	if got := ffCloseSet(wins, procs, ""); got != nil {
-		t.Fatalf("empty exe path: ffCloseSet = %v, want nil", got)
+
+	// Idempotency: what ffLoadRecords persists after migrating
+	// parses back as the new format — same records, no legacy,
+	// so a second pass changes nothing.
+	blob, err := json.Marshal(struct {
+		Records map[string]ffProcRecord `json:"records"`
+	}{Records: migrated})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got := ffKillRoots(procs, ""); len(got) != 0 {
-		t.Fatalf("empty exe path: ffKillRoots = %v, want empty", got)
+	records2, legacy2 := ffParseState(blob)
+	if legacy2 != nil {
+		t.Fatal("migrated blob detected as legacy again — migration is not a fixed point")
+	}
+	if len(records2) != 1 || records2[ffEntryWindow] != rec {
+		t.Fatalf("re-parsed records = %v, want the migrated set unchanged", records2)
+	}
+
+	// A legacy NORMAL-born record migrates the same way (the
+	// common upgrade case: the window entry then joins it).
+	_, legacyN := ffParseState([]byte(`{"appmode":false,"pid":777,"startedAt":5}`))
+	if legacyN == nil || legacyN.AppMode {
+		t.Fatalf("legacy normal blob: legacy = %+v", legacyN)
+	}
+	if got := ffMigrateLegacyRecords(*legacyN)[ffEntryWindow]; got.PID != 777 || got.AppMode {
+		t.Fatalf("normal legacy migrated to %+v", got)
+	}
+
+	// New format with both entries round-trips untouched.
+	both := map[string]ffProcRecord{
+		ffEntryWindow: {AppMode: false, PID: 10, StartedAt: 1},
+		ffEntryApp:    {AppMode: true, PID: 20, StartedAt: 2},
+	}
+	blob2, _ := json.Marshal(struct {
+		Records map[string]ffProcRecord `json:"records"`
+	}{Records: both})
+	records3, legacy3 := ffParseState(blob2)
+	if legacy3 != nil || len(records3) != 2 || records3[ffEntryApp].PID != 20 || records3[ffEntryWindow].PID != 10 {
+		t.Fatalf("dual records round-trip: records=%v legacy=%v", records3, legacy3)
+	}
+
+	// Garbage and absence are neither records nor legacy.
+	for _, bad := range [][]byte{[]byte("not json"), []byte("{}"), []byte(`{"records":{}}`), nil} {
+		recs, leg := ffParseState(bad)
+		if leg != nil {
+			t.Fatalf("blob %q detected as legacy", bad)
+		}
+		if bad != nil && string(bad) == `{"records":{}}` && len(recs) != 0 {
+			t.Fatalf("empty records blob parsed to %v", recs)
+		}
+	}
+}
+
+// v0.64: the aggregate procMode wire field is derived from the
+// per-entry truths in entry order (window, then app).
+func TestFFProcModeSummary(t *testing.T) {
+	cases := []struct {
+		parts []string
+		want  string
+	}{
+		{nil, ""},
+		{[]string{"普通"}, "普通"},
+		{[]string{"应用化"}, "应用化"},
+		{[]string{"未知"}, "未知"},
+		{[]string{"普通", "应用化"}, "普通+应用化"},
+		{[]string{"未知", "应用化"}, "未知+应用化"},
+	}
+	for _, c := range cases {
+		if got := ffProcModeSummary(c.parts); got != c.want {
+			t.Errorf("ffProcModeSummary(%v) = %q, want %q", c.parts, got, c.want)
+		}
+	}
+}
+
+// v0.64: claim attribution. A Firefox process belongs to the
+// entry whose profile dir its -profile argument names. The
+// sibling trap is the whole point: the window profile's name
+// is a PREFIX of the app profile's, so a naive substring check
+// would attribute every app process to the window entry too;
+// cmdlineHasProfile's boundary rule is what keeps them apart.
+func TestFFEntryForProfile(t *testing.T) {
+	winDir := `C:\MJ-Terminal\Data\FirefoxProfile`
+	appDir := `C:\MJ-Terminal\Data\FirefoxProfileApp`
+	exe := `"C:\MJ-Terminal\core\firefox\firefox.exe"`
+	cases := []struct {
+		name    string
+		cmdline string
+		want    string
+	}{
+		{"window process", exe + ` -profile ` + winDir + ` -no-remote -new-window about:home`, ffEntryWindow},
+		{"app process", exe + ` -profile ` + appDir + ` -no-remote -new-window about:home`, ffEntryApp},
+		{"app process, quoted", exe + ` -profile "` + appDir + `" -new-window x`, ffEntryApp},
+		{"window process, -profile= form", exe + ` -profile=` + winDir + ` -new-window x`, ffEntryWindow},
+		{"host firefox (default profile)", `"C:\Program Files\Mozilla Firefox\firefox.exe" -profile C:\Users\x\AppData\Roaming\Mozilla\Firefox\Profiles\a.default -new-window x`, ""},
+		{"lookalike profile dir", exe + ` -profile ` + winDir + `2 -new-window x`, ""},
+		{"no -profile at all", exe + ` -new-window x`, ""},
+		{"empty cmdline", "", ""},
+	}
+	for _, c := range cases {
+		if got := ffEntryForProfile(c.cmdline, winDir, appDir); got != c.want {
+			t.Errorf("%s: ffEntryForProfile = %q, want %q", c.name, got, c.want)
+		}
+	}
+	// The label decoration rides on the same attribution.
+	if got := ffEntryLabel("某个页面", "应用化"); got != "某个页面 · 应用化" {
+		t.Errorf("ffEntryLabel decorated = %q", got)
+	}
+	if got := ffEntryLabel("某个页面", ""); got != "某个页面" {
+		t.Errorf("ffEntryLabel with no entry = %q, want undecorated", got)
 	}
 }

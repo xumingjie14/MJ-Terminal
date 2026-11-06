@@ -173,7 +173,7 @@ export function showItemCtx(x,y,key,kind,fid){
   ctxOpen(x,y,items,async act=>{
    if(act==='open') openIt();
    else if(act==='uninstall'){
-    if(!confirm('卸载 Firefox 组件？\n程序会删掉；你的 Firefox 档案（登录、书签，在 Data/FirefoxProfile）保留，重装后还在。')) return;
+    if(!confirm('卸载 Firefox 组件？\n程序会删掉；你的两个 Firefox 档案（登录、书签：窗口版在 Data/FirefoxProfile、应用化版在 Data/FirefoxProfileApp）都保留，重装后还在。')) return;
     const r=await api('/api/firefox/uninstall',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
     if(r&&r.error){ alert(r.error); return; }
     await loadFFState(); renderDesk();

@@ -248,7 +248,7 @@ var featureRegistry = []feature{
 		Routes: []featureRoute{
 			lrr("GET", "/api/firefox"),
 			lr("/api/firefox/icon"), lr("/api/firefox/download"),
-			lr("/api/firefox/open"), lr("/api/firefox/restart"),
+			lr("/api/firefox/open"),
 			lr("/api/firefox/uninstall"),
 		},
 	},

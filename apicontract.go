@@ -267,18 +267,32 @@ type coreLogResponse struct {
 // ffStatusResponse is GET /api/firefox. Available /
 // AvailableSize / UpdateAvailable are present only when the
 // release-manifest fetch succeeded.
+// ffInstanceStatus is one Firefox entry's live truth on
+// GET /api/firefox (v0.64): the component has two entries since
+// the dual-profile change — window （普通） and app （应用化） —
+// each with its own profile and process. PID is omitted when
+// the entry is not running or its birth was never recorded.
+type ffInstanceStatus struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	AppMode bool   `json:"appmode"`
+	Alive   bool   `json:"alive"`
+	PID     int    `json:"pid,omitempty"`
+}
+
 type ffStatusResponse struct {
-	Installed       bool   `json:"installed"`
-	Version         string `json:"version"`
-	Phase           string `json:"phase"`
-	Progress        int64  `json:"progress"`
-	Size            int64  `json:"size"`
-	Message         string `json:"message"`
-	ProcAlive       bool   `json:"procAlive"`
-	ProcMode        string `json:"procMode"`
-	Available       string `json:"available,omitempty"`
-	AvailableSize   int64  `json:"availableSize,omitempty"`
-	UpdateAvailable *bool  `json:"updateAvailable,omitempty"`
+	Installed       bool               `json:"installed"`
+	Version         string             `json:"version"`
+	Phase           string             `json:"phase"`
+	Progress        int64              `json:"progress"`
+	Size            int64              `json:"size"`
+	Message         string             `json:"message"`
+	ProcAlive       bool               `json:"procAlive"`
+	ProcMode        string             `json:"procMode"`
+	Instances       []ffInstanceStatus `json:"instances"`
+	Available       string             `json:"available,omitempty"`
+	AvailableSize   int64              `json:"availableSize,omitempty"`
+	UpdateAvailable *bool              `json:"updateAvailable,omitempty"`
 }
 
 // compStatusRow is one entry of GET /api/components.

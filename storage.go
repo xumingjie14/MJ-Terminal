@@ -128,6 +128,15 @@ func storageUsage() (map[string]any, int64) {
 		classifyWalk(data, acc, self, core, data, chrome, ffProf, oc, appsDir, logs, files)
 	}
 
+	// v0.64: the app entry's profile (Data/FirefoxProfileApp)
+	// belongs to the Firefox bucket too. classifyWalk matches
+	// buckets by the ffProf prefix and the app profile is a
+	// SIBLING of it, not a child, so it never matches there;
+	// its bytes are added to the bucket directly. The walks
+	// above already counted them in total/data via the Data
+	// prefix, so only the bucket attribution moves.
+	acc.ffProfile += dirSize(ffAppProfileDir())
+
 	program := acc.exe + acc.core
 	other := acc.total - program - acc.chrome - acc.ffProfile - acc.openclaw - acc.apps - acc.logs - acc.wallpaper - acc.files
 	if other < 0 {
@@ -195,17 +204,12 @@ func browserBusy() (bool, string) {
 	}
 	// Firefox keeps its lock inside each profile subdirectory
 	// (xxx.default/parent.lock), not at the profiles root.
-	ffProf := ffProfileDir()
-	ffLocked := false
-	_ = filepath.WalkDir(ffProf, func(p string, d os.DirEntry, err error) error {
-		if err == nil && !d.IsDir() && (d.Name() == "parent.lock" || d.Name() == ".parentlock") {
-			ffLocked = true
-			return filepath.SkipAll
+	// v0.64: BOTH entries' profiles are probed — the app entry
+	// holds its own lock while it runs.
+	for _, dir := range ffProfileDirs() {
+		if ffDirLocked(dir) {
+			return true, "Firefox 似乎还在运行（档案里有它的锁文件），请先关掉 Firefox 再清理"
 		}
-		return nil
-	})
-	if ffLocked {
-		return true, "Firefox 似乎还在运行（档案里有它的锁文件），请先关掉 Firefox 再清理"
 	}
 	return false, ""
 }
@@ -243,8 +247,10 @@ func cleanupTargets() (chromeProf, ffProf string, total int64) {
 		}
 		return nil
 	})
-	for _, p := range firefoxCacheDirs(ffProf) {
-		total += dirSize(p)
+	for _, root := range ffProfileDirs() {
+		for _, p := range firefoxCacheDirs(root) {
+			total += dirSize(p)
+		}
 	}
 	for _, p := range updateLeftovers() {
 		if fi, err := os.Stat(p); err == nil {
@@ -272,7 +278,7 @@ func storageCleanupHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"error": why})
 		return
 	}
-	chromeProf, ffProf, before := cleanupTargets()
+	chromeProf, _, before := cleanupTargets()
 	var removed []string
 
 	// Chrome pure-cache directories, at any depth of the profile.
@@ -291,12 +297,15 @@ func storageCleanupHandler(w http.ResponseWriter, r *http.Request) {
 			logf("storage", "info", "清理 Chrome 缓存目录：%s", rel)
 		}
 	}
-	// Firefox cache2 (one per profile subdirectory, at any depth).
-	for _, p := range firefoxCacheDirs(ffProf) {
-		if err := os.RemoveAll(p); err == nil {
-			rel, _ := filepath.Rel(ffProf, p)
-			removed = append(removed, "Firefox 缓存 "+rel)
-			logf("storage", "info", "清理 Firefox 缓存目录：%s", rel)
+	// Firefox cache2 (one per profile subdirectory, at any
+	// depth; v0.64: under BOTH entries' profile roots).
+	for _, root := range ffProfileDirs() {
+		for _, p := range firefoxCacheDirs(root) {
+			if err := os.RemoveAll(p); err == nil {
+				rel, _ := filepath.Rel(root, p)
+				removed = append(removed, "Firefox 缓存 "+rel)
+				logf("storage", "info", "清理 Firefox 缓存目录：%s（档案 %s）", rel, filepath.Base(root))
+			}
 		}
 	}
 	// Staged-update leftovers (idle phases only, see updateLeftovers).
@@ -330,11 +339,12 @@ func storageCleanupHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// firefoxCacheDirs lists every cache2 directory under the Firefox
-// profiles root. Firefox keeps one profile per subdirectory
-// (e.g. FirefoxProfile/ab12cd34.default/cache2), so -- unlike a
-// single fixed path -- this walks the tree, mirroring how the
-// Chrome cache directories are found.
+// firefoxCacheDirs lists every cache2 directory under one
+// Firefox profile root. Firefox keeps one profile per
+// subdirectory (e.g. FirefoxProfile/ab12cd34.default/cache2),
+// so -- unlike a single fixed path -- this walks the tree,
+// mirroring how the Chrome cache directories are found. The
+// caller runs it once per entry root (ffProfileDirs).
 func firefoxCacheDirs(ffProf string) []string {
 	var out []string
 	_ = filepath.WalkDir(ffProf, func(p string, d os.DirEntry, err error) error {

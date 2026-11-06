@@ -1302,8 +1302,11 @@ func patrolTick() {
 	boxPIDs := refreshBoxPIDsForPatrol()
 
 	owned := classifyOwnership(procs, seedPIDs, ownContext{
-		RootDir:     exeDir(),
-		ProfileDirs: []string{filepath.Join(dataDir(), "ChromeProfile"), ffProfileDir()},
+		RootDir: exeDir(),
+		// v0.64: BOTH Firefox profiles are ownership fingerprints
+		// now — the app entry's process is claimed by its own
+		// profile path, independently of the window entry's.
+		ProfileDirs: append([]string{filepath.Join(dataDir(), "ChromeProfile")}, ffProfileDirs()...),
 		SelfPID:     selfPID,
 		BoxPIDs:     boxPIDs,
 	})
@@ -1356,6 +1359,14 @@ func patrolTick() {
 				}
 			}
 			label := claimLabel(wf, byPID[wf.PID], v.Browser)
+			// v0.64: a claimed Firefox window's label names its
+			// entry （普通 / 应用化） — the two entries run side
+			// by side and their Stage cards must not be
+			// indistinguishable. Host Firefox processes carry
+			// no MJ profile and get no tag (ffClaimTag).
+			if v.Browser {
+				label = ffEntryLabel(label, ffClaimTag(byPID[wf.PID]))
+			}
 			extMu.Lock()
 			if _, dup := extWins[wf.HWND]; dup {
 				extMu.Unlock()

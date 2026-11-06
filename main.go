@@ -2159,7 +2159,6 @@ func runServer(portFlag int, isDaemon bool) {
 	mux.HandleFunc("/api/firefox/icon", ffIconHandler)
 	mux.HandleFunc("/api/firefox/download", ffDownloadHandler)
 	mux.HandleFunc("/api/firefox/open", ffOpenHandler)
-	mux.HandleFunc("/api/firefox/restart", ffRestartHandler)
 	mux.HandleFunc("/api/firefox/uninstall", ffUninstallHandler)
 	mux.HandleFunc("/api/extwin/thumb", extWinThumbHandler)
 	mux.HandleFunc("/api/wingeom/clear", winGeomClearHandler)
