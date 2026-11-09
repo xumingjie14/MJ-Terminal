@@ -42,7 +42,7 @@ export function makeWin(app,i){
  /* v0.50: the green light was decorative until now -- it runs
     the same zoom as the title double-click and the 窗口 menu. */
  w.querySelector('.l-max').onclick=()=>zoomWin(w);
- w.querySelector('[data-a="close"]').onclick=()=>{w.classList.add('hidden');onWinClosed(app.id);syncDots()};
+ w.querySelector('[data-a="close"]').onclick=()=>{w.classList.add('hidden');onWinClosed(app.id);syncDots(); if(typeof app.onclose==='function') app.onclose();};
  w.addEventListener('pointerdown',()=>{ if(w.classList.contains('staged')) openApp(app.id); });
  /* v0.56 test2 item 3: a STAGED window's right-click is the
     stage menu (switch / close). A front window's right-click

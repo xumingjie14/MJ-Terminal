@@ -23,7 +23,7 @@ package main
 //	  GET  /api/files/thumb?name=      ~128px JPEG thumbnail (jpg/png/gif)
 //	  GET  /api/files/text?path=       plain text, or DOCX text preview
 //	  GET  /api/files/csv?path=        CSV/TSV parsed to rows (capped)
-//	  POST /api/files/openpdf    {path} -- SumatraPDF if installed, else isolated Chrome
+//	  POST /api/files/openpdf    RETIRED in v0.65 -- PDFs open in the built-in viewer (pdfview.go)
 //	  POST /api/files/run        {path} -- exe/bat/cmd/msi, frontend confirms first
 //	  POST /api/files/unzip      {path} -- extract a .zip into a sibling folder
 //
@@ -730,62 +730,9 @@ func filesCSVHandler(w http.ResponseWriter, r *http.Request) {
 
 // ---------- open: pdf ----------
 
-// filesOpenPDFHandler routes a PDF entirely inside the system: the
-// store's SumatraPDF when it is installed (launched with the file
-// and claimed by the window manager, like any store app), otherwise
-// the isolated browser on the file:// URL.
-func filesOpenPDFHandler(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Path string `json:"path"`
-	}
-	if err := decodeJSONBody(r, &body); err != nil {
-		writeJSON(w, map[string]any{"error": "请求内容不对"})
-		return
-	}
-	abs, err := filesResolve(body.Path)
-	if err != nil {
-		writeJSON(w, map[string]any{"error": err.Error()})
-		return
-	}
-	if strings.ToLower(filepath.Ext(abs)) != ".pdf" {
-		writeJSON(w, map[string]any{"error": "这不是 PDF 文件"})
-		return
-	}
-	if _, err := os.Stat(abs); err != nil {
-		writeJSON(w, map[string]any{"error": "文件不存在"})
-		return
-	}
-	if runtime.GOOS != "windows" {
-		writeJSON(w, map[string]any{"error": "当前不是 Windows 环境（这是测试环境），到 Windows 上会正常打开"})
-		return
-	}
-	name := filepath.Base(abs)
-	if entry, ok := findApp("sumatra"); ok && appInstalled(entry, loadAppsRegistry()) {
-		exePath := filepath.Join(appDir(entry.ID), filepath.FromSlash(entry.Exe))
-		before := platformSnapshotWindows(exePath)
-		cmd := exec.Command(exePath, abs)
-		cmd.Dir = appDir(entry.ID)
-		hideConsole(cmd)
-		if err := cmd.Start(); err != nil {
-			logf("files", "error", "用 SumatraPDF 打开 %s 失败：%v", name, err)
-			writeJSON(w, map[string]any{"error": "SumatraPDF 启动失败：" + err.Error()})
-			return
-		}
-		noteSpawnedProcess(uint32(cmd.Process.Pid), "SumatraPDF")
-		logf("files", "info", "用 SumatraPDF 打开 PDF：%s", name)
-		trackAppLaunchAs("SumatraPDF", exePath, before, exeGeomKey(exePath))
-		writeJSON(w, map[string]any{"ok": true, "via": "sumatra"})
-		return
-	}
-	u := url.URL{Scheme: "file", Path: "/" + filepath.ToSlash(abs)}
-	if err := launchIsolatedBrowser(false, u.String(), false); err != nil {
-		logf("files", "error", "用隔离浏览器打开 PDF %s 失败：%v", name, err)
-		writeJSON(w, map[string]any{"error": err.Error()})
-		return
-	}
-	logf("files", "info", "用隔离浏览器打开 PDF：%s", name)
-	writeJSON(w, map[string]any{"ok": true, "via": "browser"})
-}
+// PDFs open in the built-in viewer since v0.65 (detail-fix ⑥,
+// pdfview.go); the pre-v0.65 handler that handed the file to
+// SumatraPDF / the isolated browser is retired with its route.
 
 // ---------- open: executables (frontend confirms first) ----------
 

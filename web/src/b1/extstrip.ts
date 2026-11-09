@@ -106,7 +106,7 @@ export function showStageCtx(x,y,app){
  ctxOpen(x,y,items,act=>{
   if(act==='front'){ openApp(app.id); return; }
   const w=document.getElementById('win-'+app.id);
-  if(w){ w.classList.add('hidden'); onWinClosed(app.id); syncDots(); }
+  if(w){ w.classList.add('hidden'); onWinClosed(app.id); syncDots(); if(typeof app.onclose==='function') app.onclose(); }
  });
 }
 /* One card's frame pump (test3): conditional (If-None-Match),

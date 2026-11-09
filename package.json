@@ -1,7 +1,8 @@
 {
   "devDependencies": {
-    "typescript": "5.9.3",
-    "esbuild": "0.28.2"
+    "esbuild": "0.28.2",
+    "pdfjs-dist": "4.10.38",
+    "typescript": "5.9.3"
   },
   "name": "mj-terminal",
   "private": true,

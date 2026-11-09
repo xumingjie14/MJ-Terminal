@@ -24,6 +24,11 @@ export function snapshotSession(){
   const id=w.id.slice(4);
   if(!APPS.some(a=>a.id===id)) return;
   const r: any={id,z:parseInt(w.style.zIndex||'0',10)||0};
+  /* v0.65: per-document PDF windows are throwaway APPS entries;
+     the ledger records WHICH document was open (its Data/files
+     path) so restore can re-open it through the viewer. */
+  const appEntry: any=APPS.find(a=>a.id===id);
+  if(appEntry&&appEntry.pdfPath) r.pdf=appEntry.pdfPath;
   if(w.classList.contains('staged')){ try{ const g=JSON.parse(w.dataset.sg||'{}'); r.l=g.l||''; r.t=g.t||''; r.wd=g.wd||''; }catch(e){} }
   else { r.l=w.style.left; r.t=w.style.top; r.wd=w.style.width; }
   wins.push(r);
@@ -40,6 +45,11 @@ export function restoreSession(){
  if(!s||!Array.isArray(s.wins)||!s.wins.length) return;
  let n=0;
  for(const r of s.wins){
+  if(r.pdf){ /* v0.65: a PDF window -- its APPS entry is gone by
+     design; re-open the document through the viewer hook. */
+   if((window as any).__mjRestorePDF) (window as any).__mjRestorePDF(r.pdf,{l:r.l,t:r.t,wd:r.wd});
+   n++; continue;
+  }
   if(!APPS.some(a=>a.id===r.id)) continue; /* the app no longer exists: skip it */
   openApp(r.id);
   const w=document.getElementById('win-'+r.id); if(!w) continue;

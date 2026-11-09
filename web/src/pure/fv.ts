@@ -107,3 +107,82 @@ function wpFitCSS(mode,url){
 /* The 设为壁纸 menu item exists exactly for image files (the
    daemon's fileKindOf classification) -- nothing else. */
 function wpFitShowsWallItem(f){ return !!f&&f.kind==='image'; }
+/* v0.65 （细节修复 ⑥): the built-in PDF viewer's pure logic --
+   the viewer module (b1/pdfview.ts) is DOM/pdf.js glue over
+   these seams, the same split the wallpaper dialog uses.
+   Zoom modes mirror the daemon's pdfZoom settings domain
+   (settings.go pdfZooms): fit-width / fit-page / actual, plus
+   the viewer's own transient 'percent' once the user zooms by
+   steps. An unknown value normalizes to 'fit-width', the
+   default (pdfZoomKey is also the settings accessor's
+   normalizer, like wpFitKey). */
+const PDFZOOM_MODES=[
+ {id:'fit-width',n:'适宽'},{id:'fit-page',n:'适页'},{id:'actual',n:'实际大小'},
+];
+function pdfZoomValid(v){ return PDFZOOM_MODES.some(m=>m.id===v); }
+function pdfZoomKey(v){ return pdfZoomValid(v)?v:'fit-width'; }
+/* The scale (CSS px per PDF point) a zoom state means for one
+   page in a container. fit modes derive from the container;
+   'actual' is 100%; 'percent' is the explicit percentage.
+   Degenerate inputs (no container yet, a page without a size)
+   fall back to the percentage/actual reading so an open never
+   produces a zero or NaN scale; the result is clamped to the
+   viewer's sane band. */
+function pdfResolveScale(mode,pct,contW,contH,pageW,pageH){
+ let s=0;
+ if(mode==='fit-width'&&contW>0&&pageW>0) s=contW/pageW;
+ else if(mode==='fit-page'&&contW>0&&contH>0&&pageW>0&&pageH>0) s=Math.min(contW/pageW,contH/pageH);
+ else if(mode==='actual') s=1;
+ else s=(+pct||100)/100;
+ if(!(s>0)||!isFinite(s)) s=1;
+ return Math.min(10,Math.max(0.05,s));
+}
+/* Which page the scroll position is "on": the page whose slot
+   contains the viewport's centre line; a centre inside the gap
+   between pages belongs to the page above the gap (the last
+   page that starts at or above the centre). tops/heights are
+   the slots' content-space Y offsets and heights. */
+function pdfPageAtScroll(tops,heights,scrollTop,viewH){
+ const n=(tops||[]).length;
+ if(!n) return 0;
+ const c=(+scrollTop||0)+Math.max(0,+viewH||0)/2;
+ let cur=0;
+ for(let i=0;i<n;i++){ if(tops[i]<=c) cur=i; else break; }
+ return Math.min(n-1,Math.max(0,cur));
+}
+/* The pages worth having rendered around the current one
+   (canvases are the expensive part; a 500-page document keeps
+   only this window alive, the rest are empty slots). */
+function pdfRenderWindow(cur,total,radius){
+ const out=[];
+ const a=Math.max(0,(+cur||0)-(radius|0)), b=Math.min((+total||0)-1,(+cur||0)+(radius|0));
+ for(let i=a;i<=b;i++) out.push(i);
+ return out;
+}
+/* Case-insensitive, non-overlapping substring matches as
+   [start,end) pairs -- the find engine's per-page core (a
+   page's text is its items concatenated; matches never span
+   pages, like Preview). */
+function pdfFindMatches(text,query){
+ const out=[];
+ const t=String(text||''), q=String(query||'');
+ if(!q) return out;
+ const lt=t.toLowerCase(), lq=q.toLowerCase();
+ let i=0;
+ while(true){ const j=lt.indexOf(lq,i); if(j<0) break; out.push({s:j,e:j+q.length}); i=j+q.length; }
+ return out;
+}
+/* Find navigation: step from the current match with wrap;
+   from "no current" (-1), forward lands on the first match,
+   backward on the last. No matches -> -1. */
+function pdfFindStep(cur,total,dir){
+ const n=+total||0;
+ if(n<=0) return -1;
+ if(cur<0||cur>=n) return dir<0?n-1:0;
+ return ((cur+(dir<0?-1:1))%n+n)%n;
+}
+/* Per-document rotation steps (the toolbar's 旋转 button):
+   always one of 0/90/180/270. */
+function pdfRotateNext(rot){
+ return (((+rot||0)%360)+360+90)%360;
+}

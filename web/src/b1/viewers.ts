@@ -6,6 +6,7 @@ import { api, esc } from './core';
 import { glyph } from './glyphs';
 import { gotoSys } from './settings';
 import { openApp } from './windows';
+import { openPDFViewer } from './pdfview';
 import { renderDesk } from './desktop';
 import { DESKFILES, SUBLIST, exportDeskFile, loadDeskFiles, setWinTitle, toast, __bind_SUBLIST } from './appsload';
 /* ----- open routing: everything resolves inside the system ----- */
@@ -33,9 +34,10 @@ export let openDeskFile: any = async function openDeskFile(p,kind){
  if(kind==='csv') return openGridViewer(p);
  if(kind==='dir') return openZipList(p);
  if(kind==='pdf'){
-  const r=await api('/api/files/openpdf',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:p})}).catch(()=>null);
-  if(r&&r.error) alert(r.error);
-  return;
+  /* v0.65 （细节修复 ⑥): the built-in PDF viewer -- never a
+     host app, never the isolated browser. The viewer module
+     validates with the daemon before opening any window. */
+  return openPDFViewer(p);
  }
  if(kind==='zip'){
   if(!confirm('解压「'+name+'」？\n会在终端的 Data/files 里生成一个同名文件夹，桌面上多一个文件夹图标。')) return;

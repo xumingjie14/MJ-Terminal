@@ -50,6 +50,9 @@ list:'<path d="M8.6 6.4h11M8.6 12h11M8.6 17.6h11"/><circle cx="4.9" cy="6.4" r="
 grid:'<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 9.3h16M4 14.6h16M9.3 4v16M14.6 4v16"/>',
 file:'<path d="M6.6 3.6h5.9L18 9.1v10.2a1.3 1.3 0 0 1-1.3 1.3H6.6a1.3 1.3 0 0 1-1.3-1.3V4.9a1.3 1.3 0 0 1 1.3-1.3z"/><path d="M12.3 3.8v5.4H18"/>',
 music:'<circle cx="7" cy="17.8" r="2.7"/><circle cx="17.4" cy="15.8" r="2.7"/><path d="M9.7 17.8V6.4L20.1 4.6v11.2"/>',
+search:'<circle cx="11" cy="11" r="6.6"/><path d="m15.9 15.9 4.6 4.6"/>',
+rotate:'<path d="M19.7 12a7.7 7.7 0 1 1-2.3-5.4"/><path d="M20.1 3.4v3.9h-3.9"/>',
+sidebar:'<rect x="4" y="5" width="16" height="14" rx="2"/><path d="M9.4 5v14"/>',
 app:'<rect x="4" y="4" width="16" height="16" rx="4.6"/><rect x="9.2" y="9.2" width="5.6" height="5.6" rx="1.7"/>',
 };
 export function glyph(n,s){

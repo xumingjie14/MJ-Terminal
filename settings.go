@@ -44,7 +44,14 @@ type mjSettings struct {
 	// or "stretch". Preset wallpapers are CSS and ignore it.
 	// Written by 设置 → 外观， the Control Center is unaffected,
 	// and the right-click 设为壁纸 dialog (wallpaper.go).
-	WallpaperFit      string `json:"wallpaperFit"`
+	WallpaperFit string `json:"wallpaperFit"`
+	// v0.65 (detail-fix ⑥): the built-in PDF viewer's default
+	// zoom, applied when a document opens -- "fit-width" (the
+	// default: page width fills the viewer), "fit-page" (whole
+	// page visible) or "actual" (100%). Written by 设置 → 组件 →
+	// 打开方式； the viewer can still zoom freely per document,
+	// this is only where an open starts.
+	PDFZoom           string `json:"pdfZoom"`
 	StageManager      bool   `json:"stageManager"`      // Stage Manager on/off
 	IdleExitMinutes   int    `json:"idleExitMinutes"`   // daemon idle auto-exit; 0 = never
 	PhoneMode         bool   `json:"phoneMode"`         // phone-width landing on/off
@@ -222,6 +229,7 @@ func defaultSettings() mjSettings {
 	return mjSettings{
 		Wallpaper:             "tahoe",
 		WallpaperFit:          "fill",
+		PDFZoom:               "fit-width",
 		StageManager:          false,
 		IdleExitMinutes:       30,
 		PhoneMode:             true,
@@ -453,6 +461,17 @@ var wallpaperFits = map[string]bool{
 
 func validWallpaperFit(v string) bool { return wallpaperFits[v] }
 
+// v0.65: the PDF viewer's default-zoom modes (detail-fix ⑥).
+// The view maps them in pdfResolveScale (web/src/pure/fv.ts):
+// fit-width / fit-page derive the scale from the window, actual
+// is 100%. "fit-width" is the default -- it is how Preview opens
+// most documents and what the viewer did in testing.
+var pdfZooms = map[string]bool{
+	"fit-width": true, "fit-page": true, "actual": true,
+}
+
+func validPDFZoom(v string) bool { return pdfZooms[v] }
+
 // wallpaperFitLabel is the user-facing name used in console
 // logs; an unknown value reports as the default's label.
 func wallpaperFitLabel(v string) string {
@@ -515,6 +534,9 @@ func sanitizeSettings(s mjSettings) mjSettings {
 	}
 	if !wallpaperFits[s.WallpaperFit] {
 		s.WallpaperFit = d.WallpaperFit
+	}
+	if !pdfZooms[s.PDFZoom] {
+		s.PDFZoom = d.PDFZoom
 	}
 	if s.IdleExitMinutes < 0 || s.IdleExitMinutes > 240 {
 		s.IdleExitMinutes = d.IdleExitMinutes
@@ -810,6 +832,14 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 				} else if v != next.WallpaperFit {
 					next.WallpaperFit = v
 					changed = append(changed, "wallpaperFit = "+v)
+				}
+			case "pdfZoom":
+				var v string
+				if json.Unmarshal(val, &v) != nil || !validPDFZoom(v) {
+					fail = "pdfZoom 不是有效的缩放方式（fit-width/fit-page/actual）"
+				} else if v != next.PDFZoom {
+					next.PDFZoom = v
+					changed = append(changed, "pdfZoom = "+v)
 				}
 			case "stageManager":
 				var v bool

@@ -203,8 +203,23 @@ var featureRegistry = []feature{
 			lr("/api/files"), lr("/api/files/sub"), lr("/api/files/import"),
 			lr("/api/files/rename"), lr("/api/files/delete"), lr("/api/files/raw"),
 			lr("/api/files/thumb"), lr("/api/files/text"), lr("/api/files/csv"),
-			lr("/api/files/openpdf"), lr("/api/files/run"), lr("/api/files/unzip"),
+			lr("/api/files/run"), lr("/api/files/unzip"),
 		},
+	},
+	{
+		// v0.65 (detail-fix ⑥): the built-in PDF viewer. The
+		// daemon surface is the vendored pdf.js runtime assets,
+		// the pre-open validation, and the log-only event sink;
+		// the document bytes ride the files feature's existing
+		// /api/files/raw (range-capable), so no route here
+		// serves file content. Nothing is remote-visible.
+		ID: "pdfview", Name: "PDF 查看器",
+		Modules: []string{"pdf"},
+		Routes: []featureRoute{
+			lr("/assets/pdfjs/"),
+			lr("/api/pdf/open"), lr("/api/pdf/event"),
+		},
+		Settings: []string{"pdfZoom"},
 	},
 	{
 		ID: "store", Name: "应用商店",

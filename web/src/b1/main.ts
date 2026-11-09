@@ -17,6 +17,7 @@ import './folders';
 import './ctxmenu';
 import './appsload';
 import './viewers';
+import './pdfview';
 import './dock';
 import './pages';
 import './ccnc';

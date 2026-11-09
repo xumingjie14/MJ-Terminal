@@ -109,4 +109,10 @@ interface Window {
   openApp: any;
   SETTINGS: any;
   Terminal: any;
+  /* v0.65: the PDF viewer's engine handle (set by the module
+     script in shell.html) and the session-restore hook the
+     viewer registers for re-opening documents. */
+  pdfjsLib: any;
+  pdfjsLibError: any;
+  __mjRestorePDF: any;
 }

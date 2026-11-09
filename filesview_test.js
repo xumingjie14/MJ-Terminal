@@ -12,8 +12,8 @@ const assert = require('assert');
 const html = fs.readFileSync(__dirname + '/index.html', 'utf8');
 const m = html.match(/\/\* === fv pure \(node-testable\) === \*\/([\s\S]*?)\/\* === end fv pure === \*\//);
 assert(m, 'fv pure block not found in index.html');
-const { FV_GROUPS, fvGroupOf, fvInGroup, fvSortList, fvVisible, fvToggleSel, fvRangeSel, FV_RECENT_CAP, fvMediaGroup, fvExtOf, WPFIT_MODES, WPFIT_BASE, wpFitValid, wpFitKey, wpFitCSS, wpFitShowsWallItem } = new Function(
-  m[1] + '\nreturn { FV_GROUPS, fvGroupOf, fvInGroup, fvSortList, fvVisible, fvToggleSel, fvRangeSel, FV_RECENT_CAP, fvMediaGroup, fvExtOf, WPFIT_MODES, WPFIT_BASE, wpFitValid, wpFitKey, wpFitCSS, wpFitShowsWallItem };'
+const { FV_GROUPS, fvGroupOf, fvInGroup, fvSortList, fvVisible, fvToggleSel, fvRangeSel, FV_RECENT_CAP, fvMediaGroup, fvExtOf, WPFIT_MODES, WPFIT_BASE, wpFitValid, wpFitKey, wpFitCSS, wpFitShowsWallItem, PDFZOOM_MODES, pdfZoomValid, pdfZoomKey, pdfResolveScale, pdfPageAtScroll, pdfRenderWindow, pdfFindMatches, pdfFindStep, pdfRotateNext } = new Function(
+  m[1] + '\nreturn { FV_GROUPS, fvGroupOf, fvInGroup, fvSortList, fvVisible, fvToggleSel, fvRangeSel, FV_RECENT_CAP, fvMediaGroup, fvExtOf, WPFIT_MODES, WPFIT_BASE, wpFitValid, wpFitKey, wpFitCSS, wpFitShowsWallItem, PDFZOOM_MODES, pdfZoomValid, pdfZoomKey, pdfResolveScale, pdfPageAtScroll, pdfRenderWindow, pdfFindMatches, pdfFindStep, pdfRotateNext };'
 )();
 
 const F = (name, kind, size, mtime) => ({ name, path: name, kind, size, mtime, ext: name.split('.').pop() });
@@ -121,5 +121,55 @@ assert(wpFitShowsWallItem(F('a.png', 'image', 1, 1)), 'an image gets the menu it
 assert(!wpFitShowsWallItem(F('a.pdf', 'pdf', 1, 1)), 'a pdf does not');
 assert(!wpFitShowsWallItem(F('d', 'dir', 0, 1)), 'a folder does not');
 assert(!wpFitShowsWallItem(null) && !wpFitShowsWallItem(undefined), 'no file, no item');
+
+// --- v0.65: PDF viewer pure logic （细节修复 ⑥) ---
+assert.deepStrictEqual(PDFZOOM_MODES.map(m => m.id), ['fit-width', 'fit-page', 'actual'], 'pdf zoom modes mirror the daemon domain');
+assert.deepStrictEqual(PDFZOOM_MODES.map(m => m.n), ['适宽', '适页', '实际大小'], 'pdf zoom labels');
+for (const id of ['fit-width', 'fit-page', 'actual']) assert(pdfZoomValid(id), id + ' valid');
+for (const bad of ['', 'percent', 'fill', 'FIT-WIDTH', null, undefined]) assert(!pdfZoomValid(bad), String(bad) + ' invalid');
+assert.strictEqual(pdfZoomKey('fit-page'), 'fit-page');
+assert.strictEqual(pdfZoomKey('bogus'), 'fit-width', 'unknown zoom normalizes to the default');
+assert.strictEqual(pdfZoomKey(null), 'fit-width');
+// scale resolution: A4-ish page 595x842 in an 800x600 viewport
+assert.strictEqual(pdfResolveScale('fit-width', 100, 800, 600, 595, 842), 800 / 595, 'fit-width fills the width');
+assert.strictEqual(pdfResolveScale('fit-page', 100, 800, 600, 595, 842), 600 / 842, 'fit-page is the min ratio');
+assert.strictEqual(pdfResolveScale('actual', 250, 800, 600, 595, 842), 1, 'actual is always 100%');
+assert.strictEqual(pdfResolveScale('percent', 150, 800, 600, 595, 842), 1.5, 'percent is explicit');
+assert.strictEqual(pdfResolveScale('fit-width', 100, 0, 600, 595, 842), 1, 'no container yet -> no zero scale');
+assert.strictEqual(pdfResolveScale('fit-width', 100, 800, 600, 0, 842), 1, 'a sizeless page -> no NaN scale');
+assert.strictEqual(pdfResolveScale('percent', 100000, 800, 600, 595, 842), 10, 'scale is clamped at the top');
+assert.strictEqual(pdfResolveScale('percent', 1, 800, 600, 595, 842), 0.05, 'scale is clamped at the bottom');
+// scroll -> current page: three 100px pages, 14px gaps, tops as laid out
+const tops = [14, 128, 242], heights = [100, 100, 100];
+assert.strictEqual(pdfPageAtScroll(tops, heights, 0, 200), 0, 'top of the doc is page 1');
+assert.strictEqual(pdfPageAtScroll(tops, heights, 60, 200), 1, 'centre in page 2');
+assert.strictEqual(pdfPageAtScroll(tops, heights, 20, 20), 0, 'centre in the gap belongs to the page above');
+assert.strictEqual(pdfPageAtScroll(tops, heights, 100000, 200), 2, 'past the end clamps to the last page');
+assert.strictEqual(pdfPageAtScroll([], [], 0, 200), 0, 'no pages -> 0');
+assert.strictEqual(pdfPageAtScroll(tops, heights, -50, 100), 0, 'negative scroll clamps to the first page');
+// the lazy render window around the current page
+assert.deepStrictEqual(pdfRenderWindow(0, 500, 3), [0, 1, 2, 3], 'window at the start');
+assert.deepStrictEqual(pdfRenderWindow(250, 500, 3), [247, 248, 249, 250, 251, 252, 253], 'window in the middle');
+assert.deepStrictEqual(pdfRenderWindow(499, 500, 3), [496, 497, 498, 499], 'window at the end');
+assert.deepStrictEqual(pdfRenderWindow(0, 2, 3), [0, 1], 'window larger than the doc');
+// find: case-insensitive, non-overlapping, [start,end) pairs
+assert.deepStrictEqual(pdfFindMatches('Hello hello HELLO', 'hello'), [{ s: 0, e: 5 }, { s: 6, e: 11 }, { s: 12, e: 17 }], 'find is case-insensitive');
+assert.deepStrictEqual(pdfFindMatches('aaaa', 'aa'), [{ s: 0, e: 2 }, { s: 2, e: 4 }], 'matches do not overlap');
+assert.deepStrictEqual(pdfFindMatches('abc', ''), [], 'empty query finds nothing');
+assert.deepStrictEqual(pdfFindMatches('abc', 'z'), [], 'no hits');
+assert.deepStrictEqual(pdfFindMatches('', 'x'), [], 'empty text');
+assert.deepStrictEqual(pdfFindMatches('铭杰的终端机，铭杰', '铭杰'), [{ s: 0, e: 2 }, { s: 7, e: 9 }], 'CJK find');
+// find navigation with wrap
+assert.strictEqual(pdfFindStep(-1, 5, 1), 0, 'from none, forward -> first');
+assert.strictEqual(pdfFindStep(-1, 5, -1), 4, 'from none, backward -> last');
+assert.strictEqual(pdfFindStep(4, 5, 1), 0, 'forward wraps');
+assert.strictEqual(pdfFindStep(0, 5, -1), 4, 'backward wraps');
+assert.strictEqual(pdfFindStep(2, 5, 1), 3);
+assert.strictEqual(pdfFindStep(0, 0, 1), -1, 'no matches -> -1');
+// rotation steps stay in the quarter-turn domain
+assert.strictEqual(pdfRotateNext(0), 90);
+assert.strictEqual(pdfRotateNext(270), 0);
+assert.strictEqual(pdfRotateNext(360), 90);
+assert.strictEqual(pdfRotateNext(-90), 0);
 
 console.log('filesview_test: all assertions passed');

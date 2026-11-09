@@ -2191,7 +2191,12 @@ func runServer(portFlag int, isDaemon bool) {
 	mux.HandleFunc("/api/files/thumb", filesThumbHandler)
 	mux.HandleFunc("/api/files/text", filesTextHandler)
 	mux.HandleFunc("/api/files/csv", filesCSVHandler)
-	mux.HandleFunc("/api/files/openpdf", filesOpenPDFHandler)
+	// v0.65 (detail-fix ⑥): PDFs open in the built-in viewer
+	// (pdfview.go) -- the old /api/files/openpdf route, which
+	// handed the file to SumatraPDF / isolated Chrome, is gone.
+	mux.HandleFunc("/assets/pdfjs/", pdfAssetsHandler)
+	mux.HandleFunc("/api/pdf/open", pdfOpenHandler)
+	mux.HandleFunc("/api/pdf/event", pdfEventHandler)
 	mux.HandleFunc("/api/files/run", filesRunHandler)
 	mux.HandleFunc("/api/files/unzip", filesUnzipHandler)
 	mux.HandleFunc("/api/openshell", shellOpenHandler)
