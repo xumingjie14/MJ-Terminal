@@ -121,6 +121,9 @@ const PDFZOOM_MODES=[
 ];
 function pdfZoomValid(v){ return PDFZOOM_MODES.some(m=>m.id===v); }
 function pdfZoomKey(v){ return pdfZoomValid(v)?v:'fit-width'; }
+/* The scale band every zoom path enforces (pdfResolveScale
+   clamps to it, ctrl+wheel zoom clamps to it). */
+const PDF_SCALE_MIN=0.05, PDF_SCALE_MAX=10;
 /* The scale (CSS px per PDF point) a zoom state means for one
    page in a container. fit modes derive from the container;
    'actual' is 100%; 'percent' is the explicit percentage.
@@ -135,7 +138,7 @@ function pdfResolveScale(mode,pct,contW,contH,pageW,pageH){
  else if(mode==='actual') s=1;
  else s=(+pct||100)/100;
  if(!(s>0)||!isFinite(s)) s=1;
- return Math.min(10,Math.max(0.05,s));
+ return Math.min(PDF_SCALE_MAX,Math.max(PDF_SCALE_MIN,s));
 }
 /* Which page the scroll position is "on": the page whose slot
    contains the viewport's centre line; a centre inside the gap
@@ -185,4 +188,26 @@ function pdfFindStep(cur,total,dir){
    always one of 0/90/180/270. */
 function pdfRotateNext(rot){
  return (((+rot||0)%360)+360+90)%360;
+}
+/* Ctrl+wheel zoom (v0.65-test2, the Acrobat/Chrome-PDF
+   convention): plain wheel keeps scrolling -- only a
+   ctrl+wheel event zooms, which is also exactly how Edge
+   reports a trackpad pinch, so pinch rides the same path.
+   Continuous, not stepped: the new scale is the current one
+   times exp(-deltaY * PDF_WHEEL_K), so one standard notch
+   (|deltaY| = 100) lands near x1.105 and small trackpad
+   deltas accumulate into a smooth glide; the result clamps
+   to the same band pdfResolveScale enforces. deltaY is in
+   pixel units (the caller normalizes line/page deltaModes
+   before calling). A zero/NaN delta, or pushing against a
+   clamp the scale already sits on, decides zoom:false so
+   the caller skips the relayout. */
+const PDF_WHEEL_K=0.001;
+function pdfWheelZoom(deltaY,ctrlKey,scale){
+ const s=(+scale>0&&isFinite(scale))?+scale:1;
+ if(!ctrlKey) return {zoom:false,scale:s};
+ const d=+deltaY;
+ if(!d||!isFinite(d)) return {zoom:false,scale:s};
+ const ns=Math.min(PDF_SCALE_MAX,Math.max(PDF_SCALE_MIN,s*Math.exp(-d*PDF_WHEEL_K)));
+ return {zoom:ns!==s,scale:ns};
 }

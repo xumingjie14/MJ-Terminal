@@ -17,9 +17,10 @@ import { openApp } from './windows';
    the entry again. The daemon validates the file BEFORE any
    window exists (POST /api/pdf/open: inside Data/files, .pdf,
    %PDF- header), and the bytes ride the existing range-capable
-   /api/files/raw. The pure seams (zoom scale, scroll->page,
-   find matching/navigation, rotation) live in pure/fv.ts and
-   are node-tested; this module is the DOM/pdf.js glue. */
+   /api/files/raw. The pure seams (zoom scale, ctrl+wheel zoom,
+   scroll->page, find matching/navigation, rotation) live in
+   pure/fv.ts and are node-tested; this module is the DOM/pdf.js
+   glue. */
 export const PDFV=new Map();
 let pdfSeq=0;
 const PDFGEOM=new Map(); /* path -> session geometry, restore only */
@@ -60,7 +61,7 @@ export async function openPDFViewer(p: string){
   slots:[], tops:[], heights:[], textCache:new Map(),
   find:{open:false,q:'',flat:[],byPage:new Map(),cur:-1,busy:false},
   side:true, pwCb:null, pwCancelled:false, destroyed:false,
-  thumbDone:new Set(), thumbEls:[], thumbObs:null, ro:null, scrollRaf:0, findTimer:0, zoomTimer:0,
+  thumbDone:new Set(), thumbEls:[], thumbObs:null, ro:null, scrollRaf:0, findTimer:0, zoomTimer:0, wheelRaf:0, wheelA:null,
   els:{} };
  PDFV.set(id,st);
  openApp(id);
@@ -80,6 +81,7 @@ function destroyPDFInstance(id: string){
  const st=PDFV.get(id); if(!st) return;
  PDFV.delete(id);
  st.destroyed=true;
+ if(st.wheelRaf){ cancelAnimationFrame(st.wheelRaf); st.wheelRaf=0; }
  if(st.ro){ try{st.ro.disconnect()}catch(e){} }
  if(st.thumbObs){ try{st.thumbObs.disconnect()}catch(e){} }
  st.slots.forEach((s: any)=>{ if(s.task){ try{s.task.cancel()}catch(e){} } });
@@ -161,6 +163,7 @@ function buildChrome(st: any){
  st.els.fq.addEventListener('input',()=>{ clearTimeout(st.findTimer); st.findTimer=setTimeout(()=>runFind(st),220); });
  st.els.pwIn.addEventListener('keydown',(ev: any)=>{ if(ev.key==='Enter') submitPw(st); ev.stopPropagation(); });
  st.els.scroll.addEventListener('scroll',()=>onScroll(st),{passive:true});
+ st.els.scroll.addEventListener('wheel',(ev: any)=>pdfWheel(st,ev),{passive:false});
  const w=document.getElementById('win-'+st.id);
  if(w) w.addEventListener('keydown',(ev: any)=>pdfKeys(st,ev));
  if(typeof ResizeObserver!=='undefined'){
@@ -260,7 +263,7 @@ function layoutSlots(st: any){
   y+=vp.height+GAP;
  }
 }
-function applyZoom(st: any){
+function applyZoom(st: any, anchor?: any){
  if(!st.doc||st.destroyed) return;
  const sc=st.els.scroll;
  const bs=baseSize(st);
@@ -269,7 +272,8 @@ function applyZoom(st: any){
  st.slots.forEach((s: any)=>{ if(s.task){ try{s.task.cancel()}catch(e){} } s.rendered=false; s.rendering=false; });
  layoutSlots(st);
  paintZoom(st); paintPageNum(st);
- sc.scrollTop=Math.max(0,(st.tops[st.cur]||0)-14);
+ if(anchor) restorePdfAnchor(st,anchor);
+ else sc.scrollTop=Math.max(0,(st.tops[st.cur]||0)-14);
  keepRenderWindow(st);
 }
 function paintZoom(st: any){
@@ -285,6 +289,67 @@ function zoomStep(st: any, dir: number){
  if(dir>0){ for(const s of ZOOM_STEPS){ if(s>curPct+0.5){ next=s; break; } } }
  else { for(let i=ZOOM_STEPS.length-1;i>=0;i--){ if(ZOOM_STEPS[i]<curPct-0.5){ next=ZOOM_STEPS[i]; break; } } }
  st.mode='percent'; st.pct=next; applyZoom(st);
+}
+/* ---------- ctrl+wheel zoom (v0.65-test2) ----------
+   Acrobat convention: ctrl+wheel zooms, plain wheel keeps
+   scrolling untouched (this listener is registered
+   non-passive on the viewer's own scroller and only acts on
+   ctrlKey, so the gesture never leaks to the shell or other
+   apps; Edge reports a trackpad pinch as ctrl+wheel, so
+   pinch rides the same path). The decision math is the pure
+   pdfWheelZoom seam. Events between animation frames
+   coalesce into ONE anchored applyZoom, each accumulating
+   from the pending target (st.pct once in 'percent' mode),
+   so a fast spin or pinch is one smooth gesture instead of
+   a storm of relayouts; the re-render itself is the same
+   generation-guarded path button zoom uses. */
+function pdfWheel(st: any, ev: any){
+ if(!ev.ctrlKey) return;
+ if(st.destroyed||!st.doc) return;
+ ev.preventDefault();
+ const sc=st.els.scroll;
+ const dy=ev.deltaMode===1?ev.deltaY*33:ev.deltaMode===2?ev.deltaY*Math.max(1,sc.clientHeight):ev.deltaY;
+ const base=st.mode==='percent'?(+st.pct||100)/100:st.scale;
+ const d=pdfWheelZoom(dy,true,base);
+ if(!d.zoom) return;
+ st.mode='percent'; st.pct=d.scale*100;
+ const rect=sc.getBoundingClientRect();
+ st.wheelA=pdfAnchorAt(st,ev.clientX-rect.left,ev.clientY-rect.top);
+ if(!st.wheelRaf){
+  st.wheelRaf=requestAnimationFrame(()=>{
+   st.wheelRaf=0;
+   if(st.destroyed||!st.doc) return;
+   const a=st.wheelA; st.wheelA=null;
+   applyZoom(st,a||undefined);
+  });
+ }
+}
+/* The document point under viewport point (px,py), kept as a
+   page index plus fractions into that page, so it can be
+   re-anchored exactly after a relayout: page heights scale
+   exactly with the zoom and slots are centred (margin: 0
+   auto in the stylesheet), so fractions carry across any
+   scale change with no drift from the fixed inter-page gaps
+   (a scroll-ratio anchor would drift by the gap difference
+   on deep pages). Fractions clamp to the page: a pointer in
+   the top padding or a gap anchors to the nearest edge. */
+function pdfAnchorAt(st: any, px: number, py: number){
+ const sc=st.els.scroll;
+ if(!st.numPages||!st.slots.length) return null;
+ const docX=sc.scrollLeft+px, docY=sc.scrollTop+py;
+ let i=0;
+ for(let k=0;k<st.numPages;k++){ if(st.tops[k]<=docY) i=k; else break; }
+ const s=st.slots[i]; if(!s) return null;
+ const left=(st.els.pages.offsetWidth-s.w)/2;
+ const clamp01=(v: number)=>Math.min(1,Math.max(0,v));
+ return { i, fx:clamp01((docX-left)/s.w), fy:clamp01((docY-st.tops[i])/s.h), px, py };
+}
+function restorePdfAnchor(st: any, a: any){
+ const s=st.slots[a.i]; if(!s) return;
+ const sc=st.els.scroll;
+ const left=(st.els.pages.offsetWidth-s.w)/2;
+ sc.scrollLeft=Math.max(0,left+a.fx*s.w-a.px);
+ sc.scrollTop=Math.max(0,st.tops[a.i]+a.fy*s.h-a.py);
 }
 function rotateDoc(st: any){
  st.rotation=pdfRotateNext(st.rotation);

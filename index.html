@@ -1448,6 +1448,8 @@ function createEvHub(nowFn) {
       scrollRaf: 0,
       findTimer: 0,
       zoomTimer: 0,
+      wheelRaf: 0,
+      wheelA: null,
       els: {}
     };
     PDFV.set(id, st);
@@ -1475,6 +1477,10 @@ function createEvHub(nowFn) {
     if (!st) return;
     PDFV.delete(id);
     st.destroyed = true;
+    if (st.wheelRaf) {
+      cancelAnimationFrame(st.wheelRaf);
+      st.wheelRaf = 0;
+    }
     if (st.ro) {
       try {
         st.ro.disconnect();
@@ -1628,6 +1634,7 @@ function createEvHub(nowFn) {
       ev.stopPropagation();
     });
     st.els.scroll.addEventListener("scroll", () => onScroll(st), { passive: true });
+    st.els.scroll.addEventListener("wheel", (ev) => pdfWheel(st, ev), { passive: false });
     const w = document.getElementById("win-" + st.id);
     if (w) w.addEventListener("keydown", (ev) => pdfKeys(st, ev));
     if (typeof ResizeObserver !== "undefined") {
@@ -1778,7 +1785,7 @@ function createEvHub(nowFn) {
       y += vp.height + GAP;
     }
   }
-  function applyZoom(st) {
+  function applyZoom(st, anchor) {
     if (!st.doc || st.destroyed) return;
     const sc = st.els.scroll;
     const bs = baseSize(st);
@@ -1797,7 +1804,8 @@ function createEvHub(nowFn) {
     layoutSlots(st);
     paintZoom(st);
     paintPageNum(st);
-    sc.scrollTop = Math.max(0, (st.tops[st.cur] || 0) - 14);
+    if (anchor) restorePdfAnchor(st, anchor);
+    else sc.scrollTop = Math.max(0, (st.tops[st.cur] || 0) - 14);
     keepRenderWindow(st);
   }
   function paintZoom(st) {
@@ -1827,6 +1835,52 @@ function createEvHub(nowFn) {
     st.mode = "percent";
     st.pct = next;
     applyZoom(st);
+  }
+  function pdfWheel(st, ev) {
+    if (!ev.ctrlKey) return;
+    if (st.destroyed || !st.doc) return;
+    ev.preventDefault();
+    const sc = st.els.scroll;
+    const dy = ev.deltaMode === 1 ? ev.deltaY * 33 : ev.deltaMode === 2 ? ev.deltaY * Math.max(1, sc.clientHeight) : ev.deltaY;
+    const base = st.mode === "percent" ? (+st.pct || 100) / 100 : st.scale;
+    const d = pdfWheelZoom(dy, true, base);
+    if (!d.zoom) return;
+    st.mode = "percent";
+    st.pct = d.scale * 100;
+    const rect = sc.getBoundingClientRect();
+    st.wheelA = pdfAnchorAt(st, ev.clientX - rect.left, ev.clientY - rect.top);
+    if (!st.wheelRaf) {
+      st.wheelRaf = requestAnimationFrame(() => {
+        st.wheelRaf = 0;
+        if (st.destroyed || !st.doc) return;
+        const a = st.wheelA;
+        st.wheelA = null;
+        applyZoom(st, a || void 0);
+      });
+    }
+  }
+  function pdfAnchorAt(st, px, py) {
+    const sc = st.els.scroll;
+    if (!st.numPages || !st.slots.length) return null;
+    const docX = sc.scrollLeft + px, docY = sc.scrollTop + py;
+    let i = 0;
+    for (let k = 0; k < st.numPages; k++) {
+      if (st.tops[k] <= docY) i = k;
+      else break;
+    }
+    const s = st.slots[i];
+    if (!s) return null;
+    const left = (st.els.pages.offsetWidth - s.w) / 2;
+    const clamp01 = (v) => Math.min(1, Math.max(0, v));
+    return { i, fx: clamp01((docX - left) / s.w), fy: clamp01((docY - st.tops[i]) / s.h), px, py };
+  }
+  function restorePdfAnchor(st, a) {
+    const s = st.slots[a.i];
+    if (!s) return;
+    const sc = st.els.scroll;
+    const left = (st.els.pages.offsetWidth - s.w) / 2;
+    sc.scrollLeft = Math.max(0, left + a.fx * s.w - a.px);
+    sc.scrollTop = Math.max(0, st.tops[a.i] + a.fy * s.h - a.py);
   }
   function rotateDoc(st) {
     st.rotation = pdfRotateNext(st.rotation);
@@ -8401,6 +8455,7 @@ function pdfZoomValid(v) {
 function pdfZoomKey(v) {
   return pdfZoomValid(v) ? v : "fit-width";
 }
+const PDF_SCALE_MIN = 0.05, PDF_SCALE_MAX = 10;
 function pdfResolveScale(mode, pct, contW, contH, pageW, pageH) {
   let s = 0;
   if (mode === "fit-width" && contW > 0 && pageW > 0) s = contW / pageW;
@@ -8408,7 +8463,7 @@ function pdfResolveScale(mode, pct, contW, contH, pageW, pageH) {
   else if (mode === "actual") s = 1;
   else s = (+pct || 100) / 100;
   if (!(s > 0) || !isFinite(s)) s = 1;
-  return Math.min(10, Math.max(0.05, s));
+  return Math.min(PDF_SCALE_MAX, Math.max(PDF_SCALE_MIN, s));
 }
 function pdfPageAtScroll(tops, heights, scrollTop, viewH) {
   const n = (tops || []).length;
@@ -8449,6 +8504,15 @@ function pdfFindStep(cur, total, dir) {
 }
 function pdfRotateNext(rot) {
   return ((+rot || 0) % 360 + 360 + 90) % 360;
+}
+const PDF_WHEEL_K = 1e-3;
+function pdfWheelZoom(deltaY, ctrlKey, scale) {
+  const s = +scale > 0 && isFinite(scale) ? +scale : 1;
+  if (!ctrlKey) return { zoom: false, scale: s };
+  const d = +deltaY;
+  if (!d || !isFinite(d)) return { zoom: false, scale: s };
+  const ns = Math.min(PDF_SCALE_MAX, Math.max(PDF_SCALE_MIN, s * Math.exp(-d * PDF_WHEEL_K)));
+  return { zoom: ns !== s, scale: ns };
 }
 /* === end fv pure === */
 (() => {

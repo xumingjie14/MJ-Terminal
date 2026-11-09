@@ -12,8 +12,8 @@ const assert = require('assert');
 const html = fs.readFileSync(__dirname + '/index.html', 'utf8');
 const m = html.match(/\/\* === fv pure \(node-testable\) === \*\/([\s\S]*?)\/\* === end fv pure === \*\//);
 assert(m, 'fv pure block not found in index.html');
-const { FV_GROUPS, fvGroupOf, fvInGroup, fvSortList, fvVisible, fvToggleSel, fvRangeSel, FV_RECENT_CAP, fvMediaGroup, fvExtOf, WPFIT_MODES, WPFIT_BASE, wpFitValid, wpFitKey, wpFitCSS, wpFitShowsWallItem, PDFZOOM_MODES, pdfZoomValid, pdfZoomKey, pdfResolveScale, pdfPageAtScroll, pdfRenderWindow, pdfFindMatches, pdfFindStep, pdfRotateNext } = new Function(
-  m[1] + '\nreturn { FV_GROUPS, fvGroupOf, fvInGroup, fvSortList, fvVisible, fvToggleSel, fvRangeSel, FV_RECENT_CAP, fvMediaGroup, fvExtOf, WPFIT_MODES, WPFIT_BASE, wpFitValid, wpFitKey, wpFitCSS, wpFitShowsWallItem, PDFZOOM_MODES, pdfZoomValid, pdfZoomKey, pdfResolveScale, pdfPageAtScroll, pdfRenderWindow, pdfFindMatches, pdfFindStep, pdfRotateNext };'
+const { FV_GROUPS, fvGroupOf, fvInGroup, fvSortList, fvVisible, fvToggleSel, fvRangeSel, FV_RECENT_CAP, fvMediaGroup, fvExtOf, WPFIT_MODES, WPFIT_BASE, wpFitValid, wpFitKey, wpFitCSS, wpFitShowsWallItem, PDFZOOM_MODES, pdfZoomValid, pdfZoomKey, pdfResolveScale, pdfPageAtScroll, pdfRenderWindow, pdfFindMatches, pdfFindStep, pdfRotateNext, pdfWheelZoom } = new Function(
+  m[1] + '\nreturn { FV_GROUPS, fvGroupOf, fvInGroup, fvSortList, fvVisible, fvToggleSel, fvRangeSel, FV_RECENT_CAP, fvMediaGroup, fvExtOf, WPFIT_MODES, WPFIT_BASE, wpFitValid, wpFitKey, wpFitCSS, wpFitShowsWallItem, PDFZOOM_MODES, pdfZoomValid, pdfZoomKey, pdfResolveScale, pdfPageAtScroll, pdfRenderWindow, pdfFindMatches, pdfFindStep, pdfRotateNext, pdfWheelZoom };'
 )();
 
 const F = (name, kind, size, mtime) => ({ name, path: name, kind, size, mtime, ext: name.split('.').pop() });
@@ -171,5 +171,22 @@ assert.strictEqual(pdfRotateNext(0), 90);
 assert.strictEqual(pdfRotateNext(270), 0);
 assert.strictEqual(pdfRotateNext(360), 90);
 assert.strictEqual(pdfRotateNext(-90), 0);
+// ctrl+wheel zoom (v0.65-test2): the pure wheel decision seam
+const approx = (a, b) => Math.abs(a - b) < 1e-9;
+assert.deepStrictEqual(pdfWheelZoom(-100, false, 1), { zoom: false, scale: 1 }, 'plain wheel never zooms');
+assert.deepStrictEqual(pdfWheelZoom(100, false, 2), { zoom: false, scale: 2 }, 'plain wheel down keeps the scale');
+assert.deepStrictEqual(pdfWheelZoom(-100, undefined, 1), { zoom: false, scale: 1 }, 'no ctrl flag, no zoom');
+{ const d = pdfWheelZoom(-100, true, 1); assert(d.zoom && approx(d.scale, Math.exp(0.1)), 'wheel up (deltaY<0) zooms in'); }
+{ const d = pdfWheelZoom(100, true, 1); assert(d.zoom && approx(d.scale, Math.exp(-0.1)), 'wheel down (deltaY>0) zooms out'); }
+{ const up = pdfWheelZoom(-100, true, 1), dn = pdfWheelZoom(100, true, up.scale); assert(approx(dn.scale, 1), 'in then out by one notch returns to the start'); }
+{ let s = 1; for (let i = 0; i < 10; i++) s = pdfWheelZoom(-4, true, s).scale; assert(approx(s, pdfWheelZoom(-40, true, 1).scale), 'small trackpad deltas accumulate like one bigger delta'); }
+{ const one = pdfWheelZoom(-4, true, 1); assert(one.zoom && one.scale > 1 && one.scale < 1.01, 'a tiny trackpad delta is a smooth small step, not a button jump'); }
+assert.strictEqual(pdfWheelZoom(-100, true, 9.9).scale, 10, 'wheel zoom clamps at the top of the band');
+assert.deepStrictEqual(pdfWheelZoom(-100, true, 10), { zoom: false, scale: 10 }, 'already at max: no zoom decision');
+assert.strictEqual(pdfWheelZoom(100, true, 0.055).scale, 0.05, 'wheel zoom clamps at the bottom of the band');
+assert.deepStrictEqual(pdfWheelZoom(100, true, 0.05), { zoom: false, scale: 0.05 }, 'already at min: no zoom decision');
+assert.deepStrictEqual(pdfWheelZoom(0, true, 1.5), { zoom: false, scale: 1.5 }, 'a zero delta decides nothing');
+assert.deepStrictEqual(pdfWheelZoom(NaN, true, 1.5), { zoom: false, scale: 1.5 }, 'a NaN delta decides nothing');
+assert.deepStrictEqual(pdfWheelZoom(-100, true, 0), { zoom: true, scale: Math.exp(0.1) }, 'a degenerate current scale reads as 100%');
 
 console.log('filesview_test: all assertions passed');
