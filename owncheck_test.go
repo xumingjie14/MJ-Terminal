@@ -403,3 +403,49 @@ func TestIsSystemBinaryImage(t *testing.T) {
 		}
 	}
 }
+
+// Regression (v0.69-test2): filepath.Join on Windows builds a
+// DRIVE-RELATIVE path from a bare drive element -- Join("D:",
+// "MJ") == "D:MJ", no separator after the colon. The taskmgr
+// classification fixtures were built that way, so on the Windows
+// CI runner every profile needle came out "d:mj\data\..." while
+// real command lines carry the rooted "d:\mj\data\..." -- the
+// profile rule silently never fired and Chrome/Firefox processes
+// fell into the "other-*" groups. Linux CI was green only
+// because its Join inserts the separator. normalizeWinPath is
+// the one normalizer the whole attribution chain (ownership +
+// taskmgr) compares through, so the canonicalization lives
+// there: a drive-relative path reads as its rooted form.
+func TestNormalizeWinPathForms(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{`D:\MJ\Data\ChromeProfile`, `d:\mj\data\chromeprofile`},
+		{`D:/MJ/Data/ChromeProfile`, `d:\mj\data\chromeprofile`},
+		{`D:MJ\Data\ChromeProfile`, `d:\mj\data\chromeprofile`}, // drive-relative, the CI killer
+		{`D:MJ/Data/ChromeProfile`, `d:\mj\data\chromeprofile`}, // drive-relative, forward slashes
+		{`d:mj`, `d:\mj`},
+		{`D:`, `d:`}, // bare drive: no path follows, untouched
+		{`D:\`, `d:\`},
+		{`D:\MJ\`, `d:\mj`},
+		{`\\Server\Share\MJ`, `\\server\share\mj`},
+		{`relative\path`, `relative\path`},
+		{"", ""},
+	}
+	for _, tc := range cases {
+		if got := normalizeWinPath(tc.in); got != tc.want {
+			t.Errorf("normalizeWinPath(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// The classification-level consequence of the same regression:
+// a profile directory handed over in drive-relative form must
+// still match a real (rooted) browser command line, and the
+// classic prefix traps must stay rejected in that form too.
+func TestCmdlineHasProfileDriveRelative(t *testing.T) {
+	if !cmdlineHasProfile(`chrome.exe --user-data-dir="D:\MJ\Data\ChromeProfile"`, `D:MJ\Data\ChromeProfile`) {
+		t.Error("drive-relative profile dir must match a rooted command line")
+	}
+	if cmdlineHasProfile(`chrome.exe --user-data-dir="D:\MJ\Data\ChromeProfile2"`, `D:MJ\Data\ChromeProfile`) {
+		t.Error("longer sibling must stay rejected with a drive-relative profile dir")
+	}
+}

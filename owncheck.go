@@ -93,10 +93,20 @@ type ownContext struct {
 }
 
 // normalizeWinPath makes a path comparable: backslashes everywhere,
-// lowercased, no trailing separator (except a bare root).
+// lowercased, no trailing separator (except a bare root). A
+// drive-relative path ("d:mj\...") -- the form filepath.Join
+// produces on Windows from a bare drive element (Join("D:", "MJ")
+// == "D:MJ") -- is canonicalized to its rooted form: no process
+// fact this chain compares (image path, command line, profile
+// dir from the daemon's own absolute roots) is ever legitimately
+// drive-relative, and leaving the form as-is made every profile
+// comparison against a real, rooted command line silently miss.
 func normalizeWinPath(p string) string {
 	p = strings.ReplaceAll(strings.TrimSpace(p), "/", `\`)
 	p = strings.ToLower(p)
+	if len(p) > 2 && p[0] >= 'a' && p[0] <= 'z' && p[1] == ':' && p[2] != '\\' {
+		p = p[:2] + `\` + p[2:]
+	}
 	for len(p) > 1 && strings.HasSuffix(p, `\`) && !strings.HasSuffix(p, `:\`) {
 		p = p[:len(p)-1]
 	}

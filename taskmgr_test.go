@@ -6,58 +6,93 @@ package main
 // live snapshot is replaced by synthetic process tables.
 
 import (
-	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
 
-func tmTestCtx() tmClassCtx {
-	root := filepath.Join("D:", "MJ")
-	data := filepath.Join(root, "Data")
+// The classification context is exercised in THREE path forms
+// on every run, because the path SHAPE is itself the variable
+// that once hid a real failure from Linux CI (v0.69-test1,
+// fixed in test2):
+//
+//   - windows rooted: what the daemon's live context actually
+//     carries on the only platform the task manager runs on
+//     (dataDir()/exeDir() are absolute, rooted paths).
+//   - posix separators: what filepath.Join produces on Linux.
+//   - windows drive-relative: what filepath.Join produces on
+//     WINDOWS from a bare drive element -- Join("D:", "MJ") ==
+//     "D:MJ", no separator after the colon. The test1 fixtures
+//     were built exactly that way, so on the Windows runner
+//     every profile needle was drive-relative while process
+//     command lines are rooted, tmRootClass silently returned
+//     "" for Chrome/Firefox, and the tree test watched them
+//     land in "other-chrome.exe" / "other-unknown". The forms
+//     stay in the suite so a separator can never again be a
+//     CI-only variable.
+//
+// Command-line fixtures stay literal rooted Windows text in
+// all three forms: that is what real Windows processes carry,
+// whatever shape our own context paths take.
+var tmCtxForms = []struct {
+	name string
+	root string
+	sep  string
+}{
+	{"windows rooted", `D:\MJ`, `\`},
+	{"posix separators", "D:/MJ", "/"},
+	{"windows drive-relative", `D:MJ`, `\`},
+}
+
+func tmTestCtxForm(root, sep string) tmClassCtx {
+	j := func(parts ...string) string { return strings.Join(parts, sep) }
+	data := j(root, "Data")
 	return tmClassCtx{
 		CorePID:       500,
-		CoreExe:       filepath.Join(root, "core", "sing-box.exe"),
-		ChromeProfile: filepath.Join(data, "ChromeProfile"),
-		FFAppProfile:  filepath.Join(data, "FirefoxProfileApp"),
-		FFWinProfile:  filepath.Join(data, "FirefoxProfile"),
+		CoreExe:       j(root, "core", "sing-box.exe"),
+		ChromeProfile: j(data, "ChromeProfile"),
+		FFAppProfile:  j(data, "FirefoxProfileApp"),
+		FFWinProfile:  j(data, "FirefoxProfile"),
 		BoxPIDs:       map[uint32]bool{900: true},
-		OpenClawDir:   filepath.Join(data, "openclaw"),
+		OpenClawDir:   j(data, "openclaw"),
 		DirGroups: []tmDirGroup{
-			{Prefix: filepath.Join(data, "apps", "telegram"), ID: "telegram", Name: "Telegram", Kind: "store"},
-			{Prefix: filepath.Join(data, "components", "krita"), ID: "krita", Name: "Krita", Kind: "component"},
+			{Prefix: j(data, "apps", "telegram"), ID: "telegram", Name: "Telegram", Kind: "store"},
+			{Prefix: j(data, "components", "krita"), ID: "krita", Name: "Krita", Kind: "component"},
 		},
 		ShellExclusion: map[uint32]bool{},
 	}
 }
 
 func TestTMRootClass(t *testing.T) {
-	cx := tmTestCtx()
-	cases := []struct {
-		name string
-		p    procFact
-		want string
-	}{
-		{"core by pid", procFact{PID: 500, ImagePath: `C:\elsewhere\sing-box.exe`}, "core"},
-		{"core by image", procFact{PID: 501, ImagePath: filepath.Join("D:", "MJ", "core", "sing-box.exe")}, "core"},
-		{"chrome main", procFact{PID: 100, CmdLine: `chrome.exe --user-data-dir="D:\MJ\Data\ChromeProfile"`}, "browser"},
-		{"firefox app profile wins over window prefix", procFact{PID: 200, CmdLine: `firefox.exe -profile "D:\MJ\Data\FirefoxProfileApp"`}, "firefox-app"},
-		{"firefox window profile", procFact{PID: 201, CmdLine: `firefox.exe -profile "D:\MJ\Data\FirefoxProfile"`}, "firefox-window"},
-		{"box member", procFact{PID: 900, ImagePath: `C:\Program Files\WeChat\WeChat.exe`}, "sandbox"},
-		{"openclaw node", procFact{PID: 300, ImagePath: filepath.Join("D:", "MJ", "Data", "openclaw", "node.exe")}, "openclaw"},
-		{"store app", procFact{PID: 400, ImagePath: filepath.Join("D:", "MJ", "Data", "apps", "telegram", "Telegram.exe")}, "store-telegram"},
-		{"component", procFact{PID: 401, ImagePath: filepath.Join("D:", "MJ", "Data", "components", "krita", "bin", "krita.exe")}, "component-krita"},
-		{"unrelated host process", procFact{PID: 999, ImagePath: `C:\Windows\explorer.exe`}, ""},
-		{"chrome renderer without profile arg", procFact{PID: 101, ImagePath: `C:\Program Files\Google\Chrome\Application\chrome.exe`, CmdLine: `chrome.exe --type=renderer`}, ""},
-	}
-	for _, tc := range cases {
-		if got := tmRootClass(tc.p, cx); got != tc.want {
-			t.Errorf("%s: tmRootClass = %q, want %q", tc.name, got, tc.want)
+	for _, form := range tmCtxForms {
+		cx := tmTestCtxForm(form.root, form.sep)
+		j := func(parts ...string) string { return strings.Join(parts, form.sep) }
+		cases := []struct {
+			name string
+			p    procFact
+			want string
+		}{
+			{"core by pid", procFact{PID: 500, ImagePath: `C:\elsewhere\sing-box.exe`}, "core"},
+			{"core by image", procFact{PID: 501, ImagePath: cx.CoreExe}, "core"},
+			{"chrome main", procFact{PID: 100, CmdLine: `chrome.exe --user-data-dir="D:\MJ\Data\ChromeProfile"`}, "browser"},
+			{"firefox app profile wins over window prefix", procFact{PID: 200, CmdLine: `firefox.exe -profile "D:\MJ\Data\FirefoxProfileApp"`}, "firefox-app"},
+			{"firefox window profile", procFact{PID: 201, CmdLine: `firefox.exe -profile "D:\MJ\Data\FirefoxProfile"`}, "firefox-window"},
+			{"box member", procFact{PID: 900, ImagePath: `C:\Program Files\WeChat\WeChat.exe`}, "sandbox"},
+			{"openclaw node", procFact{PID: 300, ImagePath: j(cx.OpenClawDir, "node.exe")}, "openclaw"},
+			{"store app", procFact{PID: 400, ImagePath: j(cx.DirGroups[0].Prefix, "Telegram.exe")}, "store-telegram"},
+			{"component", procFact{PID: 401, ImagePath: j(cx.DirGroups[1].Prefix, "bin", "krita.exe")}, "component-krita"},
+			{"unrelated host process", procFact{PID: 999, ImagePath: `C:\Windows\explorer.exe`}, ""},
+			{"chrome renderer without profile arg", procFact{PID: 101, ImagePath: `C:\Program Files\Google\Chrome\Application\chrome.exe`, CmdLine: `chrome.exe --type=renderer`}, ""},
+		}
+		for _, tc := range cases {
+			if got := tmRootClass(tc.p, cx); got != tc.want {
+				t.Errorf("[%s] %s: tmRootClass = %q, want %q", form.name, tc.name, got, tc.want)
+			}
 		}
 	}
 }
 
 func TestTMAssignGroupsAggregatesChromeTree(t *testing.T) {
-	cx := tmTestCtx()
 	procs := []procFact{
 		{PID: 100, PPID: 1, ImagePath: `C:\Program Files\Google\Chrome\Application\chrome.exe`, CmdLine: `chrome.exe --user-data-dir="D:\MJ\Data\ChromeProfile"`},
 		{PID: 101, PPID: 100, ImagePath: `C:\Program Files\Google\Chrome\Application\chrome.exe`, CmdLine: `chrome.exe --type=renderer`},
@@ -68,15 +103,18 @@ func TestTMAssignGroupsAggregatesChromeTree(t *testing.T) {
 		{PID: 701, PPID: 700, ImagePath: `C:\Tools\hostapp.exe`},
 	}
 	owned := map[uint32]string{100: "ownTree", 101: "ownTree", 102: "ownTree", 200: "ownProfile", 201: "ownTree", 700: "ownTree", 701: "ownTree"}
-	got := tmAssignGroups(procs, owned, cx)
 	want := map[uint32]string{
 		100: "browser", 101: "browser", 102: "browser",
 		200: "firefox-window", 201: "firefox-window",
 		700: "other-hostapp.exe", 701: "other-hostapp.exe",
 	}
-	for pid, w := range want {
-		if got[pid] != w {
-			t.Errorf("pid %d: group = %q, want %q", pid, got[pid], w)
+	for _, form := range tmCtxForms {
+		cx := tmTestCtxForm(form.root, form.sep)
+		got := tmAssignGroups(procs, owned, cx)
+		for pid, w := range want {
+			if got[pid] != w {
+				t.Errorf("[%s] pid %d: group = %q, want %q", form.name, pid, got[pid], w)
+			}
 		}
 	}
 }
