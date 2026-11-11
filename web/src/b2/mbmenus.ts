@@ -49,9 +49,7 @@ export function openMbMenu(spanId,builder){
  mbOpenFor=spanId;
  if(!wasOpen) stageOverlay('menu',true);
  const rect=span.getBoundingClientRect();
- /* v0.67: rect.left is VISUAL under a UI scale; style.left
-    and innerWidth are LOCAL -- convert (uiToLocal). */
- mbdrop.style.left=Math.max(6,Math.min(uiToLocal(rect.left,uiScaleFactor())-2,innerWidth-270))+'px';
+ mbdrop.style.left=Math.max(6,Math.min(rect.left-2,innerWidth-270))+'px';
  mbdrop.innerHTML='<div class="mbm-it dis">…</div>';
  mbdrop.classList.remove('hidden');
  const fill=items=>{

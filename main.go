@@ -1714,7 +1714,8 @@ var (
 	bootExtrasOnce sync.Once
 	linksLoaded    atomic.Bool
 	daemonSrv      *http.Server
-	daemonMode     bool // runServer's isDaemon, for post-unlock extras
+	daemonSelfURL  string // this daemon's own base URL, set by runDaemon (v0.67-test2: the UI-scale view restart reopens through it)
+	daemonMode     bool   // runServer's isDaemon, for post-unlock extras
 )
 
 func servicesSetActive(v bool) { servicesOn.Store(v) }
@@ -1916,6 +1917,24 @@ func spawnShellWindow(url string, proxy bool) (browser string, before map[uint64
 	// Deliberately NOT waited on: this window may be closed freely, it
 	// no longer owns the backend's lifetime.
 	args := []string{"--app=" + url, "--start-maximized", "--user-data-dir=" + profile, "--no-first-run"}
+	// v0.67-test2: the UI scale （界面缩放， settings key uiScale)
+	// is the browser's OWN device scale factor. Forcing it makes
+	// the whole view render bigger or smaller the way an OS
+	// display scale does -- layout, rects and pointer coordinates
+	// all live in the one scaled space, which is exactly what
+	// test1's page-side CSS zoom could not guarantee (desktop
+	// icons did not re-layout; menus drifted). The factor is an
+	// ABSOLUTE override: it replaces, not compounds with, the
+	// host Windows DPI scale, so "100" renders at exactly 1.0
+	// whatever the host is set to. It is read once here, at
+	// process start; changing the setting restarts the view
+	// (shellScaleKick in shellview.go). The lock screen's
+	// throwaway profile keeps the default factor.
+	scale := "100"
+	if !vaultLocked() {
+		scale = settingUIScale()
+	}
+	args = append(args, "--force-device-scale-factor="+shellScaleFactorArg(scale))
 	if proxy {
 		// The desktop itself goes through the node (v0.8 in-app global
 		// acceleration); loopback stays direct so the local UI itself
@@ -1926,6 +1945,7 @@ func spawnShellWindow(url string, proxy bool) (browser string, before map[uint64
 	if err := exec.Command(browser, args...).Start(); err != nil {
 		return "", nil, err
 	}
+	noteShellScaleSpawned(scale)
 	if proxy {
 		logf("browser", "info", "桌面窗口已打开（走节点）")
 	} else {
@@ -2077,6 +2097,7 @@ func runServer(portFlag int, isDaemon bool) {
 	}
 	actualPort := ln.Addr().(*net.TCPAddr).Port
 	url := daemonURLForPort(actualPort)
+	daemonSelfURL = url
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

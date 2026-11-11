@@ -4,7 +4,7 @@
    script scope. */
 import { api, esc } from './core';
 import { glyph } from './glyphs';
-import { deskIconSize, uiScaleFactor } from './settings';
+import { deskIconSize } from './settings';
 import { openApp } from './windows';
 import { FFSTATE } from './session';
 import { LAYOUT, WEBAPPS, deskSortMode, entryMeta, folderById, folderItems, recOpen, saveLayout, setDeskIconSize, setDeskSort, suppressClickUntil, __bind_WEBAPPS, __bind_suppressClickUntil } from './entries';
@@ -31,12 +31,6 @@ export function ctxOpen(x,y,items,onPick){
     session arms the daemon's z-order guard like CC/NC do
     (hideCtx in folders.ts reports the close). */
  stageOverlay('ctx',true);
- /* v0.67: CONTRACT -- callers pass event (viewport) coords;
-    under a UI scale those are VISUAL units while style.left
-    and innerWidth are LOCAL. Convert once, here, so every
-    menu kind (desktop / item / file / stage / ext) lands
-    under the pointer at any scale. */
- const zf=uiScaleFactor(); x=uiToLocal(x,zf); y=uiToLocal(y,zf);
  ctxEl.innerHTML=items.map(it=>it.sep?'<div style="height:1px;background:rgba(255,255,255,.16);margin:5px 8px"></div>':ctxItemHTML(it)).join('');
  ctxEl.classList.remove('hidden');
  const flip=x>innerWidth-440;
@@ -65,10 +59,7 @@ export function showCtx(x,y){
   {act:'rf',label:'刷新',icon:'refresh'},
   {act:'ps',label:'个性化',icon:'palette'},
  ],(act,arg)=>{
-  /* newFolder writes LAYOUT.pos (LOCAL space): convert the
-     raw event coords this closure captured (ctxOpen converted
-     only its own copies). */
-  if(act==='nf') newFolder(uiToLocal(x,uiScaleFactor()),uiToLocal(y,uiScaleFactor()));
+  if(act==='nf') newFolder(x,y);
   else if(act==='imp') document.getElementById('deskimp').click();
   else if(act==='rf') location.reload();
   else if(act==='ps') openApp('sys');

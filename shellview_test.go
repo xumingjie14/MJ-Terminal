@@ -47,3 +47,22 @@ func TestShellCreateInFlight(t *testing.T) {
 		t.Error("窗口期已过（认领迟迟没来）→必须放行再建，不能把用户锁死在没桌面的状态")
 	}
 }
+
+// v0.67-test2: the uiScale percentage -> --force-device-scale-
+// factor mapping. The factor is the browser's own display
+// scale, always passed explicitly (100 -> "1", an absolute
+// override of the host DPI, not an omission); off-domain
+// input falls back to "1" so a damaged settings file can
+// never mint a nonsense launch flag.
+func TestShellScaleFactorArg(t *testing.T) {
+	cases := map[string]string{
+		"80": "0.8", "90": "0.9", "100": "1", "110": "1.1",
+		"125": "1.25", "150": "1.5", "175": "1.75", "200": "2",
+		"": "1", "120": "1", "abc": "1", "0": "1", "-50": "1",
+	}
+	for in, want := range cases {
+		if got := shellScaleFactorArg(in); got != want {
+			t.Errorf("shellScaleFactorArg(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

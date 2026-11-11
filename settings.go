@@ -61,10 +61,13 @@ type mjSettings struct {
 	ImgZoom string `json:"imgZoom"`
 	// v0.67: the desktop UI's own display scale （界面缩放） --
 	// a percentage string from the uiScales domain ("100" the
-	// default). Written by 设置 → 外观 → 显示； the desktop view
-	// applies it as CSS zoom on its own document root, so it
-	// never reaches external windows or the daemon's other
-	// pages. The daemon only persists and validates it.
+	// default). Written by 设置 → 外观 → 显示； the daemon
+	// launches the desktop view with it as the browser's
+	// device scale factor (shellview.go) and restarts the
+	// view when it changes, so the scale is the browser's
+	// own global scaling -- test1's page-side CSS zoom was
+	// rejected in the field as not global. External windows
+	// are separate processes and never see it.
 	UIScale           string `json:"uiScale"`
 	StageManager      bool   `json:"stageManager"`      // Stage Manager on/off
 	IdleExitMinutes   int    `json:"idleExitMinutes"`   // daemon idle auto-exit; 0 = never
@@ -502,7 +505,8 @@ func validImgZoom(v string) bool { return imgZooms[v] }
 // percentages as strings, anchored on 100/125/150 with the
 // reasonable neighbours the Settings seg offers. The view
 // mirrors this list in UISCALE_MODES (web/src/pure/fv.ts);
-// "100" is the default (no scaling, the pre-v0.67 behaviour).
+// "100" is the default (the browser's 1.0 factor, the
+// pre-v0.67 rendering).
 var uiScales = map[string]bool{
 	"80": true, "90": true, "100": true, "110": true,
 	"125": true, "150": true, "175": true, "200": true,
@@ -751,6 +755,7 @@ func settingWinPlaceOnClaim() bool { return settingsGet().WinPlaceOnClaim }
 func settingWinHideOnMinimize() bool { return settingsGet().WinHideOnMinimize }
 
 func settingWinCloseToTray() bool { return settingsGet().WinCloseToTray }
+func settingUIScale() string      { return settingsGet().UIScale }
 
 func settingImmersiveMode() bool { return settingsGet().ImmersiveMode }
 
@@ -1212,6 +1217,14 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 				// v0.50: a new summon key re-registers with the OS
 				// right away (unregister old, register new).
 				hotkeyKick()
+			}
+			if strings.HasPrefix(c, "uiScale =") {
+				// v0.67-test2: the UI scale is the browser's device
+				// scale factor, fixed when the view process starts,
+				// so a changed value restarts the desktop view
+				// (shellview.go); an unchanged value never reaches
+				// this loop and never restarts anything.
+				shellScaleKick()
 			}
 		}
 		writeJSON(w, settingsMap())

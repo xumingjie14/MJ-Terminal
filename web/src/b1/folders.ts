@@ -4,7 +4,7 @@
    script scope. */
 import { APPS, esc } from './core';
 import { glyph } from './glyphs';
-import { SETTINGS, uiScaleFactor } from './settings';
+import { SETTINGS } from './settings';
 import { LAYOUT, WEBAPPS, entryMeta, folderById, folderItems, folderedKeys, recOpen, saveLayout, suppressClickUntil, __bind_suppressClickUntil } from './entries';
 import { renderDesk } from './desktop';
 import { desktopInsertAt, dragMovedArray, dragShiftMap, folderDissolvesAfter } from './drag';
@@ -94,19 +94,14 @@ export function attachFolderItemDrag(it,fid){
  it.addEventListener('pointerdown',ev=>{
   if(ev.button!==0) return;
   ev.preventDefault();
-  /* v0.67: the folder drag runs in LOCAL space like the
-     desktop drag (see drag.ts): pointer + rect captures are
-     converted at the boundary, the factor pinned on st.zf. */
   const r=it.getBoundingClientRect();
-  const zf=uiScaleFactor();
-  fpDrag={it,fid,key:it.dataset.key,zf,sx:uiToLocal(ev.clientX,zf),sy:uiToLocal(ev.clientY,zf),ox:uiToLocal(r.left,zf),oy:uiToLocal(r.top,zf),active:false,mode:'grid',targetIdx:0,originIdx:0};
+  fpDrag={it,fid,key:it.dataset.key,sx:ev.clientX,sy:ev.clientY,ox:r.left,oy:r.top,active:false,mode:'grid',targetIdx:0,originIdx:0};
   try{it.setPointerCapture(ev.pointerId)}catch(e){}
  });
  it.addEventListener('pointermove',ev=>{
   if(!fpDrag||fpDrag.it!==it) return;
   const st=fpDrag;
-  const lx=uiToLocal(ev.clientX,st.zf), ly=uiToLocal(ev.clientY,st.zf);
-  const dx=lx-st.sx, dy=ly-st.sy;
+  const dx=ev.clientX-st.sx, dy=ev.clientY-st.sy;
   if(!st.active){
    if(Math.hypot(dx,dy)<6) return;
    beginFolderDrag(st);
@@ -114,10 +109,10 @@ export function attachFolderItemDrag(it,fid){
   st.ghost.style.left=(st.ox+dx)+'px';
   st.ghost.style.top=(st.oy+dy)+'px';
   const pr=st.panelRect;
-  const inside=lx>=pr.left&&lx<=pr.right&&ly>=pr.top&&ly<=pr.bottom;
+  const inside=ev.clientX>=pr.left&&ev.clientX<=pr.right&&ev.clientY>=pr.top&&ev.clientY<=pr.bottom;
   if(inside){
    st.mode='grid';
-   const t=folderSlotIndexAt(st,lx,ly);
+   const t=folderSlotIndexAt(st,ev.clientX,ev.clientY);
    if(t!==st.targetIdx){ st.targetIdx=t; applyFolderShift(st,false); }
   } else if(st.mode!=='out'){
    st.mode='out'; applyFolderShift(st,true);
@@ -144,9 +139,8 @@ export function beginFolderDrag(st){
  st.items=items;
  st.originIdx=items.indexOf(st.it);
  st.targetIdx=st.originIdx;
- st.slots=items.map(el=>{ const r=el.getBoundingClientRect(); return {x:uiToLocal(r.left,st.zf),y:uiToLocal(r.top,st.zf),w:uiToLocal(r.width,st.zf),h:uiToLocal(r.height,st.zf)}; });
- const prr=panel.getBoundingClientRect();
- st.panelRect={left:uiToLocal(prr.left,st.zf),right:uiToLocal(prr.right,st.zf),top:uiToLocal(prr.top,st.zf),bottom:uiToLocal(prr.bottom,st.zf)};
+ st.slots=items.map(el=>{ const r=el.getBoundingClientRect(); return {x:r.left,y:r.top,w:r.width,h:r.height}; });
+ st.panelRect=panel.getBoundingClientRect();
  const g=st.it.cloneNode(true);
  g.classList.add('fp-ghost');
  const s0=st.slots[st.originIdx];

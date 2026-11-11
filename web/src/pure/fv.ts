@@ -342,23 +342,19 @@ function shellWheelSwallow(chain){
    "屏幕分辨率" ask, confirmed as display scaling). The
    persisted settings value is the percentage as a string
    (settings.go uiScales mirrors this domain: '100' the
-   default). The mechanism is CSS zoom on the desktop
-   document's root element (see applyUiScale in b1/settings.ts
-   for the coordinate-space contract it imposes). */
+   default). v0.67-test1 applied it as CSS zoom on the
+   document root plus per-site coordinate conversions; the
+   user's field verdict was that it is not a GLOBAL scale
+   (desktop icons did not re-layout, the Stage Manager
+   context menu drifted), so test2 moves the mechanism to
+   the browser itself: the daemon launches the desktop view
+   with Chromium's --force-device-scale-factor (see
+   shellScaleFactorArg in shellview.go) and restarts the
+   view when the setting changes. Under a device scale
+   factor every coordinate space the page sees -- layout,
+   rects, clientX/Y, style -- is one consistent space, so
+   this block is only the value domain now: no factor math
+   and no coordinate conversion live page-side anymore. */
 const UISCALE_MODES=[80,90,100,110,125,150,175,200];
 function uiScaleValid(v){ return UISCALE_MODES.indexOf(parseInt(v,10))>=0; }
 function uiScaleKey(v){ return uiScaleValid(v)?String(parseInt(v,10)):'100'; }
-function uiScaleFactorOf(v){ return (+uiScaleKey(v))/100; }
-/* Pointer/rect space -> local (style/scroll) space under a
-   root zoom factor z: getBoundingClientRect() and event
-   clientX/clientY are reported in VISUAL (zoomed) units
-   while style lengths, clientWidth and the offset/scroll
-   properties stay in LOCAL (un-zoomed) units (the CSS zoom
-   model). Every glue site that mixes the two divides the
-   visual value by z through this seam. A degenerate z reads
-   as 1 (no scale). */
-function uiToLocal(v,z){
- const f=(+z>0&&isFinite(z))?+z:1;
- const n=+v;
- return isFinite(n)?n/f:0;
-}

@@ -83,18 +83,12 @@ export function lpItemEl(en,vis){
  b.addEventListener('pointerdown',ev=>{
   if(ev.button!==0||lpQ.value.trim()) return; // no reordering inside search results
   const r=b.getBoundingClientRect();
-  /* v0.67: the ghost is positioned in LOCAL space (style),
-     so its origin is the item's rect converted from VISUAL
-     (uiToLocal); sx/sy/px/py stay raw event coords because
-     finish() hit-tests them against live rects (visual).
-     Deltas for the ghost are divided by the pinned factor. */
-  const zf=uiScaleFactor();
-  lpDrag={el:b,en,zf,sx:ev.clientX,sy:ev.clientY,ox:uiToLocal(r.left,zf),oy:uiToLocal(r.top,zf),active:false};
+  lpDrag={el:b,en,sx:ev.clientX,sy:ev.clientY,ox:r.left,oy:r.top,active:false};
   try{ b.setPointerCapture(ev.pointerId); }catch(e){}
  });
  b.addEventListener('pointermove',ev=>{
   if(!lpDrag||lpDrag.el!==b) return;
-  const st=lpDrag, dx=(ev.clientX-st.sx)/st.zf, dy=(ev.clientY-st.sy)/st.zf;
+  const st=lpDrag, dx=ev.clientX-st.sx, dy=ev.clientY-st.sy;
   if(!st.active){
    if(Math.hypot(dx,dy)<6) return;
    const g=b.cloneNode(true);

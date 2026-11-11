@@ -34,27 +34,15 @@ export function imgZoomDefault(){ return imgZoomKey(SETTINGS?SETTINGS.imgZoom:nu
 /* v0.67: the desktop UI scale (settings key uiScale, a
    percentage string like '125'), normalized by the pure
    uiScaleKey -- an unset or unknown value reads as '100'.
-   The mechanism is CSS zoom on the desktop document's root:
-   Chromium lays the whole shell out in the zoomed space, so
-   flow layout, vw/vh units and media queries stay honest at
-   any scale. The one contract it imposes: getBoundingClientRect
-   and event clientX/clientY are reported in VISUAL (zoomed)
-   units while style lengths, the client/offset/scroll
-   properties stay in LOCAL (un-zoomed) units -- every glue
-   site that mixes the two converts through the pure
-   uiToLocal seam with this factor (window drag, context
-   menus, the desktop/folder/Launchpad drag engines, the
-   Dock, the viewers' anchors, the server chart). Only THIS
-   document is zoomed: external windows and the daemon's
-   other pages never see it. */
-export function uiScaleFactor(){ return uiScaleFactorOf(SETTINGS?SETTINGS.uiScale:null) }
-export function applyUiScale(){
- try{
-  const de: any=document.documentElement; if(!de||!de.style) return;
-  const f=uiScaleFactor();
-  de.style.zoom=f===1?'':String(f);
- }catch(e){}
-}
+   The page never applies the scale itself: the daemon
+   launches the desktop view with Chromium's device scale
+   factor set from this value and restarts the view when
+   the value changes (shellview.go), so the scale is global
+   by construction and there is nothing to apply -- or to
+   keep in sync -- in page code. This helper only reads the
+   current value back (the Settings seg control paints its
+   active step from it). */
+export function uiScalePct(){ return uiScaleKey(SETTINGS?SETTINGS.uiScale:null) }
 /* v0.46 Dock basics: position + auto-hide are view-side behaviours
    over daemon settings (same pattern as the wallpaper). */
 export function dockPos(){ const p=SETTINGS&&SETTINGS.dockPosition; return (p==='left'||p==='right')?p:'bottom' }
@@ -76,7 +64,7 @@ export async function loadSettings(){
    localStorage.removeItem('mj-wall'); localStorage.removeItem('mj-stage');
   }
  }catch(e){ if(!SETTINGS) SETTINGS={...SETDEF} }
- applyWallpaper(); updateStageUI(); applyDeskIconSize(); applyUiScale();
+ applyWallpaper(); updateStageUI(); applyDeskIconSize();
 }
 /* v0.56 desktop icon size: one settings key (deskIconSize, px),
    three surfaces （设置 slider / 控制中心 slider / desktop blank

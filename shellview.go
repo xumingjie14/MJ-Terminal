@@ -39,6 +39,7 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -289,4 +290,138 @@ func shellRestoredHandler(w http.ResponseWriter, r *http.Request) {
 		logf("browser", "info", "托盘记忆：重建的桌面已按会话账本恢复系统内窗口 %d 个", body.Wins)
 	}
 	writeJSON(w, map[string]any{"ok": true})
+}
+
+// ---------- v0.67-test2: UI scale as the browser's device scale factor ----------
+//
+// test1 applied the uiScale setting as CSS zoom on the desktop
+// document's root plus a dozen page-side coordinate conversions.
+// The user's field verdict: not a global scale -- desktop icons
+// did not re-layout after a zoom change, and the Stage Manager
+// right-click menu did not stay in sync. He chose the browser
+// level instead (option A): Chromium's device scale factor,
+// the same mechanism an OS display scale uses. The view process
+// is launched with --force-device-scale-factor (spawnShellWindow
+// in main.go), so the page's layout viewport itself is the
+// scaled one: every coordinate space the page can observe --
+// flow layout, vw/vh, getBoundingClientRect, event clientX/Y,
+// style lengths -- is the same space, menus and drags included,
+// and a smaller viewport fires the resize the desktop icon grid
+// already re-lays out from. All of test1's page-side conversions
+// are gone; nothing in the page knows the scale exists.
+//
+// The factor is fixed at process start, so a settings change
+// restarts the view: the old view is closed for real (the same
+// WM_CLOSE path as the red button with close-to-tray off) and
+// ensureShellView builds its replacement, whose page restores
+// the in-system windows from the session ledger -- the Settings
+// window the user just clicked included.
+
+// shellScaleFactorArg maps a uiScale percentage string to the
+// --force-device-scale-factor value: "125" -> "1.25", "100" ->
+// "1", "80" -> "0.8". Off-domain input reads as "100" (the
+// settings store sanitizes into the domain anyway; this is the
+// belt-and-braces half). The factor is always passed, even at
+// 100: it is an absolute override of the host's DPI scale, so
+// 100 must mean exactly 1.0, not "whatever Windows is set to".
+func shellScaleFactorArg(scale string) string {
+	if !validUIScale(scale) {
+		scale = "100"
+	}
+	n, _ := strconv.Atoi(scale)
+	return strconv.FormatFloat(float64(n)/100, 'f', -1, 64)
+}
+
+// The factor the live view was spawned with, as its uiScale
+// percentage string. spawnShellWindow records it on every real
+// spawn; "" means this daemon has not spawned a view (one may
+// still exist, reclaimed after a daemon restart -- its factor
+// is then unknown and a settings change restarts it once,
+// after which the value is known again).
+var (
+	shellScaleMu   sync.Mutex
+	shellScaleLive string
+)
+
+func noteShellScaleSpawned(scale string) {
+	shellScaleMu.Lock()
+	shellScaleLive = scale
+	shellScaleMu.Unlock()
+}
+
+func shellScaleLiveValue() string {
+	shellScaleMu.Lock()
+	defer shellScaleMu.Unlock()
+	return shellScaleLive
+}
+
+// shellScaleKick is the settings POST path's hook for a changed
+// uiScale (settings.go's changed-entry loop, next to remoteKick
+// and friends). The restart runs in the background: the POST
+// response must reach the page first -- the user clicked the
+// new step in the view that is about to be replaced, and its
+// save promise should resolve before the window goes.
+func shellScaleKick() {
+	go restartShellViewForScale()
+}
+
+func restartShellViewForScale() {
+	// A beat for the settings response to land in the page.
+	time.Sleep(600 * time.Millisecond)
+	want := settingUIScale()
+	live := shellScaleLiveValue()
+	if live != "" && want == live {
+		return // the running view already renders at this factor
+	}
+	hwnd := shellHWND()
+	if hwnd == 0 || !platformWindowExists(hwnd) {
+		return // no live view: the next spawn reads the setting
+	}
+	if !platformWindowVisible(hwnd) {
+		// A tucked-away view keeps its process (and its factor)
+		// until it is next rebuilt; restarting it out from under
+		// the tray state would pop a desktop the user folded
+		// away. The settings page cannot be clicked in this
+		// state anyway -- this is belt-and-braces for API calls.
+		logf("settings", "info", "界面缩放已改为 %s%%：桌面视图当前藏起，新缩放将在视图下次重建时生效", want)
+		return
+	}
+	from := live
+	if from == "" {
+		from = "未知"
+	}
+	logf("settings", "info", "界面缩放 %s%% → %s%%：重启桌面视图，让浏览器以新缩放因子重开（窗口将按会话账本恢复）", from, want)
+	platformCloseWindow(hwnd)
+	// The replacement must not join the dying view's browser
+	// process (same profile): a joined process keeps the OLD
+	// factor, because the flag is read at process start. Wait
+	// for the window to actually go before reopening.
+	for i := 0; i < 40 && platformWindowExists(hwnd); i++ {
+		time.Sleep(200 * time.Millisecond)
+	}
+	if platformWindowExists(hwnd) {
+		logf("settings", "warn", "界面缩放：旧桌面视图未在预期时间内关闭，本次不强行重开（新缩放将在视图下次打开时生效）")
+		return
+	}
+	// The same proxy decision as the openshell door: the
+	// desktop rides the node when in-app acceleration is on
+	// and the core is up.
+	proxy := false
+	if accelEnabled() && len(nodes) > 0 {
+		for i := 0; i < 20 && !coreRunningQuick(); i++ {
+			time.Sleep(300 * time.Millisecond)
+		}
+		proxy = coreRunningQuick()
+	}
+	url := daemonSelfURL
+	if url == "" {
+		url = findDaemon()
+	}
+	if url == "" {
+		logf("settings", "warn", "界面缩放：找不到守护进程自身地址，桌面视图未重开")
+		return
+	}
+	if _, err := ensureShellView(url, proxy); err != nil {
+		logf("settings", "error", "界面缩放：重开桌面视图失败：%v", err)
+	}
 }

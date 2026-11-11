@@ -12,8 +12,8 @@ const assert = require('assert');
 const html = fs.readFileSync(__dirname + '/index.html', 'utf8');
 const m = html.match(/\/\* === fv pure \(node-testable\) === \*\/([\s\S]*?)\/\* === end fv pure === \*\//);
 assert(m, 'fv pure block not found in index.html');
-const { FV_GROUPS, fvGroupOf, fvInGroup, fvSortList, fvVisible, fvToggleSel, fvRangeSel, FV_RECENT_CAP, fvMediaGroup, fvExtOf, WPFIT_MODES, WPFIT_BASE, wpFitValid, wpFitKey, wpFitCSS, wpFitShowsWallItem, PDFZOOM_MODES, pdfZoomValid, pdfZoomKey, pdfResolveScale, pdfPageAtScroll, pdfRenderWindow, pdfFindMatches, pdfFindStep, pdfRotateNext, pdfWheelZoom, IMGZOOM_MODES, imgZoomValid, imgZoomKey, IMG_SCALE_MIN, IMG_SCALE_MAX, imgEffSize, imgFitScale, imgResolveScale, imgWheelZoom, imgStepScale, imgAnchorPos, imgClampPan, imgRotateNext, imgStepIndex, imgDblTarget, shellWheelSwallow, UISCALE_MODES, uiScaleValid, uiScaleKey, uiScaleFactorOf, uiToLocal } = new Function(
-  m[1] + '\nreturn { FV_GROUPS, fvGroupOf, fvInGroup, fvSortList, fvVisible, fvToggleSel, fvRangeSel, FV_RECENT_CAP, fvMediaGroup, fvExtOf, WPFIT_MODES, WPFIT_BASE, wpFitValid, wpFitKey, wpFitCSS, wpFitShowsWallItem, PDFZOOM_MODES, pdfZoomValid, pdfZoomKey, pdfResolveScale, pdfPageAtScroll, pdfRenderWindow, pdfFindMatches, pdfFindStep, pdfRotateNext, pdfWheelZoom, IMGZOOM_MODES, imgZoomValid, imgZoomKey, IMG_SCALE_MIN, IMG_SCALE_MAX, imgEffSize, imgFitScale, imgResolveScale, imgWheelZoom, imgStepScale, imgAnchorPos, imgClampPan, imgRotateNext, imgStepIndex, imgDblTarget, shellWheelSwallow, UISCALE_MODES, uiScaleValid, uiScaleKey, uiScaleFactorOf, uiToLocal };'
+const { FV_GROUPS, fvGroupOf, fvInGroup, fvSortList, fvVisible, fvToggleSel, fvRangeSel, FV_RECENT_CAP, fvMediaGroup, fvExtOf, WPFIT_MODES, WPFIT_BASE, wpFitValid, wpFitKey, wpFitCSS, wpFitShowsWallItem, PDFZOOM_MODES, pdfZoomValid, pdfZoomKey, pdfResolveScale, pdfPageAtScroll, pdfRenderWindow, pdfFindMatches, pdfFindStep, pdfRotateNext, pdfWheelZoom, IMGZOOM_MODES, imgZoomValid, imgZoomKey, IMG_SCALE_MIN, IMG_SCALE_MAX, imgEffSize, imgFitScale, imgResolveScale, imgWheelZoom, imgStepScale, imgAnchorPos, imgClampPan, imgRotateNext, imgStepIndex, imgDblTarget, shellWheelSwallow, UISCALE_MODES, uiScaleValid, uiScaleKey } = new Function(
+  m[1] + '\nreturn { FV_GROUPS, fvGroupOf, fvInGroup, fvSortList, fvVisible, fvToggleSel, fvRangeSel, FV_RECENT_CAP, fvMediaGroup, fvExtOf, WPFIT_MODES, WPFIT_BASE, wpFitValid, wpFitKey, wpFitCSS, wpFitShowsWallItem, PDFZOOM_MODES, pdfZoomValid, pdfZoomKey, pdfResolveScale, pdfPageAtScroll, pdfRenderWindow, pdfFindMatches, pdfFindStep, pdfRotateNext, pdfWheelZoom, IMGZOOM_MODES, imgZoomValid, imgZoomKey, IMG_SCALE_MIN, IMG_SCALE_MAX, imgEffSize, imgFitScale, imgResolveScale, imgWheelZoom, imgStepScale, imgAnchorPos, imgClampPan, imgRotateNext, imgStepIndex, imgDblTarget, shellWheelSwallow, UISCALE_MODES, uiScaleValid, uiScaleKey };'
 )();
 
 const F = (name, kind, size, mtime) => ({ name, path: name, kind, size, mtime, ext: name.split('.').pop() });
@@ -198,21 +198,19 @@ assert.strictEqual(shellWheelSwallow([{ id: '', cls: 'pdfv-scrollx' }]), true, '
 assert.strictEqual(shellWheelSwallow([]), true, 'an empty chain swallows');
 assert.strictEqual(shellWheelSwallow(null), true, 'no chain swallows');
 
-// --- UI scale (v0.67): domain, factor, coordinate conversion ---
+// --- UI scale (v0.67): the value domain only. The mechanism
+// is the browser's device scale factor, applied by the daemon
+// at view launch (shellview.go's shellScaleFactorArg carries
+// its own Go test); test1's page-side factor/conversion seams
+// (uiScaleFactorOf/uiToLocal) were removed with the CSS-zoom
+// mechanism in test2, so nothing coordinate-shaped is pinned
+// here anymore. ---
 assert.deepStrictEqual(UISCALE_MODES, [80, 90, 100, 110, 125, 150, 175, 200], 'the offered UI scales');
 assert(uiScaleValid('125') && uiScaleValid(150) && uiScaleValid('80'), 'valid uiScales pass');
 assert(!uiScaleValid('120') && !uiScaleValid('abc') && !uiScaleValid('') && !uiScaleValid(null), 'off-domain uiScales fail');
 assert.strictEqual(uiScaleKey('150'), '150', 'a known uiScale passes through');
 assert.strictEqual(uiScaleKey('bogus'), '100', 'an unknown uiScale normalizes to 100');
 assert.strictEqual(uiScaleKey(null), '100', 'an unset uiScale reads as 100');
-assert.strictEqual(uiScaleFactorOf('125'), 1.25, 'the factor is percent/100');
-assert.strictEqual(uiScaleFactorOf('200'), 2);
-assert.strictEqual(uiScaleFactorOf(null), 1, 'an unset uiScale has factor 1');
-assert.strictEqual(uiToLocal(250, 1.25), 200, 'visual -> local at 125%');
-assert.strictEqual(uiToLocal(100, 1), 100, 'at 100% the conversion is the identity');
-assert.strictEqual(uiToLocal(100, 2), 50, 'at 200% a visual length halves into local');
-assert.strictEqual(uiToLocal(100, 0), 100, 'a degenerate factor reads as 1');
-assert.strictEqual(uiToLocal(NaN, 1.25), 0, 'a NaN length converts to 0');
 
 // --- image viewer (v0.66, detail-fix ⑦): zoom domain + open modes ---
 assert(IMGZOOM_MODES.some(m => m.id === 'fit') && IMGZOOM_MODES.some(m => m.id === 'actual'), 'image zoom modes are fit + actual');

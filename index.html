@@ -1112,9 +1112,6 @@ function createEvHub(nowFn) {
   }
   function ctxOpen(x, y, items, onPick) {
     stageOverlay("ctx", true);
-    const zf = uiScaleFactor();
-    x = uiToLocal(x, zf);
-    y = uiToLocal(y, zf);
     ctxEl.innerHTML = items.map((it) => it.sep ? '<div style="height:1px;background:rgba(255,255,255,.16);margin:5px 8px"></div>' : ctxItemHTML(it)).join("");
     ctxEl.classList.remove("hidden");
     const flip = x > innerWidth - 440;
@@ -1148,7 +1145,7 @@ function createEvHub(nowFn) {
       { act: "rf", label: "刷新", icon: "refresh" },
       { act: "ps", label: "个性化", icon: "palette" }
     ], (act, arg) => {
-      if (act === "nf") newFolder(uiToLocal(x, uiScaleFactor()), uiToLocal(y, uiScaleFactor()));
+      if (act === "nf") newFolder(x, y);
       else if (act === "imp") document.getElementById("deskimp").click();
       else if (act === "rf") location.reload();
       else if (act === "ps") openApp("sys");
@@ -1879,8 +1876,6 @@ function createEvHub(nowFn) {
   function pdfAnchorAt(st, px, py) {
     const sc = st.els.scroll;
     if (!st.numPages || !st.slots.length) return null;
-    px = uiToLocal(px, uiScaleFactor());
-    py = uiToLocal(py, uiScaleFactor());
     const docX = sc.scrollLeft + px, docY = sc.scrollTop + py;
     let i = 0;
     for (let k = 0; k < st.numPages; k++) {
@@ -2562,16 +2557,14 @@ function createEvHub(nowFn) {
       const d = imgWheelZoom(dy, IMGV.scale);
       if (!d.zoom) return;
       const r = stage.getBoundingClientRect();
-      const zf = uiScaleFactor();
-      zoomImageTo(d.scale, uiToLocal(ev.clientX - r.left, zf), uiToLocal(ev.clientY - r.top, zf));
+      zoomImageTo(d.scale, ev.clientX - r.left, ev.clientY - r.top);
     }, { passive: false });
     stage.addEventListener("pointerdown", (ev) => {
       if (IMGV.err || !IMGV.natW) return;
       const fr = document.getElementById("iv-frame");
       if (!fr) return;
       if (fr.offsetWidth <= stage.clientWidth && fr.offsetHeight <= stage.clientHeight) return;
-      const zf = uiScaleFactor();
-      imgDrag = { zf, sx: uiToLocal(ev.clientX, zf), sy: uiToLocal(ev.clientY, zf), x: IMGV.x, y: IMGV.y };
+      imgDrag = { sx: ev.clientX, sy: ev.clientY, x: IMGV.x, y: IMGV.y };
       stage.setPointerCapture(ev.pointerId);
       stage.style.cursor = "grabbing";
     });
@@ -2579,8 +2572,8 @@ function createEvHub(nowFn) {
       if (!imgDrag) return;
       const e = imgEffSize(IMGV.natW, IMGV.natH, IMGV.rot);
       const c = imgClampPan(
-        imgDrag.x + (uiToLocal(ev.clientX, imgDrag.zf) - imgDrag.sx),
-        imgDrag.y + (uiToLocal(ev.clientY, imgDrag.zf) - imgDrag.sy),
+        imgDrag.x + (ev.clientX - imgDrag.sx),
+        imgDrag.y + (ev.clientY - imgDrag.sy),
         e.w * IMGV.scale,
         e.h * IMGV.scale,
         stage.clientWidth,
@@ -2603,8 +2596,7 @@ function createEvHub(nowFn) {
       const t = imgDblTarget(IMGV.mode);
       if (t === "actual") {
         const r = stage.getBoundingClientRect();
-        const zf = uiScaleFactor();
-        zoomImageTo(1, uiToLocal(ev.clientX - r.left, zf), uiToLocal(ev.clientY - r.top, zf));
+        zoomImageTo(1, ev.clientX - r.left, ev.clientY - r.top);
       } else setImageMode("fit");
     });
     if (typeof ResizeObserver !== "undefined") {
@@ -3298,8 +3290,7 @@ function createEvHub(nowFn) {
       if (ev.button !== 0) return;
       ev.preventDefault();
       const r = it.getBoundingClientRect();
-      const zf = uiScaleFactor();
-      fpDrag = { it, fid, key: it.dataset.key, zf, sx: uiToLocal(ev.clientX, zf), sy: uiToLocal(ev.clientY, zf), ox: uiToLocal(r.left, zf), oy: uiToLocal(r.top, zf), active: false, mode: "grid", targetIdx: 0, originIdx: 0 };
+      fpDrag = { it, fid, key: it.dataset.key, sx: ev.clientX, sy: ev.clientY, ox: r.left, oy: r.top, active: false, mode: "grid", targetIdx: 0, originIdx: 0 };
       try {
         it.setPointerCapture(ev.pointerId);
       } catch (e) {
@@ -3308,8 +3299,7 @@ function createEvHub(nowFn) {
     it.addEventListener("pointermove", (ev) => {
       if (!fpDrag || fpDrag.it !== it) return;
       const st = fpDrag;
-      const lx = uiToLocal(ev.clientX, st.zf), ly = uiToLocal(ev.clientY, st.zf);
-      const dx = lx - st.sx, dy = ly - st.sy;
+      const dx = ev.clientX - st.sx, dy = ev.clientY - st.sy;
       if (!st.active) {
         if (Math.hypot(dx, dy) < 6) return;
         beginFolderDrag(st);
@@ -3317,10 +3307,10 @@ function createEvHub(nowFn) {
       st.ghost.style.left = st.ox + dx + "px";
       st.ghost.style.top = st.oy + dy + "px";
       const pr = st.panelRect;
-      const inside = lx >= pr.left && lx <= pr.right && ly >= pr.top && ly <= pr.bottom;
+      const inside = ev.clientX >= pr.left && ev.clientX <= pr.right && ev.clientY >= pr.top && ev.clientY <= pr.bottom;
       if (inside) {
         st.mode = "grid";
-        const t = folderSlotIndexAt(st, lx, ly);
+        const t = folderSlotIndexAt(st, ev.clientX, ev.clientY);
         if (t !== st.targetIdx) {
           st.targetIdx = t;
           applyFolderShift(st, false);
@@ -3355,10 +3345,9 @@ function createEvHub(nowFn) {
     st.targetIdx = st.originIdx;
     st.slots = items.map((el) => {
       const r = el.getBoundingClientRect();
-      return { x: uiToLocal(r.left, st.zf), y: uiToLocal(r.top, st.zf), w: uiToLocal(r.width, st.zf), h: uiToLocal(r.height, st.zf) };
+      return { x: r.left, y: r.top, w: r.width, h: r.height };
     });
-    const prr = panel.getBoundingClientRect();
-    st.panelRect = { left: uiToLocal(prr.left, st.zf), right: uiToLocal(prr.right, st.zf), top: uiToLocal(prr.top, st.zf), bottom: uiToLocal(prr.bottom, st.zf) };
+    st.panelRect = panel.getBoundingClientRect();
     const g = st.it.cloneNode(true);
     g.classList.add("fp-ghost");
     const s0 = st.slots[st.originIdx];
@@ -3528,8 +3517,8 @@ function createEvHub(nowFn) {
     el.addEventListener("pointerdown", (ev) => {
       if (ev.button !== 0) return;
       ev.preventDefault();
-      const zf = uiScaleFactor();
-      dragState = { el, key, kind, zf, sx: uiToLocal(ev.clientX, zf), sy: uiToLocal(ev.clientY, zf), ox: parseFloat(el.style.left) || 0, oy: parseFloat(el.style.top) || 0, active: false };
+      const r = el.getBoundingClientRect();
+      dragState = { el, key, kind, sx: ev.clientX, sy: ev.clientY, ox: r.left, oy: r.top, active: false };
       try {
         el.setPointerCapture(ev.pointerId);
       } catch (e) {
@@ -3538,15 +3527,14 @@ function createEvHub(nowFn) {
     el.addEventListener("pointermove", (ev) => {
       if (!dragState || dragState.el !== el) return;
       const ds = dragState;
-      const lx = uiToLocal(ev.clientX, ds.zf), ly = uiToLocal(ev.clientY, ds.zf);
-      const dx = lx - ds.sx, dy = ly - ds.sy;
+      const dx = ev.clientX - ds.sx, dy = ev.clientY - ds.sy;
       if (!ds.active) {
         if (Math.hypot(dx, dy) < 5) return;
         beginDrag(ds);
       }
       el.style.left = Math.max(0, Math.min(innerWidth - 96, ds.ox + dx)) + "px";
       el.style.top = Math.max(42, Math.min(innerHeight - 110, ds.oy + dy)) + "px";
-      updateDrag(ds, lx, ly);
+      updateDrag(ds, ev.clientX, ev.clientY);
     });
     const up = (ev) => {
       if (!dragState || dragState.el !== el) return;
@@ -3554,7 +3542,7 @@ function createEvHub(nowFn) {
       dragState = null;
       if (!ds.active) return;
       __bind_suppressClickUntil.set(Date.now() + 300);
-      finishDrag(ds, uiToLocal(ev.clientX, ds.zf), uiToLocal(ev.clientY, ds.zf));
+      finishDrag(ds, ev.clientX, ev.clientY);
     };
     el.addEventListener("pointerup", up);
     el.addEventListener("pointercancel", () => {
@@ -3591,13 +3579,12 @@ function createEvHub(nowFn) {
     ds.active = true;
   }
   function updateDrag(ds, px, py) {
-    const pxv = px * (ds.zf || 1), pyv = py * (ds.zf || 1);
     let hit = null;
     for (let si = ds.seq.length - 1; si >= 0; si--) {
       const s = ds.seq[si];
       if (s.el === ds.el) continue;
       const r = s.el.getBoundingClientRect();
-      if (pxv >= r.left && pxv <= r.right && pyv >= r.top && pyv <= r.bottom) {
+      if (px >= r.left && px <= r.right && py >= r.top && py <= r.bottom) {
         hit = s.el;
         break;
       }
@@ -3607,7 +3594,7 @@ function createEvHub(nowFn) {
       const panel = document.getElementById("fp-panel");
       if (panel) {
         const pr = panel.getBoundingClientRect();
-        if (pxv >= pr.left && pxv <= pr.right && pyv >= pr.top && pyv <= pr.bottom) {
+        if (px >= pr.left && px <= pr.right && py >= pr.top && py <= pr.bottom) {
           disarmDrag(ds);
           ds.seq.forEach((s) => s.el.classList.remove("bud"));
           if (fpGrid) fpGrid.classList.add("dropIn");
@@ -3698,9 +3685,8 @@ function createEvHub(nowFn) {
       return;
     }
     if (armedEl && ds.kind === "web") {
-      const al = parseFloat(armedEl.style.left) || 0, at = parseFloat(armedEl.style.top) || 0;
-      const aw = armedEl.offsetWidth || 92, ah = armedEl.offsetHeight || 100;
-      if (cx >= al && cx <= al + aw && cy >= at && cy <= at + ah) {
+      const ar = armedEl.getBoundingClientRect();
+      if (cx >= ar.left && cx <= ar.right && cy >= ar.top && cy <= ar.bottom) {
         const turl = armedEl.dataset.key.slice(4), durl = ds.key.slice(4);
         if (turl !== durl) {
           const id = "f" + Date.now().toString(36);
@@ -4505,10 +4491,9 @@ function createEvHub(nowFn) {
     const icons = dockIcons();
     if (!icons.length) return;
     const vertical = dockPos() !== "bottom";
-    const zf = uiScaleFactor();
     const centers = icons.map((ic) => {
       const r = ic.getBoundingClientRect();
-      return vertical ? uiToLocal(r.top + r.height / 2, zf) : uiToLocal(r.left + r.width / 2, zf);
+      return vertical ? r.top + r.height / 2 : r.left + r.width / 2;
     });
     const sizes = dockMagSizes(centers, vertical ? dockPointer.y : dockPointer.x, dockBase(), DOCK_RADIUS_PITCHES * (dockBase() + DOCK_GAP), DOCK_PEAK);
     icons.forEach((ic, i) => {
@@ -4529,7 +4514,7 @@ function createEvHub(nowFn) {
     setTimeout(() => dockEl.classList.remove("settle"), DOCK_SETTLE_MS + 40);
   }
   dockEl.addEventListener("pointermove", (e) => {
-    dockPointer = { x: uiToLocal(e.clientX, uiScaleFactor()), y: uiToLocal(e.clientY, uiScaleFactor()) };
+    dockPointer = { x: e.clientX, y: e.clientY };
     if (!dockRAF) dockRAF = requestAnimationFrame(dockMagApply);
   });
   dockEl.addEventListener("pointerleave", () => {
@@ -4564,8 +4549,8 @@ function createEvHub(nowFn) {
     return innerWidth - 1 - x;
   }
   function dockNearDock(x, y) {
-    const r = dockEl.getBoundingClientRect(), m = 14, zf = uiScaleFactor();
-    return x >= uiToLocal(r.left, zf) - m && x <= uiToLocal(r.right, zf) + m && y >= uiToLocal(r.top, zf) - m && y <= uiToLocal(r.bottom, zf) + m;
+    const r = dockEl.getBoundingClientRect(), m = 14;
+    return x >= r.left - m && x <= r.right + m && y >= r.top - m && y <= r.bottom + m;
   }
   function dockArmHide() {
     if (dockHideT || dockHidden) return;
@@ -4587,11 +4572,10 @@ function createEvHub(nowFn) {
     if (!dockNearDock(dockLastX, dockLastY)) dockArmHide();
   }
   document.addEventListener("pointermove", (e) => {
-    const zf = uiScaleFactor();
-    dockLastX = uiToLocal(e.clientX, zf);
-    dockLastY = uiToLocal(e.clientY, zf);
+    dockLastX = e.clientX;
+    dockLastY = e.clientY;
     if (!dockAutoHideOn() || document.hidden) return;
-    const now = performance.now(), d = dockEdgeDist(dockLastX, dockLastY);
+    const now = performance.now(), d = dockEdgeDist(e.clientX, e.clientY);
     if (dockHidden) {
       if (d <= 2) {
         const slam = now - dockPrevEdge.t <= DOCK_SLAM_MS && dockPrevEdge.d > 40;
@@ -4610,7 +4594,7 @@ function createEvHub(nowFn) {
         dockShowT = 0;
       }
     } else {
-      if (dockNearDock(dockLastX, dockLastY) || d <= 2 || dockHoldActive()) {
+      if (dockNearDock(e.clientX, e.clientY) || d <= 2 || dockHoldActive()) {
         clearTimeout(dockHideT);
         dockHideT = 0;
       } else dockArmHide();
@@ -4618,13 +4602,12 @@ function createEvHub(nowFn) {
     dockPrevEdge = { t: now, d };
   });
   document.addEventListener("dragover", (e) => {
-    const zf = uiScaleFactor();
-    dockLastX = uiToLocal(e.clientX, zf);
-    dockLastY = uiToLocal(e.clientY, zf);
+    dockLastX = e.clientX;
+    dockLastY = e.clientY;
     if (!dockAutoHideOn()) return;
     clearTimeout(dockHideT);
     dockHideT = 0;
-    if (dockHidden && dockEdgeDist(dockLastX, dockLastY) <= 48) dockSetHidden(false);
+    if (dockHidden && dockEdgeDist(e.clientX, e.clientY) <= 48) dockSetHidden(false);
   });
   document.addEventListener("drop", () => dockAutoHideArm());
   document.addEventListener("dragend", () => dockAutoHideArm());
@@ -4809,7 +4792,7 @@ ${pr.textContent}> ${cmd}\r
         paintPage(pid);
       };
       const paintAppearance = () => {
-        G("set-main").innerHTML = `<div class="set-page"><div class="set-sec">壁纸</div><div class="set-desc">点一张换壁纸，立刻生效。也可以上传你自己的图片当壁纸（存在 EXE 旁的 Data 文件夹，跟着程序走）。</div><div class="wp-grid" id="wp-grid">${Object.entries(WALLPAPERS).map(([k, v]) => `<div class="wp" data-wp="${k}" style="background:${v.css}"><span>${v.n}</span></div>`).join("")}</div><div class="sm-card" style="margin-top:14px"><div class="sm-row"><span>自定义壁纸</span><span class="row"><label class="btn gray" for="wp-file" style="cursor:pointer">上传我的图片…</label><input type="file" id="wp-file" accept="image/*" style="display:none"><button class="btn gray" id="wp-remove">删除自定义壁纸</button></span></div><div class="sm-row"><span>当前</span><span class="set-val" id="wp-status">…</span></div><div class="sm-row"><span>壁纸适配</span><span class="seg" id="ap-wpfit"><button data-m="fill">填充</button><button data-m="fit">适合</button><button data-m="center">居中</button><button data-m="stretch">拉伸</button></span></div><div class="sm-row"><span style="opacity:.6;font-size:12.5px">壁纸适配只作用于自定义壁纸；也可以在桌面或「文件」里右键任意图片选「设为壁纸」，在预览里选适配方式。</span></div></div><div class="set-sec">显示</div><div class="set-desc">整个终端机界面的缩放比例（就是 Windows / macOS 的显示缩放）：屏幕偏小、字看着累就调大，点了一立刻生效、不用重启。只放大终端机自己的界面，浏览器窗口和电脑本身的分辨率都不受影响。</div><div class="sm-card"><div class="sm-row"><span>界面缩放</span><span class="seg" id="ap-uiscale">${UISCALE_MODES.map((m) => `<button data-m="${m}">${m}%</button>`).join("")}</span></div></div><div class="set-sec">桌面图标</div><div class="set-desc">桌面图标的大小和排列方式。大小在桌面空白处右键菜单、控制中心里也能调；手动拖动任何图标，排序会切回「手动」。</div><div class="sm-card"><div class="sm-row"><span>图标大小</span><span class="row"><input type="range" id="ap-size" min="36" max="96" step="2" value="${deskIconSize()}" style="accent-color:#0a84ff"><span class="set-val" id="ap-size-v">${deskIconSize()}</span></span></div><div class="sm-row"><span>排序方式</span><span class="seg" id="ap-sort"><button data-m="manual">手动</button><button data-m="name">名称</button><button data-m="freq">最常用</button><button data-m="kind">种类</button><button data-m="added">添加日期</button></span></div></div><p class="set-note">壁纸选择存在 Data/settings.json，跟着文件夹走，换电脑不丢。</p></div>`;
+        G("set-main").innerHTML = `<div class="set-page"><div class="set-sec">壁纸</div><div class="set-desc">点一张换壁纸，立刻生效。也可以上传你自己的图片当壁纸（存在 EXE 旁的 Data 文件夹，跟着程序走）。</div><div class="wp-grid" id="wp-grid">${Object.entries(WALLPAPERS).map(([k, v]) => `<div class="wp" data-wp="${k}" style="background:${v.css}"><span>${v.n}</span></div>`).join("")}</div><div class="sm-card" style="margin-top:14px"><div class="sm-row"><span>自定义壁纸</span><span class="row"><label class="btn gray" for="wp-file" style="cursor:pointer">上传我的图片…</label><input type="file" id="wp-file" accept="image/*" style="display:none"><button class="btn gray" id="wp-remove">删除自定义壁纸</button></span></div><div class="sm-row"><span>当前</span><span class="set-val" id="wp-status">…</span></div><div class="sm-row"><span>壁纸适配</span><span class="seg" id="ap-wpfit"><button data-m="fill">填充</button><button data-m="fit">适合</button><button data-m="center">居中</button><button data-m="stretch">拉伸</button></span></div><div class="sm-row"><span style="opacity:.6;font-size:12.5px">壁纸适配只作用于自定义壁纸；也可以在桌面或「文件」里右键任意图片选「设为壁纸」，在预览里选适配方式。</span></div></div><div class="set-sec">显示</div><div class="set-desc">整个终端机界面的缩放比例（就是 Windows / macOS 的显示缩放）：屏幕偏小、字看着累就调大。缩放由浏览器本身完成，是真正的全局缩放；切换档位后桌面视图会重启一次（几秒），打开的窗口会自动恢复。只影响终端机自己的界面：100% 是终端机自身的 1.0 倍渲染，与这台电脑的 Windows 显示缩放无关。</div><div class="sm-card"><div class="sm-row"><span>界面缩放</span><span class="seg" id="ap-uiscale">${UISCALE_MODES.map((m) => `<button data-m="${m}">${m}%</button>`).join("")}</span></div></div><div class="set-sec">桌面图标</div><div class="set-desc">桌面图标的大小和排列方式。大小在桌面空白处右键菜单、控制中心里也能调；手动拖动任何图标，排序会切回「手动」。</div><div class="sm-card"><div class="sm-row"><span>图标大小</span><span class="row"><input type="range" id="ap-size" min="36" max="96" step="2" value="${deskIconSize()}" style="accent-color:#0a84ff"><span class="set-val" id="ap-size-v">${deskIconSize()}</span></span></div><div class="sm-row"><span>排序方式</span><span class="seg" id="ap-sort"><button data-m="manual">手动</button><button data-m="name">名称</button><button data-m="freq">最常用</button><button data-m="kind">种类</button><button data-m="added">添加日期</button></span></div></div><p class="set-note">壁纸选择存在 Data/settings.json，跟着文件夹走，换电脑不丢。</p></div>`;
         const markSel = () => {
           const cur = customWall ? "" : wallKey();
           document.querySelectorAll(".wp").forEach((x) => x.classList.toggle("sel", x.dataset.wp === cur));
@@ -4858,11 +4841,10 @@ ${pr.textContent}> ${cmd}\r
         }
         const uiSeg = G("ap-uiscale");
         if (uiSeg) {
-          const paintScale = () => uiSeg.querySelectorAll("button").forEach((b) => b.classList.toggle("on", +b.dataset.m === Math.round(uiScaleFactor() * 100)));
+          const paintScale = () => uiSeg.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.m === uiScalePct()));
           paintScale();
           uiSeg.querySelectorAll("button").forEach((b) => b.onclick = async () => {
             await saveSetting({ uiScale: b.dataset.m });
-            applyUiScale();
             paintScale();
           });
         }
@@ -6166,7 +6148,7 @@ ${pr.textContent}> ${cmd}\r
         const tip = G("sm-tip");
         cv.onmousemove = (e) => {
           const r = cv.getBoundingClientRect();
-          const fx = (uiToLocal(e.clientX - r.left, uiScaleFactor()) - pad.l) / (W - pad.l - pad.r);
+          const fx = (e.clientX - r.left - pad.l) / (W - pad.l - pad.r);
           let i = Math.round(fx * (pts.length - 1));
           i = Math.max(0, Math.min(pts.length - 1, i));
           const p = pts[i];
@@ -7563,11 +7545,10 @@ ${pr.textContent}> ${cmd}\r
     title.addEventListener("pointerdown", (ev) => {
       if (ev.target.closest("button")) return;
       bring(w);
-      const zf = uiScaleFactor();
-      const sx = uiToLocal(ev.clientX, zf) - w.offsetLeft, sy = uiToLocal(ev.clientY, zf) - w.offsetTop;
+      const sx = ev.clientX - w.offsetLeft, sy = ev.clientY - w.offsetTop;
       function mv(e) {
-        w.style.left = Math.max(0, uiToLocal(e.clientX, zf) - sx) + "px";
-        w.style.top = Math.max(44, uiToLocal(e.clientY, zf) - sy) + "px";
+        w.style.left = Math.max(0, e.clientX - sx) + "px";
+        w.style.top = Math.max(44, e.clientY - sy) + "px";
       }
       function up() {
         removeEventListener("pointermove", mv);
@@ -7730,17 +7711,8 @@ ${pr.textContent}> ${cmd}\r
   function imgZoomDefault() {
     return imgZoomKey(SETTINGS ? SETTINGS.imgZoom : null);
   }
-  function uiScaleFactor() {
-    return uiScaleFactorOf(SETTINGS ? SETTINGS.uiScale : null);
-  }
-  function applyUiScale() {
-    try {
-      const de = document.documentElement;
-      if (!de || !de.style) return;
-      const f = uiScaleFactor();
-      de.style.zoom = f === 1 ? "" : String(f);
-    } catch (e) {
-    }
+  function uiScalePct() {
+    return uiScaleKey(SETTINGS ? SETTINGS.uiScale : null);
   }
   function dockPos() {
     const p = SETTINGS && SETTINGS.dockPosition;
@@ -7779,7 +7751,6 @@ ${pr.textContent}> ${cmd}\r
     applyWallpaper();
     updateStageUI();
     applyDeskIconSize();
-    applyUiScale();
   }
   function deskIconSize() {
     const v = SETTINGS && +SETTINGS.deskIconSize;
@@ -8493,7 +8464,6 @@ ${pr.textContent}> ${cmd}\r
   pub("dockAutoHideOn", { get: () => dockAutoHideOn });
   pub("gotoSys", { get: () => gotoSys });
   pub("saveSetting", { get: () => saveSetting });
-  pub("uiScaleFactor", { get: () => uiScaleFactor });
   pub("pollNode", { get: () => pollNode });
   pub("appIcon", { get: () => appIcon });
   pub("zoomWin", { get: () => zoomWin });
@@ -8895,14 +8865,6 @@ function uiScaleValid(v) {
 function uiScaleKey(v) {
   return uiScaleValid(v) ? String(parseInt(v, 10)) : "100";
 }
-function uiScaleFactorOf(v) {
-  return +uiScaleKey(v) / 100;
-}
-function uiToLocal(v, z) {
-  const f = +z > 0 && isFinite(z) ? +z : 1;
-  const n = +v;
-  return isFinite(n) ? n / f : 0;
-}
 /* === end fv pure === */
 (() => {
   // web/src/b2/b2core.ts
@@ -9092,9 +9054,8 @@ function uiToLocal(v, z) {
     if (sel.length > 1) {
       ctxEl.innerHTML = '<div class="ctxitem" id="fvx-exp">导出选中的 ' + sel.length + ' 个到电脑</div><div class="ctxitem" id="fvx-del" style="color:#ff9d97">删除选中的 ' + sel.length + " 个</div>";
       ctxEl.classList.remove("hidden");
-      const zf = uiScaleFactor();
-      ctxEl.style.left = Math.min(uiToLocal(x, zf), innerWidth - 240) + "px";
-      ctxEl.style.top = Math.min(uiToLocal(y, zf), innerHeight - 140) + "px";
+      ctxEl.style.left = Math.min(x, innerWidth - 240) + "px";
+      ctxEl.style.top = Math.min(y, innerHeight - 140) + "px";
       $50("fvx-exp").onclick = () => {
         hideCtx();
         sel.forEach(exportDeskFile);
@@ -9288,7 +9249,7 @@ function uiToLocal(v, z) {
     mbOpenFor = spanId;
     if (!wasOpen) stageOverlay("menu", true);
     const rect = span.getBoundingClientRect();
-    mbdrop.style.left = Math.max(6, Math.min(uiToLocal(rect.left, uiScaleFactor()) - 2, innerWidth - 270)) + "px";
+    mbdrop.style.left = Math.max(6, Math.min(rect.left - 2, innerWidth - 270)) + "px";
     mbdrop.innerHTML = '<div class="mbm-it dis">…</div>';
     mbdrop.classList.remove("hidden");
     const fill = (items) => {
@@ -9850,8 +9811,7 @@ function uiToLocal(v, z) {
     b.addEventListener("pointerdown", (ev) => {
       if (ev.button !== 0 || lpQ.value.trim()) return;
       const r = b.getBoundingClientRect();
-      const zf = uiScaleFactor();
-      lpDrag = { el: b, en, zf, sx: ev.clientX, sy: ev.clientY, ox: uiToLocal(r.left, zf), oy: uiToLocal(r.top, zf), active: false };
+      lpDrag = { el: b, en, sx: ev.clientX, sy: ev.clientY, ox: r.left, oy: r.top, active: false };
       try {
         b.setPointerCapture(ev.pointerId);
       } catch (e) {
@@ -9859,7 +9819,7 @@ function uiToLocal(v, z) {
     });
     b.addEventListener("pointermove", (ev) => {
       if (!lpDrag || lpDrag.el !== b) return;
-      const st = lpDrag, dx = (ev.clientX - st.sx) / st.zf, dy = (ev.clientY - st.sy) / st.zf;
+      const st = lpDrag, dx = ev.clientX - st.sx, dy = ev.clientY - st.sy;
       if (!st.active) {
         if (Math.hypot(dx, dy) < 6) return;
         const g = b.cloneNode(true);

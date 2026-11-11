@@ -3,7 +3,7 @@
    from -- the same names the pre-modular page shared through one
    script scope. */
 import { iconsEl } from './core';
-import { deskPitch, uiScaleFactor } from './settings';
+import { deskPitch } from './settings';
 import { LAYOUT, deskSortMode, folderById, folderItems, saveLayout, setDeskSort, suppressClickUntil, __bind_suppressClickUntil } from './entries';
 import { DESKORDER, renderDesk, __bind_DESKORDER } from './desktop';
 import { openFolderId, openFolderPop } from './folders';
@@ -132,37 +132,28 @@ export function attachDrag(el,key,kind){
  el.addEventListener('pointerdown',ev=>{
   if(ev.button!==0) return;
   ev.preventDefault();
-  /* v0.67: the drag runs entirely in LOCAL space -- pointer
-     coords arrive VISUAL under a UI scale, so they are
-     converted at the boundary (uiToLocal) and the origin is
-     the icon's style position (local by definition; the old
-     code read it from getBoundingClientRect, which is
-     visual). The factor is pinned for the drag's duration.
-     updateDrag/finishDrag therefore receive local px/py and
-     convert back only where they hit-test live rects. */
-  const zf=uiScaleFactor();
-  dragState={el,key,kind,zf,sx:uiToLocal(ev.clientX,zf),sy:uiToLocal(ev.clientY,zf),ox:parseFloat(el.style.left)||0,oy:parseFloat(el.style.top)||0,active:false};
+  const r=el.getBoundingClientRect();
+  dragState={el,key,kind,sx:ev.clientX,sy:ev.clientY,ox:r.left,oy:r.top,active:false};
   try{el.setPointerCapture(ev.pointerId)}catch(e){}
  });
  el.addEventListener('pointermove',ev=>{
   if(!dragState||dragState.el!==el) return;
   const ds=dragState;
-  const lx=uiToLocal(ev.clientX,ds.zf), ly=uiToLocal(ev.clientY,ds.zf);
-  const dx=lx-ds.sx, dy=ly-ds.sy;
+  const dx=ev.clientX-ds.sx, dy=ev.clientY-ds.sy;
   if(!ds.active){
    if(Math.hypot(dx,dy)<5) return;
    beginDrag(ds);
   }
   el.style.left=Math.max(0,Math.min(innerWidth-96,ds.ox+dx))+'px';
   el.style.top=Math.max(42,Math.min(innerHeight-110,ds.oy+dy))+'px';
-  updateDrag(ds,lx,ly);
+  updateDrag(ds,ev.clientX,ev.clientY);
  });
  const up=ev=>{
   if(!dragState||dragState.el!==el) return;
   const ds=dragState; dragState=null;
   if(!ds.active) return;
   __bind_suppressClickUntil.set(Date.now()+300);
-  finishDrag(ds,uiToLocal(ev.clientX,ds.zf),uiToLocal(ev.clientY,ds.zf));
+  finishDrag(ds,ev.clientX,ev.clientY);
  };
  el.addEventListener('pointerup',up);
  el.addEventListener('pointercancel',()=>{
@@ -186,11 +177,6 @@ export function beginDrag(ds){
  ds.active=true;
 }
 export function updateDrag(ds,px,py){
- /* px/py are LOCAL (see attachDrag); the live-rect hit tests
-    below speak VISUAL, so they use the scaled-back pair. The
-    insertion-index math further down compares against slot
-    centers, which are local -- it keeps px/py as passed. */
- const pxv=px*(ds.zf||1), pyv=py*(ds.zf||1);
  /* What is the pointer over? The dragged icon and the placeholder
     are skipped; everything else is hit-tested at its CURRENT
     (possibly mid-slide) position -- what the user sees is what
@@ -200,7 +186,7 @@ export function updateDrag(ds,px,py){
   const s=ds.seq[si];
   if(s.el===ds.el) continue;
   const r=s.el.getBoundingClientRect();
-  if(pxv>=r.left&&pxv<=r.right&&pyv>=r.top&&pyv<=r.bottom){ hit=s.el; break; }
+  if(px>=r.left&&px<=r.right&&py>=r.top&&py<=r.bottom){ hit=s.el; break; }
  }
  /* v0.56: dragging into the OPEN folder's panel files the icon
     into that folder (the third way in, beside the tile drop and
@@ -209,7 +195,7 @@ export function updateDrag(ds,px,py){
  if(openFolderId&&ds.kind!=='folder'){
   const panel=document.getElementById('fp-panel');
   if(panel){ const pr=panel.getBoundingClientRect();
-   if(pxv>=pr.left&&pxv<=pr.right&&pyv>=pr.top&&pyv<=pr.bottom){
+   if(px>=pr.left&&px<=pr.right&&py>=pr.top&&py<=pr.bottom){
     disarmDrag(ds);
     ds.seq.forEach(s=>s.el.classList.remove('bud'));
     if(fpGrid) fpGrid.classList.add('dropIn');
@@ -293,12 +279,8 @@ export function finishDrag(ds,cx,cy){
  /* 2) Dropped while armed on another web app: create a folder from
        the two, then open it with the name ready to edit. */
  if(armedEl&&ds.kind==='web'){
-  /* cx/cy are LOCAL (see attachDrag): hit-test against the
-     target's style bounds (local by definition) instead of
-     its rect, which is visual under a UI scale. */
-  const al=parseFloat(armedEl.style.left)||0, at=parseFloat(armedEl.style.top)||0;
-  const aw=armedEl.offsetWidth||92, ah=armedEl.offsetHeight||100;
-  if(cx>=al&&cx<=al+aw&&cy>=at&&cy<=at+ah){
+  const ar=armedEl.getBoundingClientRect();
+  if(cx>=ar.left&&cx<=ar.right&&cy>=ar.top&&cy<=ar.bottom){
    const turl=armedEl.dataset.key.slice(4), durl=ds.key.slice(4);
    if(turl!==durl){
     const id='f'+Date.now().toString(36);

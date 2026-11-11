@@ -4,7 +4,7 @@
    script scope. */
 import { api, esc } from './core';
 import { glyph } from './glyphs';
-import { gotoSys, imgZoomDefault, uiScaleFactor } from './settings';
+import { gotoSys, imgZoomDefault } from './settings';
 import { openApp } from './windows';
 import { openPDFViewer } from './pdfview';
 import { renderDesk } from './desktop';
@@ -200,27 +200,20 @@ export function bindImageViewer(){
   if(ev.deltaMode===1) dy*=33; else if(ev.deltaMode===2) dy*=stage.clientHeight;
   const d=imgWheelZoom(dy,IMGV.scale); if(!d.zoom) return;
   const r=stage.getBoundingClientRect();
-  /* v0.67: the anchor offset is VISUAL (clientX - rect.left)
-     under a UI scale; zoomImageTo works in the stage's LOCAL
-     space -- convert (uiToLocal). */
-  const zf=uiScaleFactor();
-  zoomImageTo(d.scale,uiToLocal(ev.clientX-r.left,zf),uiToLocal(ev.clientY-r.top,zf));
+  zoomImageTo(d.scale,ev.clientX-r.left,ev.clientY-r.top);
  },{passive:false});
  stage.addEventListener('pointerdown',(ev: any)=>{
   if(IMGV.err||!IMGV.natW) return;
   const fr=document.getElementById('iv-frame'); if(!fr) return;
   if(fr.offsetWidth<=stage.clientWidth&&fr.offsetHeight<=stage.clientHeight) return;
-  /* v0.67: pan deltas are computed in LOCAL space (pointer
-     converted at the boundary, factor pinned for the drag). */
-  const zf=uiScaleFactor();
-  imgDrag={zf,sx:uiToLocal(ev.clientX,zf),sy:uiToLocal(ev.clientY,zf),x:IMGV.x,y:IMGV.y};
+  imgDrag={sx:ev.clientX,sy:ev.clientY,x:IMGV.x,y:IMGV.y};
   stage.setPointerCapture(ev.pointerId);
   stage.style.cursor='grabbing';
  });
  stage.addEventListener('pointermove',(ev: any)=>{
   if(!imgDrag) return;
   const e=imgEffSize(IMGV.natW,IMGV.natH,IMGV.rot);
-  const c=imgClampPan(imgDrag.x+(uiToLocal(ev.clientX,imgDrag.zf)-imgDrag.sx),imgDrag.y+(uiToLocal(ev.clientY,imgDrag.zf)-imgDrag.sy),
+  const c=imgClampPan(imgDrag.x+(ev.clientX-imgDrag.sx),imgDrag.y+(ev.clientY-imgDrag.sy),
    e.w*IMGV.scale,e.h*IMGV.scale,stage.clientWidth,stage.clientHeight);
   IMGV.x=c.x; IMGV.y=c.y;
   const fr=document.getElementById('iv-frame');
@@ -232,7 +225,7 @@ export function bindImageViewer(){
  stage.addEventListener('dblclick',(ev: any)=>{
   if(IMGV.err||!IMGV.natW) return;
   const t=imgDblTarget(IMGV.mode);
-  if(t==='actual'){ const r=stage.getBoundingClientRect(); const zf=uiScaleFactor(); zoomImageTo(1,uiToLocal(ev.clientX-r.left,zf),uiToLocal(ev.clientY-r.top,zf)); }
+  if(t==='actual'){ const r=stage.getBoundingClientRect(); zoomImageTo(1,ev.clientX-r.left,ev.clientY-r.top); }
   else setImageMode('fit');
  });
  if(typeof ResizeObserver!=='undefined'){

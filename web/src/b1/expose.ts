@@ -10,7 +10,7 @@
    binding bundle 1 itself calls, exactly like the classic page. */
 import { APPS, api, dockEl, esc, iconsEl, thumbBad } from './core';
 import { GLYPHS, glyph } from './glyphs';
-import { SETDEF, deskPitch, dockAutoHideOn, gotoSys, saveSetting, uiScaleFactor } from './settings';
+import { SETDEF, deskPitch, dockAutoHideOn, gotoSys, saveSetting } from './settings';
 import { pollNode } from './menubar';
 import { MJEvents } from './events';
 import { appIcon, zoomWin } from './windows';
@@ -48,7 +48,6 @@ pub('deskPitch', { get: () => deskPitch });
 pub('dockAutoHideOn', { get: () => dockAutoHideOn });
 pub('gotoSys', { get: () => gotoSys });
 pub('saveSetting', { get: () => saveSetting });
-pub('uiScaleFactor', { get: () => uiScaleFactor });
 pub('pollNode', { get: () => pollNode });
 pub('appIcon', { get: () => appIcon });
 pub('zoomWin', { get: () => zoomWin });

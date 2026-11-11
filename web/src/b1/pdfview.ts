@@ -4,7 +4,7 @@
    script scope. */
 import { APPS, api, esc } from './core';
 import { glyph } from './glyphs';
-import { pdfZoomDefault, uiScaleFactor } from './settings';
+import { pdfZoomDefault } from './settings';
 import { openApp } from './windows';
 /* ----- built-in PDF viewer (v0.65, detail-fix ⑥) -----
    macOS Preview grammar over pdf.js (vendored in the EXE,
@@ -341,13 +341,6 @@ function pdfWheel(st: any, ev: any){
 function pdfAnchorAt(st: any, px: number, py: number){
  const sc=st.els.scroll;
  if(!st.numPages||!st.slots.length) return null;
- /* px/py arrive in viewport space (clientX - rect.left):
-    under a UI scale != 100% (v0.67) rects and pointer
-    coordinates are VISUAL units while scrollLeft/offsetWidth
-    are LOCAL -- convert before mixing (uiToLocal seam). The
-    stored px/py are then local, which is the space
-    restorePdfAnchor writes back into scrollLeft/scrollTop. */
- px=uiToLocal(px,uiScaleFactor()); py=uiToLocal(py,uiScaleFactor());
  const docX=sc.scrollLeft+px, docY=sc.scrollTop+py;
  let i=0;
  for(let k=0;k<st.numPages;k++){ if(st.tops[k]<=docY) i=k; else break; }
