@@ -617,6 +617,50 @@ table.gridtab td,table.gridtab th{white-space:nowrap;max-width:280px;overflow:hi
    still close it via the document pointerdown rule. */
 #folderpop{pointer-events:none}
 #folderpop .fp-panel{pointer-events:auto}
+/* ===== v0.69: task manager + add-app ===== */
+#mb-taskmgr{cursor:pointer;display:inline-flex;align-items:center;padding:3px 4px;border-radius:6px}
+#mb-taskmgr:hover,#mb-taskmgr.on{background:rgba(255,255,255,.16)}
+#tmpanel{position:fixed;top:46px;right:10px;width:392px;max-height:min(560px,calc(100vh - 60px));overflow:auto;border-radius:18px;padding:12px;z-index:1500}
+#tmpanel.hidden{display:none}
+.tmp-hd{display:flex;align-items:center;justify-content:space-between;font-weight:650;font-size:13.5px;margin-bottom:8px}
+.tmp-sec{font-size:11.5px;opacity:.6;margin:10px 2px 4px}
+.tmp-row{display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:8px;font-size:12.5px}
+.tmp-row:hover{background:rgba(255,255,255,.07)}
+.tmp-name{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tmp-num{font-variant-numeric:tabular-nums;opacity:.85;white-space:nowrap}
+.tmp-hung{color:#ff9f0a;font-size:11px;white-space:nowrap}
+.tmp-btn{border:0;border-radius:6px;background:rgba(255,255,255,.14);color:#fff;font:inherit;font-size:11.5px;padding:2.5px 9px;cursor:pointer;white-space:nowrap}
+.tmp-btn:hover{background:rgba(255,69,58,.75)}
+.tmp-btn.gray:hover{background:rgba(255,255,255,.28)}
+.tmp-sub{font-size:11px;opacity:.55;padding:0 6px 2px 14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tm-wrap{display:flex;flex-direction:column;height:100%}
+.tm-tools{display:flex;gap:8px;align-items:center;padding:12px 14px 10px;border-bottom:1px solid rgba(255,255,255,.08);flex-wrap:wrap}
+.tm-tools input[type=text]{flex:1;min-width:120px}
+.tm-table{flex:1;overflow:auto;padding:6px 10px}
+.tm-th,.tm-grow,.tm-prow{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;font-size:13px}
+.tm-th{font-size:12px;opacity:.65;position:sticky;top:0;background:inherit;z-index:1}
+.tm-th span[data-sort]{cursor:pointer;user-select:none}
+.tm-grow{font-weight:600;cursor:pointer}
+.tm-grow:hover,.tm-prow:hover{background:rgba(255,255,255,.06)}
+.tm-prow{font-size:12.5px;padding-left:26px;opacity:.92}
+.tm-c-name{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tm-c-cpu{width:64px;text-align:right;font-variant-numeric:tabular-nums}
+.tm-c-mem{width:76px;text-align:right;font-variant-numeric:tabular-nums}
+.tm-c-st{width:52px;text-align:center}
+.tm-c-act{width:118px;text-align:right;white-space:nowrap}
+.tm-daemon{margin:10px 14px 0;padding:10px 12px;border-radius:12px;background:rgba(255,255,255,.06);font-size:12.5px;line-height:1.75}
+.tm-foot{padding:7px 14px;font-size:12px;opacity:.6;border-top:1px solid rgba(255,255,255,.08)}
+#addapp{position:fixed;inset:0;z-index:1700;display:flex;align-items:center;justify-content:center;background:rgba(8,10,16,.42)}
+#addapp.hidden{display:none}
+#addapp-card{width:430px;max-width:calc(100vw - 40px);border-radius:18px;padding:18px}
+.aa-hd{font-size:16px;font-weight:650}
+.aa-desc{font-size:12.5px;opacity:.7;line-height:1.65;margin:6px 0 12px}
+.aa-row{display:flex;gap:8px;align-items:center;margin-top:8px}
+.aa-row .txt{flex:1}
+.aa-ico{width:34px;height:34px;flex:none;border-radius:8px;display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg,#7d7d85,#4a4a52);font-weight:650;font-size:15px;overflow:hidden}
+.aa-ico img{width:100%;height:100%;object-fit:cover}
+.aa-note{font-size:12px;min-height:16px;margin-top:8px;color:#ffd60a}
+.aa-note.ok{color:#30d158}
 </style>
 </head>
 <body>
@@ -631,6 +675,7 @@ table.gridtab td,table.gridtab th{white-space:nowrap;max-width:280px;overflow:hi
   <span class="right">
     <span id="mb-remote" title="远程协助状态（点开设置查看）"><span id="mb-rdot"></span><span id="mb-rtxt">远程协助中</span></span>
     <span id="mb-node" title="节点状态"><span id="mb-dot"></span><span id="mb-nodetxt">节点</span></span>
+    <span id="mb-taskmgr" title="任务管理器"><svg class="gly" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l2.5-6.5 4.5 13 2.5-6.5H21"/></svg></span>
     <span id="mb-stage" title="台前调度：只显示当前应用"><svg class="gly" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.9"/><rect x="13" y="4" width="7" height="7" rx="1.9"/><rect x="4" y="13" width="7" height="7" rx="1.9"/><rect x="13" y="13" width="7" height="7" rx="1.9"/></svg></span>
     <span title="网络"><svg class="gly" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.3 10a11.2 11.2 0 0 1 15.4 0M7 13.3a7.2 7.2 0 0 1 10 0M9.8 16.4a3.6 3.6 0 0 1 4.4 0"/><circle cx="12" cy="19.2" r="1.25" fill="currentColor" stroke="none"/></svg></span><span title="电池"><svg class="gly" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.8" y="8.3" width="16.7" height="7.8" rx="2.2"/><path d="M21.9 10.9v2.6"/><rect x="5.1" y="10.6" width="6" height="3.2" rx="1" fill="currentColor" stroke="none"/></svg></span>
     <span id="mb-spot" title="聚焦搜索（F5 或 Ctrl+Space）"><svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.6" fill="none" stroke="#fff" stroke-width="1.7"/><line x1="10.6" y1="10.6" x2="14.4" y2="14.4" stroke="#fff" stroke-width="1.9" stroke-linecap="round"/></svg></span>
@@ -647,6 +692,15 @@ table.gridtab td,table.gridtab th{white-space:nowrap;max-width:280px;overflow:hi
 <div id="extstrip" class="hidden"></div>
 <div id="ctxmenu" class="hidden"></div>
 <div id="ccpanel" class="glasspanel hidden"></div>
+<div id="tmpanel" class="glasspanel hidden"></div>
+<div id="addapp" class="hidden"><div id="addapp-card" class="glasspanel">
+  <div class="aa-hd">添加应用</div>
+  <p class="aa-desc">把一个网站钉到桌面，像应用一样打开。名称和图标会走节点自动抓取，你也可以改。</p>
+  <div class="aa-row"><input class="txt" id="aa-url" placeholder="网址，如 https://example.com" autocomplete="off"><button class="btn gray" id="aa-probe">识别</button></div>
+  <div class="aa-row"><span class="aa-ico" id="aa-ico">?</span><input class="txt" id="aa-name" placeholder="名称" autocomplete="off" style="flex:1"></div>
+  <div class="aa-note" id="aa-note"></div>
+  <div class="aa-row" style="justify-content:flex-end;margin-top:12px"><button class="btn gray" id="aa-cancel">取消</button><button class="btn" id="aa-save">添加到桌面</button></div>
+</div></div>
 <div id="ncenter" class="glasspanel nc-off"><div id="nc-scroll"></div><div class="nc-foot"><button id="nc-editbtn">编辑小部件</button></div></div>
 <div id="banners"></div>
 <div id="folderpop" class="hidden"></div>
@@ -825,6 +879,7 @@ function createEvHub(nowFn) {
     { id: "ssh", e: "", g: "g-ssh", glyph: "", n: "SSH", art: 1 },
     { id: "servermon", e: "", g: "g-servermon", glyph: "", n: "服务器", art: 1 },
     { id: "console", e: "≡", g: "g-console", glyph: "≡", n: "控制台", art: 1 },
+    { id: "taskmgr", e: "", g: "g-servermon", glyph: "", n: "任务管理器", gkey: "pulse" },
     { id: "appstore", e: "", g: "g-store", glyph: "", n: "应用商店", art: 1 },
     { id: "openclaw", e: "", g: "g-openclaw", glyph: "", n: "小龙虾", art: 1 },
     { id: "core", e: "", g: "g-core", glyph: "", n: "节点", art: 1 },
@@ -950,7 +1005,10 @@ function createEvHub(nowFn) {
     search: '<circle cx="11" cy="11" r="6.6"/><path d="m15.9 15.9 4.6 4.6"/>',
     rotate: '<path d="M19.7 12a7.7 7.7 0 1 1-2.3-5.4"/><path d="M20.1 3.4v3.9h-3.9"/>',
     sidebar: '<rect x="4" y="5" width="16" height="14" rx="2"/><path d="M9.4 5v14"/>',
-    app: '<rect x="4" y="4" width="16" height="16" rx="4.6"/><rect x="9.2" y="9.2" width="5.6" height="5.6" rx="1.7"/>'
+    app: '<rect x="4" y="4" width="16" height="16" rx="4.6"/><rect x="9.2" y="9.2" width="5.6" height="5.6" rx="1.7"/>',
+    pulse: '<path d="M3 12h4l2.5-6.5 4.5 13 2.5-6.5H21"/>',
+    pin: '<path d="M9.5 4.5h5l-1 5 2.5 2.5v2H8v-2L10.5 9.5z"/><path d="M12 14v6.5"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>'
   };
   function glyph(n, s) {
     return `<svg class="gly" width="${s || 16}" height="${s || 16}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${GLYPHS[n] || ""}</svg>`;
@@ -1104,6 +1162,130 @@ function createEvHub(nowFn) {
     }
   }
 
+  // web/src/b1/addapp.ts
+  var aaEl = document.getElementById("addapp");
+  var aaExists = false;
+  function aaLetter() {
+    const n = document.getElementById("aa-name").value.trim();
+    const ico = document.getElementById("aa-ico");
+    if (ico) ico.textContent = (n || "?").slice(0, 1).toUpperCase();
+  }
+  function openAddApp() {
+    if (!aaEl) return;
+    aaExists = false;
+    document.getElementById("aa-url").value = "";
+    document.getElementById("aa-name").value = "";
+    const note = document.getElementById("aa-note");
+    if (note) {
+      note.textContent = "";
+      note.className = "aa-note";
+    }
+    aaLetter();
+    aaEl.classList.remove("hidden");
+    setTimeout(() => {
+      const u = document.getElementById("aa-url");
+      if (u) u.focus();
+    }, 30);
+  }
+  function closeAddApp() {
+    if (aaEl) aaEl.classList.add("hidden");
+  }
+  async function aaProbe() {
+    const urlEl = document.getElementById("aa-url");
+    const nameEl = document.getElementById("aa-name");
+    const note = document.getElementById("aa-note");
+    const url = urlEl.value.trim();
+    if (!url) {
+      if (note) {
+        note.textContent = "先填网址。";
+        note.className = "aa-note";
+      }
+      return;
+    }
+    if (note) {
+      note.textContent = "正在走节点识别…";
+      note.className = "aa-note";
+    }
+    const r = await api("/api/webapps/probe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) }).catch(() => null);
+    if (!r) {
+      if (note) note.textContent = "识别失败，检查一下网址。";
+      return;
+    }
+    if (r.error) {
+      if (note) {
+        note.textContent = r.error;
+        note.className = "aa-note";
+      }
+      return;
+    }
+    urlEl.value = r.url || url;
+    if (r.exists) {
+      aaExists = true;
+      if (note) {
+        note.textContent = "这个网页已经在桌面上了（「" + (r.name || "") + "」），不用重复添加。";
+        note.className = "aa-note";
+      }
+      return;
+    }
+    aaExists = false;
+    if (r.name) nameEl.value = r.name;
+    aaLetter();
+    if (note) {
+      note.textContent = "已识别，名称和图标会在保存时抓好。";
+      note.className = "aa-note ok";
+    }
+  }
+  async function aaSave() {
+    const url = document.getElementById("aa-url").value.trim();
+    const name = document.getElementById("aa-name").value.trim();
+    const note = document.getElementById("aa-note");
+    if (aaExists) {
+      if (note) {
+        note.textContent = "已存在的应用不能重复添加。";
+        note.className = "aa-note";
+      }
+      return;
+    }
+    if (!url) {
+      if (note) note.textContent = "先填网址。";
+      return;
+    }
+    if (!name) {
+      if (note) note.textContent = "给它起个名字（或先点「识别」自动填）。";
+      return;
+    }
+    const r = await api("/api/apps/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, url }) }).catch(() => null);
+    if (!r || r.error) {
+      if (note) {
+        note.textContent = "保存失败：" + (r && r.error || "网络问题");
+        note.className = "aa-note";
+      }
+      return;
+    }
+    closeAddApp();
+    await loadWebApps();
+    renderDesk();
+    toast("已添加「" + name + "」到桌面");
+  }
+  if (aaEl) {
+    document.getElementById("aa-probe").onclick = () => aaProbe();
+    document.getElementById("aa-save").onclick = () => aaSave();
+    document.getElementById("aa-cancel").onclick = () => closeAddApp();
+    document.getElementById("aa-name").oninput = () => aaLetter();
+    document.getElementById("aa-url").onkeydown = (e) => {
+      if (e.key === "Enter") aaProbe();
+    };
+    document.getElementById("aa-name").onkeydown = (e) => {
+      if (e.key === "Enter") aaSave();
+    };
+    aaEl.addEventListener("click", (e) => {
+      if (e.target === aaEl) closeAddApp();
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !aaEl.classList.contains("hidden")) closeAddApp();
+    });
+  }
+
   // web/src/b1/ctxmenu.ts
   function ctxItemHTML(it) {
     const sub = it.sub ? `<div class="ctxSub">${it.sub.map(ctxItemHTML).join("")}</div>` : "";
@@ -1137,6 +1319,7 @@ function createEvHub(nowFn) {
     const sorts = [["manual", "手动"], ["name", "名称"], ["freq", "最常用"], ["kind", "种类"], ["added", "添加日期"]].map(([v, n]) => ({ act: "sort", arg: v, label: n, radio: true, on: sm === v || v === "manual" && sm === "manual" }));
     ctxOpen(x, y, [
       { act: "nf", label: "新建文件夹", icon: "folderplus" },
+      { act: "addapp", label: "添加应用…", icon: "plus" },
       { act: "imp", label: "从电脑导入文件…", icon: "import" },
       { sep: true },
       { label: "图标大小", icon: "size", sub: sizes },
@@ -1146,6 +1329,7 @@ function createEvHub(nowFn) {
       { act: "ps", label: "个性化", icon: "palette" }
     ], (act, arg) => {
       if (act === "nf") newFolder(x, y);
+      else if (act === "addapp") openAddApp();
       else if (act === "imp") document.getElementById("deskimp").click();
       else if (act === "rf") location.reload();
       else if (act === "ps") openApp("sys");
@@ -3931,6 +4115,7 @@ function createEvHub(nowFn) {
     }
   }
   function webIconHTML(a, mini) {
+    if (a && a.icon) return `<div class="appico webapp${mini ? " mini" : ""}"><span class="icolet">${esc(webLetter(a.name))}</span><img src="/api/webapps/icon?f=${encodeURIComponent(a.icon)}" alt="" draggable="false" loading="lazy" onerror="this.remove()"></div>`;
     const f = faviconURL(a.url);
     const img = f ? `<img src="${f}" alt="" draggable="false" loading="lazy" onerror="this.remove()">` : "";
     return `<div class="appico webapp${mini ? " mini" : ""}"><span class="icolet">${esc(webLetter(a.name))}</span>${img}</div>`;
@@ -4158,10 +4343,23 @@ function createEvHub(nowFn) {
     const items = [
       { act: "focus", label: "切换到该窗口", icon: "switch" },
       { act: "focusonly", label: "隐藏其他窗口", icon: "eyeoff" },
-      { act: "min", label: "最小化", icon: "minimize" },
-      { act: "close", label: "关闭窗口", icon: "closex", danger: true }
+      { act: "min", label: "最小化", icon: "minimize" }
     ];
+    const card = extCards.get(hwnd);
+    if (card && card.win && card.win.appwindow && card.win.url) items.push({ act: "pin", label: "固定为桌面应用", icon: "pin" });
+    items.push({ act: "close", label: "关闭窗口", icon: "closex", danger: true });
     ctxOpen(x, y, items, async (act) => {
+      if (act === "pin") {
+        const r = await api("/api/webapps/pin", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hwnd }) }).catch(() => null);
+        if (r && r.error) {
+          toast(r.error);
+          return;
+        }
+        await loadWebApps();
+        renderDesk();
+        toast("已固定为桌面应用");
+        return;
+      }
       await api("/api/extwin/" + extCtxEndpoint(act), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hwnd }) }).catch(() => null);
       setTimeout(refreshExtStrip, 350);
     });
@@ -4231,6 +4429,7 @@ function createEvHub(nowFn) {
     card.busy = false;
   }
   function paintExtCard(card, x, prev) {
+    card.win = x;
     const iconKey = (x.ikind || "") + "|" + (x.app || "") + "|" + (x.url || "");
     if (card.prev !== prev || card.iconKey !== iconKey) {
       card.el.innerHTML = extCardInnerHTML(x, prev);
@@ -4467,6 +4666,464 @@ function createEvHub(nowFn) {
     return v;
   } };
 
+  // web/src/b1/apiclient.ts
+  function getVaultStatus() {
+    return api("/api/vault/status");
+  }
+
+  // web/src/b1/events.ts
+  var hub = createEvHub();
+  var MJEvents = {
+    on(topic, fn) {
+      return hub.on(topic, fn);
+    },
+    onCmd(fn) {
+      return hub.onCmd(fn);
+    }
+  };
+  function refresher(fn) {
+    let timer = null, running = false, again = false;
+    const kick = () => {
+      if (running) {
+        again = true;
+        return;
+      }
+      if (timer) return;
+      timer = setTimeout(async () => {
+        timer = null;
+        running = true;
+        try {
+          await fn();
+        } catch (e) {
+        }
+        running = false;
+        if (again) {
+          again = false;
+          kick();
+        }
+      }, 140);
+    };
+    return kick;
+  }
+  function refreshFolderPop() {
+    try {
+      if (openFolderId && openFolderEl) openFolderPop(openFolderId, openFolderEl);
+    } catch (e) {
+    }
+  }
+  MJEvents.on("files", refresher(async () => {
+    await loadDeskFiles();
+    renderDesk();
+    refreshFolderPop();
+  }));
+  MJEvents.on("layout", refresher(async () => {
+    await loadLayout();
+    renderDesk();
+    refreshFolderPop();
+  }));
+  MJEvents.on("webapps", refresher(async () => {
+    await loadWebApps();
+    renderDesk();
+    refreshFolderPop();
+  }));
+  MJEvents.on("storeapps", refresher(async () => {
+    await loadStoreApps();
+    await loadBoxApps();
+    renderDesk();
+  }));
+  MJEvents.on("settings", refresher(async () => {
+    await loadSettings();
+  }));
+  MJEvents.on("windows", refresher(async () => {
+    await refreshExtStrip();
+  }));
+  MJEvents.on("nodes", refresher(async () => {
+    await pollNode();
+  }));
+  MJEvents.on("vault", refresher(async () => {
+    const s = await getVaultStatus();
+    window.__vault = s;
+    if (s && s.locked && window.__vaultShowLock) {
+      try {
+        window.__vaultShowLock();
+      } catch (e) {
+      }
+    }
+  }));
+  function installShellZoomGuards() {
+    try {
+      document.addEventListener("wheel", (ev) => {
+        if (!ev.ctrlKey) return;
+        const chain = [];
+        let n = ev.target;
+        while (n && chain.length < 64) {
+          chain.push({ id: n.id || "", cls: typeof n.className === "string" ? n.className : "" });
+          n = n.parentElement || n.parentNode;
+        }
+        if (shellWheelSwallow(chain)) ev.preventDefault();
+      }, { passive: false, capture: true });
+      document.addEventListener("keydown", (ev) => {
+        if (!ev.ctrlKey || ev.altKey || ev.metaKey) return;
+        if (ev.key === "=" || ev.key === "+" || ev.key === "-" || ev.key === "_" || ev.key === "0") ev.preventDefault();
+      }, { capture: true });
+    } catch (e) {
+    }
+  }
+  installShellZoomGuards();
+  var es = null;
+  var attempt = 0;
+  var retryTimer = null;
+  var started = false;
+  function scheduleReconnect() {
+    if (retryTimer) return;
+    const delay = evBackoffDelay(attempt);
+    attempt++;
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      connectEvents();
+    }, delay);
+  }
+  function connectEvents() {
+    try {
+      if (typeof EventSource === "undefined") {
+        scheduleReconnect();
+        return;
+      }
+      es = new EventSource("/api/view/stream");
+      es.onopen = () => {
+        attempt = 0;
+      };
+      es.onmessage = (ev) => {
+        try {
+          hub.dispatch(ev.data);
+        } catch (e) {
+        }
+      };
+      es.onerror = () => {
+        try {
+          if (es) es.close();
+        } catch (e) {
+        }
+        es = null;
+        scheduleReconnect();
+      };
+    } catch (e) {
+      scheduleReconnect();
+    }
+  }
+  function startEvents() {
+    if (started) return;
+    started = true;
+    connectEvents();
+  }
+  startEvents();
+
+  // web/src/b1/taskmgr.ts
+  function tmFmtB(n) {
+    n = +n || 0;
+    const u = ["B", "KB", "MB", "GB", "TB"];
+    let i = 0;
+    while (n >= 1024 && i < 4) {
+      n /= 1024;
+      i++;
+    }
+    return (n >= 100 || i === 0 ? n.toFixed(0) : n.toFixed(1)) + " " + u[i];
+  }
+  function tmFmtCPU(v) {
+    return (Math.round((+v || 0) * 10) / 10).toFixed(1) + "%";
+  }
+  function tmFmtUp(sec) {
+    sec = +sec || 0;
+    const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60);
+    return h > 0 ? h + " 小时 " + m + " 分" : Math.max(1, m) + " 分";
+  }
+  function tmShellWins() {
+    return APPS.filter((a) => {
+      const w = document.getElementById("win-" + a.id);
+      return w && !w.classList.contains("hidden");
+    });
+  }
+  function tmCloseShellWin(id) {
+    const w = document.getElementById("win-" + id);
+    if (!w) return;
+    const b = w.querySelector('[data-a="close"]');
+    if (b) b.click();
+  }
+  async function tmKillGroup(g) {
+    if (g.critical && !confirm("结束「" + g.name + "」？\n" + (g.kind === "core" ? "核心停下后节点会断开，需要时可以在任务管理器或节点页重新启动。" : "整个浏览器和它打开的网页都会关闭，未保存的内容会丢失。"))) return false;
+    const r = await api("/api/taskmgr/kill", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ group: g.id }) }).catch(() => null);
+    if (r && r.error) {
+      toast(r.error);
+      return false;
+    }
+    toast("已结束 " + g.name);
+    return true;
+  }
+  async function tmKillProc(g, p) {
+    const r = await api("/api/taskmgr/kill", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pid: p.pid }) }).catch(() => null);
+    if (r && r.error) {
+      toast(r.error);
+      return false;
+    }
+    toast("已结束进程 " + p.name);
+    return true;
+  }
+  async function tmRestartGroup(g) {
+    if (!confirm("重启「" + g.name + "」？\n核心会用当前配置重新启动，节点短暂断开后自动接回。")) return false;
+    const r = await api("/api/taskmgr/restart", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ group: g.id }) }).catch(() => null);
+    if (r && r.error) {
+      toast(r.error);
+      return false;
+    }
+    toast("已重启 " + g.name);
+    return true;
+  }
+  async function tmCloseExtWin(hwnd) {
+    await api("/api/extwin/close", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hwnd }) }).catch(() => null);
+  }
+  var tmPanelEl = document.getElementById("tmpanel");
+  var tmBarEl = document.getElementById("mb-taskmgr");
+  var tmPanelOpen = false;
+  var tmPanelTimer = null;
+  function tmBarVisible() {
+    try {
+      const s = SETTINGS || SETDEF;
+      return !s || s.taskmgrBar !== false;
+    } catch (e) {
+      return true;
+    }
+  }
+  function applyTmBar() {
+    try {
+      if (tmBarEl) tmBarEl.style.display = tmBarVisible() ? "" : "none";
+    } catch (e) {
+    }
+  }
+  function closeTmPanel() {
+    if (!tmPanelOpen) return;
+    tmPanelOpen = false;
+    tmPanelEl.classList.add("hidden");
+    if (tmBarEl) tmBarEl.classList.remove("on");
+    if (tmPanelTimer) {
+      clearInterval(tmPanelTimer);
+      tmPanelTimer = null;
+    }
+  }
+  async function paintTmPanel() {
+    if (!tmPanelOpen) return;
+    const snap = await api("/api/taskmgr").catch(() => null);
+    if (!tmPanelOpen || !snap) return;
+    const d = snap.daemon || {};
+    const groups = snap.groups || [];
+    const shells = tmShellWins();
+    let h = '<div class="tmp-hd"><span>任务管理器</span><button class="tmp-btn gray" id="tmp-open">打开完整窗口</button></div>';
+    h += '<div class="tmp-row"><span class="tmp-name">守护进程（铭杰终端机 v' + esc(d.version || "") + '）</span><span class="tmp-num">' + tmFmtCPU(d.cpu) + '</span><span class="tmp-num">' + tmFmtB(d.mem) + "</span></div>";
+    h += '<div class="tmp-sub">已运行 ' + tmFmtUp(d.uptimeSec) + " · 守护进程不在这里结束（出口在设置 → 退出系统）</div>";
+    if (shells.length) {
+      h += '<div class="tmp-sec">系统内窗口</div>';
+      shells.forEach((a) => {
+        h += '<div class="tmp-row"><span class="tmp-name">' + esc(a.n) + '</span><button class="tmp-btn gray" data-tmclose="' + a.id + '">关闭</button></div>';
+      });
+    }
+    h += '<div class="tmp-sec">终端的进程（按应用分组）</div>';
+    if (!groups.length) h += '<div class="tmp-row"><span class="tmp-name" style="opacity:.6">现在没有在跑的外部进程</span></div>';
+    groups.forEach((g) => {
+      const hung = (g.windows || []).some((w) => w.hung);
+      h += '<div class="tmp-row"><span class="tmp-name">' + esc(g.name) + (hung ? ' <span class="tmp-hung">无响应</span>' : "") + '</span><span class="tmp-num">' + tmFmtCPU(g.cpu) + '</span><span class="tmp-num">' + tmFmtB(g.mem) + '</span><button class="tmp-btn" data-tmkill="' + esc(g.id) + '">结束</button>' + (g.canRestart ? '<button class="tmp-btn gray" data-tmrestart="' + esc(g.id) + '">重启</button>' : "") + "</div>";
+    });
+    tmPanelEl.innerHTML = h;
+    const ob = document.getElementById("tmp-open");
+    if (ob) ob.onclick = () => {
+      closeTmPanel();
+      openApp("taskmgr");
+    };
+    tmPanelEl.querySelectorAll("[data-tmclose]").forEach((b) => {
+      b.onclick = () => {
+        tmCloseShellWin(b.dataset.tmclose);
+        setTimeout(paintTmPanel, 250);
+      };
+    });
+    tmPanelEl.querySelectorAll("[data-tmkill]").forEach((b) => {
+      b.onclick = async () => {
+        const g = groups.find((x) => x.id === b.dataset.tmkill);
+        if (g && await tmKillGroup(g)) setTimeout(paintTmPanel, 250);
+      };
+    });
+    tmPanelEl.querySelectorAll("[data-tmrestart]").forEach((b) => {
+      b.onclick = async () => {
+        const g = groups.find((x) => x.id === b.dataset.tmrestart);
+        if (g && await tmRestartGroup(g)) setTimeout(paintTmPanel, 250);
+      };
+    });
+  }
+  function openTmPanel() {
+    tmPanelOpen = true;
+    tmPanelEl.classList.remove("hidden");
+    if (tmBarEl) tmBarEl.classList.add("on");
+    paintTmPanel();
+    if (tmPanelTimer) clearInterval(tmPanelTimer);
+    tmPanelTimer = setInterval(paintTmPanel, 1e3);
+  }
+  if (tmBarEl) tmBarEl.onclick = (e) => {
+    e.stopPropagation();
+    tmPanelOpen ? closeTmPanel() : openTmPanel();
+  };
+  document.addEventListener("click", (e) => {
+    if (tmPanelOpen && !tmPanelEl.contains(e.target) && e.target !== tmBarEl && !tmBarEl.contains(e.target)) closeTmPanel();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && tmPanelOpen) closeTmPanel();
+  });
+  applyTmBar();
+  try {
+    if (MJEvents && MJEvents.on) MJEvents.on("settings", () => applyTmBar());
+  } catch (e) {
+  }
+  var tmPage = { q: "", sort: "mem", dir: -1, collapsed: /* @__PURE__ */ new Set(), timer: null, snap: null };
+  function tmPageHTML() {
+    return '<div class="tm-wrap"><div class="tm-daemon" id="tm-daemon">读取中…</div><div class="tm-tools"><input class="txt" type="text" id="tm-q" placeholder="搜索进程 / 应用"><span class="tag" id="tm-note"></span><button class="btn gray" id="tm-open-panel">顶栏速览</button></div><div class="tm-table" id="tm-table"></div><div class="tm-foot">只列终端机自己的进程：守护进程拉起的浏览器、核心、组件、商店与沙盒应用，加上系统内窗口。电脑上其他软件的进程不在这里，也不会被动到。</div></div>';
+  }
+  function tmSortedGroups(snap) {
+    const gs = (snap && snap.groups || []).slice();
+    const k = tmPage.sort, d = tmPage.dir;
+    gs.sort((a, b) => {
+      let r = 0;
+      if (k === "name") r = String(a.name).localeCompare(String(b.name));
+      else if (k === "cpu") r = (a.cpu || 0) - (b.cpu || 0);
+      else if (k === "mem") r = (a.mem || 0) - (b.mem || 0);
+      else if (k === "status") r = ((a.windows || []).some((w) => w.hung) ? 1 : 0) - ((b.windows || []).some((w) => w.hung) ? 1 : 0);
+      return r * d;
+    });
+    return gs;
+  }
+  function paintTmPage() {
+    const table = document.getElementById("tm-table");
+    if (!table) return;
+    const snap = tmPage.snap;
+    const dEl = document.getElementById("tm-daemon");
+    if (dEl && snap && snap.daemon) {
+      const d = snap.daemon;
+      dEl.innerHTML = "守护进程 <b>铭杰终端机 v" + esc(d.version || "") + "</b> · 已运行 " + tmFmtUp(d.uptimeSec) + " · CPU " + tmFmtCPU(d.cpu) + " · 内存 " + tmFmtB(d.mem) + " · PID " + d.pid + '<br><span style="opacity:.6">守护进程不能在这里结束——彻底退出在「设置 → 通用 → 退出系统」。</span>';
+    }
+    const q = tmPage.q.trim().toLowerCase();
+    const shells = tmShellWins().filter((a) => !q || a.n.toLowerCase().includes(q));
+    const arrow = (k) => tmPage.sort === k ? tmPage.dir < 0 ? " ▾" : " ▴" : "";
+    let h = '<div class="tm-th"><span class="tm-c-name" data-sort="name">名称' + arrow("name") + '</span><span class="tm-c-cpu" data-sort="cpu">CPU' + arrow("cpu") + '</span><span class="tm-c-mem" data-sort="mem">内存' + arrow("mem") + '</span><span class="tm-c-st" data-sort="status">状态' + arrow("status") + '</span><span class="tm-c-act"></span></div>';
+    if (shells.length) {
+      h += '<div class="tm-grow" style="cursor:default"><span class="tm-c-name">系统内窗口</span><span class="tm-c-cpu"></span><span class="tm-c-mem"></span><span class="tm-c-st"></span><span class="tm-c-act"></span></div>';
+      shells.forEach((a) => {
+        h += '<div class="tm-prow"><span class="tm-c-name">' + esc(a.n) + '</span><span class="tm-c-cpu">—</span><span class="tm-c-mem">—</span><span class="tm-c-st">运行中</span><span class="tm-c-act"><button class="tmp-btn gray" data-tmclose="' + a.id + '">关闭窗口</button></span></div>';
+      });
+    }
+    const groups = tmSortedGroups(snap).filter((g) => {
+      if (!q) return true;
+      if (g.name.toLowerCase().includes(q)) return true;
+      return (g.procs || []).some((p) => p.name.toLowerCase().includes(q));
+    });
+    if (!groups.length && !shells.length) h += '<div class="tm-prow"><span class="tm-c-name" style="opacity:.6">没有匹配的进程</span></div>';
+    groups.forEach((g) => {
+      const hung = (g.windows || []).some((w) => w.hung);
+      const open = !tmPage.collapsed.has(g.id);
+      h += '<div class="tm-grow" data-tmtoggle="' + esc(g.id) + '"><span class="tm-c-name">' + (open ? "▾ " : "▸ ") + esc(g.name) + ' <span style="opacity:.5;font-weight:400">（' + (g.procs || []).length + ' 个进程）</span></span><span class="tm-c-cpu">' + tmFmtCPU(g.cpu) + '</span><span class="tm-c-mem">' + tmFmtB(g.mem) + '</span><span class="tm-c-st">' + (hung ? '<span class="tmp-hung">无响应</span>' : "运行中") + '</span><span class="tm-c-act"><button class="tmp-btn" data-tmkill="' + esc(g.id) + '">结束</button>' + (g.canRestart ? ' <button class="tmp-btn gray" data-tmrestart="' + esc(g.id) + '">重启</button>' : "") + "</span></div>";
+      if (open) {
+        (g.windows || []).forEach((w) => {
+          h += '<div class="tm-prow"><span class="tm-c-name">窗口 · ' + esc(w.title || w.app || "") + (w.hung ? ' <span class="tmp-hung">无响应</span>' : "") + '</span><span class="tm-c-cpu"></span><span class="tm-c-mem"></span><span class="tm-c-st">' + (w.hung ? "无响应" : "") + '</span><span class="tm-c-act"><button class="tmp-btn gray" data-tmwinclose="' + w.hwnd + '">关闭窗口</button></span></div>';
+        });
+        (g.procs || []).filter((p) => !q || g.name.toLowerCase().includes(q) || p.name.toLowerCase().includes(q)).forEach((p) => {
+          h += '<div class="tm-prow"><span class="tm-c-name">' + esc(p.name) + ' <span style="opacity:.5">PID ' + p.pid + '</span></span><span class="tm-c-cpu">' + tmFmtCPU(p.cpu) + '</span><span class="tm-c-mem">' + tmFmtB(p.mem) + '</span><span class="tm-c-st"></span><span class="tm-c-act"><button class="tmp-btn" data-tmkillpid="' + p.pid + '">结束进程</button></span></div>';
+        });
+      }
+    });
+    table.innerHTML = h;
+    table.querySelectorAll("[data-sort]").forEach((el) => {
+      el.onclick = () => {
+        const k = el.dataset.sort;
+        if (tmPage.sort === k) tmPage.dir = -tmPage.dir;
+        else {
+          tmPage.sort = k;
+          tmPage.dir = k === "name" ? 1 : -1;
+        }
+        paintTmPage();
+      };
+    });
+    table.querySelectorAll("[data-tmtoggle]").forEach((el) => {
+      el.onclick = (e) => {
+        if (e.target.closest("button")) return;
+        const id = el.dataset.tmtoggle;
+        tmPage.collapsed.has(id) ? tmPage.collapsed.delete(id) : tmPage.collapsed.add(id);
+        paintTmPage();
+      };
+    });
+    table.querySelectorAll("[data-tmclose]").forEach((b) => {
+      b.onclick = () => {
+        tmCloseShellWin(b.dataset.tmclose);
+        setTimeout(tmPageTick, 250);
+      };
+    });
+    table.querySelectorAll("[data-tmkill]").forEach((b) => {
+      b.onclick = async () => {
+        const g = groups.find((x) => x.id === b.dataset.tmkill);
+        if (g && await tmKillGroup(g)) setTimeout(tmPageTick, 250);
+      };
+    });
+    table.querySelectorAll("[data-tmrestart]").forEach((b) => {
+      b.onclick = async () => {
+        const g = groups.find((x) => x.id === b.dataset.tmrestart);
+        if (g && await tmRestartGroup(g)) setTimeout(tmPageTick, 250);
+      };
+    });
+    table.querySelectorAll("[data-tmkillpid]").forEach((b) => {
+      b.onclick = async () => {
+        const pid = +b.dataset.tmkillpid;
+        for (const g of groups) {
+          const p = (g.procs || []).find((x) => x.pid === pid);
+          if (p) {
+            if (await tmKillProc(g, p)) setTimeout(tmPageTick, 250);
+            break;
+          }
+        }
+      };
+    });
+    table.querySelectorAll("[data-tmwinclose]").forEach((b) => {
+      b.onclick = async () => {
+        await tmCloseExtWin(+b.dataset.tmwinclose);
+        setTimeout(tmPageTick, 350);
+      };
+    });
+    const note = document.getElementById("tm-note");
+    if (note && snap) note.textContent = "共 " + groups.reduce((n, g) => n + (g.procs || []).length, 0) + " 个进程 · " + new Date((snap.at || 0) * 1e3).toLocaleTimeString("zh-CN", { hour12: false });
+  }
+  async function tmPageTick() {
+    const win = document.getElementById("win-taskmgr");
+    if (!win || win.classList.contains("hidden")) {
+      tmPageStop();
+      return;
+    }
+    const snap = await api("/api/taskmgr").catch(() => null);
+    if (snap) {
+      tmPage.snap = snap;
+      paintTmPage();
+    }
+  }
+  function tmPageStop() {
+    if (tmPage.timer) {
+      clearInterval(tmPage.timer);
+      tmPage.timer = null;
+    }
+  }
+  function bindTmPage() {
+    const q = document.getElementById("tm-q");
+    if (q) q.oninput = () => {
+      tmPage.q = q.value;
+      paintTmPage();
+    };
+    const op = document.getElementById("tm-open-panel");
+    if (op) op.onclick = () => openTmPanel();
+    tmPageTick();
+    tmPageStop();
+    tmPage.timer = setInterval(tmPageTick, 1e3);
+  }
+
   // web/src/b1/dock.ts
   var dockWrapEl = document.getElementById("dockwrap");
   function dockBase() {
@@ -4654,7 +5311,11 @@ function createEvHub(nowFn) {
       b.style.background = "#0b0e14";
       b.style.display = "flex";
       b.style.flexDirection = "column";
-      b.innerHTML = `<div style="padding:12px 14px 10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-bottom:1px solid rgba(255,255,255,.08)"><span class="cschip">版本 <b id="cs-ver">…</b></span><span class="cschip"><span class="csdot" id="cs-core-dot"></span>核心 <span id="cs-core">…</span></span><span class="cschip"><span class="csdot" id="cs-node-dot"></span>节点 <span id="cs-node">…</span></span><span class="cschip">运行时长 <span id="cs-up">…</span></span><span class="cschip">日志 <span id="cs-cnt">…</span></span></div><div style="padding:8px 14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-bottom:1px solid rgba(255,255,255,.08)"><select id="cs-level" class="csin"><option value="">全部级别</option><option value="info">信息及以上</option><option value="warn">警告及以上</option><option value="error">只看错误</option></select><select id="cs-module" class="csin"><option value="">全部模块</option><option value="system">系统</option><option value="core">核心</option><option value="node">节点</option><option value="browser">浏览器</option><option value="winmgr">窗口管理</option><option value="ssh">SSH</option><option value="servermon">服务器监控</option><option value="update">更新</option><option value="firefox">Firefox</option><option value="apps">应用商店</option><option value="openclaw">小龙虾</option><option value="onlyoffice">ONLYOFFICE</option><option value="libreoffice">LibreOffice</option><option value="imageglass">ImageGlass</option><option value="krita">Krita</option><option value="vscodium">VSCodium</option><option value="sandbox">应用隔离</option><option value="settings">设置</option><option value="storage">存储</option><option value="files">文件导入</option><option value="pdf">PDF 查看器</option><option value="remote">远程协助</option><option value="diag">诊断</option><option value="api">接口</option></select><input id="cs-q" class="csin" placeholder="搜索日志…" style="flex:1;min-width:100px"><label style="font-size:12.5px;opacity:.9"><input type="checkbox" id="cs-auto" checked> 自动滚动</label><button class="btn gray" id="cs-copy">复制诊断摘要</button><button class="btn gray" id="cs-export">导出日志</button></div><div id="cs-log" style="flex:1;overflow:auto;padding:10px 14px;font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.7;color:#d6e2f0"></div><div style="padding:7px 14px;font-size:12px;opacity:.6;border-top:1px solid rgba(255,255,255,.08)">日志同时存在 EXE 旁 Data/logs/mj.log。出问题时先看这里的红色报错，或点「导出日志」把诊断包发出来定位。</div>`;
+      b.innerHTML = `<div style="padding:12px 14px 10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-bottom:1px solid rgba(255,255,255,.08)"><span class="cschip">版本 <b id="cs-ver">…</b></span><span class="cschip"><span class="csdot" id="cs-core-dot"></span>核心 <span id="cs-core">…</span></span><span class="cschip"><span class="csdot" id="cs-node-dot"></span>节点 <span id="cs-node">…</span></span><span class="cschip">运行时长 <span id="cs-up">…</span></span><span class="cschip">日志 <span id="cs-cnt">…</span></span></div><div style="padding:8px 14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-bottom:1px solid rgba(255,255,255,.08)"><select id="cs-level" class="csin"><option value="">全部级别</option><option value="info">信息及以上</option><option value="warn">警告及以上</option><option value="error">只看错误</option></select><select id="cs-module" class="csin"><option value="">全部模块</option><option value="system">系统</option><option value="core">核心</option><option value="node">节点</option><option value="browser">浏览器</option><option value="winmgr">窗口管理</option><option value="ssh">SSH</option><option value="servermon">服务器监控</option><option value="update">更新</option><option value="firefox">Firefox</option><option value="apps">应用商店</option><option value="openclaw">小龙虾</option><option value="onlyoffice">ONLYOFFICE</option><option value="libreoffice">LibreOffice</option><option value="imageglass">ImageGlass</option><option value="krita">Krita</option><option value="vscodium">VSCodium</option><option value="sandbox">应用隔离</option><option value="settings">设置</option><option value="storage">存储</option><option value="files">文件导入</option><option value="pdf">PDF 查看器</option><option value="remote">远程协助</option><option value="diag">诊断</option><option value="api">接口</option><option value="taskmgr">任务管理器</option></select><input id="cs-q" class="csin" placeholder="搜索日志…" style="flex:1;min-width:100px"><label style="font-size:12.5px;opacity:.9"><input type="checkbox" id="cs-auto" checked> 自动滚动</label><button class="btn gray" id="cs-copy">复制诊断摘要</button><button class="btn gray" id="cs-export">导出日志</button></div><div id="cs-log" style="flex:1;overflow:auto;padding:10px 14px;font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.7;color:#d6e2f0"></div><div style="padding:7px 14px;font-size:12px;opacity:.6;border-top:1px solid rgba(255,255,255,.08)">日志同时存在 EXE 旁 Data/logs/mj.log。出问题时先看这里的红色报错，或点「导出日志」把诊断包发出来定位。</div>`;
+    }
+    if (id === "taskmgr") {
+      b.style.padding = "0";
+      b.innerHTML = tmPageHTML();
     }
     if (id === "appstore") b.innerHTML = `<h3>应用商店 · 便携应用</h3><p class="mut" style="margin-top:6px">这里的都是<b style="color:#fff">免安装的便携版</b>：从官方源直下、装进 EXE 旁的 <b style="color:#fff">Data/apps</b>，程序和数据都跟着文件夹走，宿主电脑不留东西。每个应用上架前都验过包，并钉死了校验和，下载对不上会自动拒绝。</p><div class="row" style="margin-top:10px"><input class="txt" id="st-q" placeholder="搜索应用…"><span class="tag" id="st-count"></span></div><div style="display:flex;gap:12px;margin-top:12px;align-items:flex-start"><div id="st-cats" style="width:102px;flex:none;display:flex;flex-direction:column;gap:4px"></div><div id="st-grid" style="flex:1;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;align-content:start"></div></div><p class="mut" id="st-foot" style="margin-top:12px"></p><hr style="border-color:rgba(255,255,255,.14);margin:18px 0"><h3>隔离安装 · 只有安装版的软件</h3><p class="mut" style="margin-top:6px">微信这种<b style="color:#fff">只有安装版</b>的软件，可以装进<b style="color:#fff">隔离盒子</b>：整个安装过程被隔离组件接住，程序和数据都落在 Data/sandbox 里，跟着文件夹走，宿主电脑不留东西。要先装好隔离组件（设置 → 应用隔离，过一次管理员确认）。</p><div id="st-box" style="margin-top:10px"></div>`;
     if (id === "openclaw") b.innerHTML = `<h3>小龙虾 OpenClaw</h3><div class="sm-card" style="margin-top:10px"><div class="sm-row"><span>状态</span><span id="oc-st-state">读取中…</span></div><div class="sm-row"><span>版本</span><span id="oc-st-ver">—</span></div><div class="sm-row"><span>运行时长</span><span id="oc-st-up">—</span></div><div class="sm-row"><span>内存占用（整个进程树）</span><span id="oc-st-rss">—</span></div><div class="sm-row"><span>组件占用磁盘</span><span id="oc-st-disk">—</span></div><div class="sm-row"><span>模型出口</span><span id="oc-st-route">—</span></div></div><div class="row" style="margin-top:10px"><button class="btn" id="oc-dl">下载组件</button><button class="btn gray" id="oc-check">检查更新</button><span class="tag" id="oc-prog"></span></div><div id="oc-main" style="display:none"><div class="row" style="margin-top:12px"><button class="btn" id="oc-start">启动</button><button class="btn red" id="oc-stop">停止</button><button class="btn gray" id="oc-console">打开控制台</button></div><p class="mut" style="margin-top:8px">网关令牌 <span class="tag" id="oc-token">…</span> <button class="btn gray" id="oc-tokcopy">复制令牌</button> <span style="font-size:12px">打开控制台要令牌时粘贴它；令牌存在组件自己的配置里，跟着文件夹走，不用记。</span></p><div class="sm-sec">设置</div><div class="sm-card"><div class="sm-row"><span>模型流量走本地节点</span><label class="sm-sw"><input type="checkbox" id="oc-p-vianode"><i></i></label></div><div class="sm-row"><span>打开终端机时自动启动</span><label class="sm-sw"><input type="checkbox" id="oc-p-autostart"><i></i></label></div><div class="sm-row"><span>崩溃后自动重启（10 分钟内最多 3 次）</span><label class="sm-sw"><input type="checkbox" id="oc-p-crash"><i></i></label></div></div><p class="mut" style="font-size:12px;margin-top:6px">走节点：节点在跑时模型请求经节点出去；节点起不来会明示本次直连，绝不假装走了节点。</p><div class="sm-sec">配置向导 · 模型</div><div class="sm-card"><div class="sm-row"><span>当前配置</span><span id="oc-wiz-cur">读取中…</span></div><div class="row" style="margin-top:8px" id="oc-wiz-provs"><button class="btn" data-p="openai">OpenAI</button><button class="btn gray" data-p="anthropic">Anthropic</button><button class="btn gray" data-p="deepseek">DeepSeek</button><button class="btn gray" data-p="custom">自定义接口</button></div><div class="row" style="margin-top:8px;display:none" id="oc-wiz-idrow"><input class="txt" id="oc-wiz-id" placeholder="厂商标识（小写字母开头，如 myapi）" style="max-width:240px"></div><div class="row" style="margin-top:8px"><input class="txt" id="oc-wiz-base" placeholder="接口地址（留空用官方地址）"></div><div class="row" style="margin-top:8px"><input class="txt" id="oc-wiz-key" type="password" placeholder="API Key（留空 = 不修改已保存的）" autocomplete="off"></div><div class="row" style="margin-top:8px"><input class="txt" id="oc-wiz-model" list="oc-wiz-models" placeholder="模型名，如 gpt-5.1"><datalist id="oc-wiz-models"></datalist></div><div class="row" style="margin-top:8px"><button class="btn" id="oc-wiz-save">保存配置</button><button class="btn gray" id="oc-wiz-test">测试连接</button><span class="tag" id="oc-wiz-msg"></span></div><p class="mut" style="font-size:12px;margin-top:6px">保存走小龙虾自己的配置命令：立即生效、不用重启网关，改前它会自动备份旧配置。Key 只写进组件配置，不进日志。自定义接口按 OpenAI 兼容协议。Telegram 等消息渠道去小龙虾控制台里配。</p></div><div class="sm-sec">运行日志</div><div class="sm-card"><pre id="oc-log" style="max-height:220px;overflow:auto;font-size:11.5px;line-height:1.55;white-space:pre-wrap;word-break:break-all;margin:0">（暂无日志）</pre><div class="row" style="margin-top:6px"><button class="btn gray" id="oc-log-refresh">刷新日志</button><span class="mut" style="font-size:12px">网关自己的输出；终端机的系统事件在「控制台」应用里看（模块：小龙虾）</span></div></div><div class="sm-sec">数据与组件</div><div class="sm-card"><div class="sm-row"><span>数据导出（配置 + 它记住的东西，换电脑用）</span><button class="btn gray" id="oc-export">导出</button></div><div class="sm-row"><span>数据导入（导入前自动备份现有数据）</span><span><input type="file" id="oc-import-file" accept=".zip" style="display:none"><button class="btn gray" id="oc-import">导入…</button></span></div><div class="sm-row"><span>卸载组件（程序、配置、数据全删）</span><button class="btn red" id="oc-uninst">卸载</button></div><p class="mut" style="font-size:12px;margin-top:6px" id="oc-dir"></p></div></div><details style="margin-top:14px"><summary class="mut" style="cursor:pointer;font-size:12.5px">安装须知（重型组件，先看一眼）</summary><p class="mut" style="margin-top:6px;line-height:1.7">小龙虾是一个能<b style="color:#fff">操作电脑、收发消息</b>的 AI 助手。它是<b style="color:#fff">按需下载的重型组件</b>：<br>· <b style="color:#fff">体积约 630 MB</b>，装在 EXE 旁的 Data/openclaw，跟着文件夹走；<br>· 运行时<b style="color:#fff">内存约 1 GB</b> 量级，老电脑会吃力（上面的状态卡能实时看）；<br>· 它权限很大（能跑命令、动文件、替你发消息），<b style="color:#fff">只建议装在自己的电脑上，不要装到公用电脑</b>；<br>· 模型 API Key 自备：在上面的配置向导里填，或去小龙虾自己的控制台里配。</p></details>`;
@@ -4751,6 +5412,7 @@ ${pr.textContent}> ${cmd}\r
   }
   function bind(id) {
     if (id === "home" || id === "sys") loadSys();
+    if (id === "taskmgr") bindTmPage();
     if (id === "sys") {
       const G = (x) => document.getElementById(x);
       const fmtB = (n) => {
@@ -4870,7 +5532,7 @@ ${pr.textContent}> ${cmd}\r
       };
       const paintDesktop = () => {
         const s = SETTINGS || SETDEF;
-        G("set-main").innerHTML = `<div class="set-page"><div class="set-sec">台前调度</div><div class="set-desc">开启后，桌面只显示当前应用，其他打开的应用缩到左侧成一排实时缩略图，点缩略图就切换过来。菜单栏右侧的 ▦ 也可以随开随关。</div><div class="sm-card"><div class="sm-row"><span>台前调度</span><label class="sm-sw"><input type="checkbox" id="ds-stage" ${stageOn() ? "checked" : ""}><i></i></label></div><div class="sm-row"><span>浏览器新窗口自动纳入台前调度</span><label class="sm-sw"><input type="checkbox" id="ds-autoclaim" ${s.stageAutoClaimBrowser !== false ? "checked" : ""}><i></i></label></div><div class="sm-row"><span>外部窗口卡片</span><span class="seg" id="ds-stagedisp"><button data-m="preview">窗口预览</button><button data-m="identity">应用标识</button></span></div></div><p class="set-note">窗口预览＝卡片上是窗口的真实画面缩略图（默认）；应用标识＝只显示应用图标和窗口标题，画面抓不到的窗口会自动用这种。自动纳入：隔离 Chrome / Firefox 自己新开的窗口（网页弹窗、新窗口、拖出的标签、独立的开发者工具）会自动登记进台前调度，方便切换；登记后是否摆位由下方「开窗礼仪」里的开关决定。已经登记的窗口不受这个开关影响。</p><div class="set-sec">窗口记忆</div><div class="set-desc">每个应用上次关窗时的大小和位置会被记住，下次打开优先按记忆落位（超出当前桌面范围会自动收回）。网站应用在右键菜单「调整窗口」里选了手机/桌面/全屏时，那个选择优先于记忆。</div><div class="sm-card"><div class="sm-row"><span>已记住的窗口</span><span class="set-val" id="ds-geom-n">…</span></div><div class="sm-row"><span>清除窗口记忆</span><button class="btn gray" id="ds-geom-clear">全部清除</button></div></div><div class="set-sec">Dock</div><div class="set-desc">终端机自己的 Dock，和 macOS 一样可以换边、可以自动隐藏；图标放大跟随指针连续缩放。改动即时生效，不用重启。</div><div class="sm-card"><div class="sm-row"><span>位置</span><span class="seg" id="ds-dockpos"><button data-p="bottom">底部</button><button data-p="left">左侧</button><button data-p="right">右侧</button></span></div><div class="sm-row"><span>自动隐藏 Dock</span><label class="sm-sw"><input type="checkbox" id="ds-dockhide" ${s.dockAutoHide ? "checked" : ""}><i></i></label></div></div><p class="set-note">自动隐藏后，Dock 沿它所在的那条边滑出，只留一条 3px 的边：指针贴到那条边停约 0.3 秒（或快速甩到边沿）它就滑进来，移开约 0.4 秒又滑回去。台前调度开着时把 Dock 放到左侧，会和台前调度条带抢左缘——条带（系统内缩略图和外部应用卡片）会临时镜像到右缘，Dock 改回来它也跟着回来，只是位置镜像，行为不变。</p><div class="set-sec">小窗手机宽</div><div class="set-desc">桌面窗口没最大化、或窄于触发宽度时，新打开的网站应用按手机宽度落位，网站多会显示手机版页面。只管打开时摆好，之后随你拖动。</div><div class="sm-card"><div class="sm-row"><span>手机宽模式</span><label class="sm-sw"><input type="checkbox" id="ds-pm" ${s.phoneMode ? "checked" : ""}><i></i></label></div><div class="sm-row"><span>触发宽度（桌面窄于此值，px）</span><input class="set-num" id="ds-ptw" type="number" min="600" max="4000" step="50" value="${s.phoneTriggerWidth}"></div><div class="sm-row"><span>手机宽度（落位宽度，px）</span><input class="set-num" id="ds-pw" type="number" min="280" max="800" step="10" value="${s.phoneWidth}"></div></div><div class="set-sec">开窗礼仪</div><div class="set-desc">从终端机打开、或被台前调度认领的窗口，第一次出现时自动摆进桌面区域（约 62% × 85%，菜单栏和 Dock 不会被盖住），你正在终端里操作时桌面还会垫在新窗口后面，就像在自己的系统里开应用；摆好之后完全归你，拖动、最大化都不再被拉回。你在宿主的其他软件里忙时，新窗口只登记、不抢屏。</div><div class="sm-card"><div class="sm-row"><span>新窗口自动落位（桌面垫背）</span><label class="sm-sw"><input type="checkbox" id="ds-place" ${s.winPlaceOnClaim !== false ? "checked" : ""}><i></i></label></div><div class="sm-row"><span>最小化时联动隐藏</span><label class="sm-sw"><input type="checkbox" id="ds-hidemin" ${s.winHideOnMinimize !== false ? "checked" : ""}><i></i></label></div><div class="sm-row"><span>关闭桌面时隐藏到托盘</span><label class="sm-sw"><input type="checkbox" id="ds-tray" ${s.winCloseToTray !== false ? "checked" : ""}><i></i></label></div></div><p class="set-note">联动隐藏：最小化桌面时已登记的窗口整套跟着藏起，桌面自己留在宿主任务栏里找得到，恢复桌面时整套按原样回来（你自己单独最小化的窗口不会被动）。关闭桌面则藏得更彻底：任务栏不留按钮，宿主右下角系统托盘会出现终端机图标，点它（或照旧双击程序）整套恢复。无论哪种藏法，退出系统前所有被藏的窗口都会先恢复显示。</p><div class="set-sec">沉浸模式</div><div class="set-desc">开启后，终端机打开的一切只留在终端机里：已经登记进台前调度的窗口（包括桌面自己）会从宿主任务栏和 Alt-Tab 里消失，切换入口只剩台前调度与 Dock；宿主右下角的托盘图标是回宿主的锚，点它整套回来。没有被台前调度认领的窗口永远不会被隐藏，一直留在宿主任务栏上找得到。</div><div class="sm-card"><div class="sm-row"><span>沉浸模式</span><label class="sm-sw"><input type="checkbox" id="ds-immersive" ${s.immersiveMode ? "checked" : ""}><i></i></label></div><div class="sm-row"><span>桌面全屏</span><label class="sm-sw"><input type="checkbox" id="ds-fullscreen" ${s.desktopFullscreen ? "checked" : ""}><i></i></label></div></div><p class="set-note">桌面全屏：桌面视图以无边框全屏占据它所在的显示器，关掉这个开关就恢复原来的窗口大小与位置；两个开关都即时生效，不用重启。一句实话：万一终端机异常退出（被强杀或崩溃），个别已沉浸的窗口可能暂时留在隐藏状态——把那个窗口关掉即自愈，重新打开终端机时启动清扫也会把它们还原回任务栏。</p><div class="set-sec">导入的文件</div><div class="set-desc">从电脑导入到终端桌面的文件存在 Data/files 里，和应用图标混排在桌面上。关掉只是不在桌面上显示这些图标，文件本身、导入通道（拖入 / 桌面菜单导入 / 粘贴）都不受影响。</div><div class="sm-card"><div class="sm-row"><span>在桌面显示导入的文件</span><label class="sm-sw"><input type="checkbox" id="ds-files" ${s.filesOnDesktop !== false ? "checked" : ""}><i></i></label></div></div><div class="set-sec">控制中心</div><div class="set-desc">菜单栏右边双开关图标打开的控制中心里放哪些格子，改动即时生效。节点大格是核心控制，和 macOS 的核心控件一样不能关。</div><div class="sm-card"><div class="sm-row"><span>节点（核心控制）</span><span class="set-val">始终显示</span></div>${[["immersive", "沉浸模式"], ["stage", "台前调度"], ["fullscreen", "桌面全屏"], ["dockhide", "Dock 自动隐藏"], ["remote", "远程协助"], ["wallpaper", "壁纸"]].map(([k, n]) => `<div class="sm-row"><span>${n}</span><label class="sm-sw"><input type="checkbox" id="ds-cc-${k}" ${s["cc_show_" + k] !== false ? "checked" : ""}><i></i></label></div>`).join("")}</div></div>`;
+        G("set-main").innerHTML = `<div class="set-page"><div class="set-sec">台前调度</div><div class="set-desc">开启后，桌面只显示当前应用，其他打开的应用缩到左侧成一排实时缩略图，点缩略图就切换过来。菜单栏右侧的 ▦ 也可以随开随关。</div><div class="sm-card"><div class="sm-row"><span>台前调度</span><label class="sm-sw"><input type="checkbox" id="ds-stage" ${stageOn() ? "checked" : ""}><i></i></label></div><div class="sm-row"><span>浏览器新窗口自动纳入台前调度</span><label class="sm-sw"><input type="checkbox" id="ds-autoclaim" ${s.stageAutoClaimBrowser !== false ? "checked" : ""}><i></i></label></div><div class="sm-row"><span>外部窗口卡片</span><span class="seg" id="ds-stagedisp"><button data-m="preview">窗口预览</button><button data-m="identity">应用标识</button></span></div></div><p class="set-note">窗口预览＝卡片上是窗口的真实画面缩略图（默认）；应用标识＝只显示应用图标和窗口标题，画面抓不到的窗口会自动用这种。自动纳入：隔离 Chrome / Firefox 自己新开的窗口（网页弹窗、新窗口、拖出的标签、独立的开发者工具）会自动登记进台前调度，方便切换；登记后是否摆位由下方「开窗礼仪」里的开关决定。已经登记的窗口不受这个开关影响。</p><div class="set-sec">窗口记忆</div><div class="set-desc">每个应用上次关窗时的大小和位置会被记住，下次打开优先按记忆落位（超出当前桌面范围会自动收回）。网站应用在右键菜单「调整窗口」里选了手机/桌面/全屏时，那个选择优先于记忆。</div><div class="sm-card"><div class="sm-row"><span>已记住的窗口</span><span class="set-val" id="ds-geom-n">…</span></div><div class="sm-row"><span>清除窗口记忆</span><button class="btn gray" id="ds-geom-clear">全部清除</button></div></div><div class="set-sec">Dock</div><div class="set-desc">终端机自己的 Dock，和 macOS 一样可以换边、可以自动隐藏；图标放大跟随指针连续缩放。改动即时生效，不用重启。</div><div class="sm-card"><div class="sm-row"><span>位置</span><span class="seg" id="ds-dockpos"><button data-p="bottom">底部</button><button data-p="left">左侧</button><button data-p="right">右侧</button></span></div><div class="sm-row"><span>自动隐藏 Dock</span><label class="sm-sw"><input type="checkbox" id="ds-dockhide" ${s.dockAutoHide ? "checked" : ""}><i></i></label></div></div><p class="set-note">自动隐藏后，Dock 沿它所在的那条边滑出，只留一条 3px 的边：指针贴到那条边停约 0.3 秒（或快速甩到边沿）它就滑进来，移开约 0.4 秒又滑回去。台前调度开着时把 Dock 放到左侧，会和台前调度条带抢左缘——条带（系统内缩略图和外部应用卡片）会临时镜像到右缘，Dock 改回来它也跟着回来，只是位置镜像，行为不变。</p><div class="set-sec">小窗手机宽</div><div class="set-desc">桌面窗口没最大化、或窄于触发宽度时，新打开的网站应用按手机宽度落位，网站多会显示手机版页面。只管打开时摆好，之后随你拖动。</div><div class="sm-card"><div class="sm-row"><span>手机宽模式</span><label class="sm-sw"><input type="checkbox" id="ds-pm" ${s.phoneMode ? "checked" : ""}><i></i></label></div><div class="sm-row"><span>触发宽度（桌面窄于此值，px）</span><input class="set-num" id="ds-ptw" type="number" min="600" max="4000" step="50" value="${s.phoneTriggerWidth}"></div><div class="sm-row"><span>手机宽度（落位宽度，px）</span><input class="set-num" id="ds-pw" type="number" min="280" max="800" step="10" value="${s.phoneWidth}"></div></div><div class="set-sec">开窗礼仪</div><div class="set-desc">从终端机打开、或被台前调度认领的窗口，第一次出现时自动摆进桌面区域（约 62% × 85%，菜单栏和 Dock 不会被盖住），你正在终端里操作时桌面还会垫在新窗口后面，就像在自己的系统里开应用；摆好之后完全归你，拖动、最大化都不再被拉回。你在宿主的其他软件里忙时，新窗口只登记、不抢屏。</div><div class="sm-card"><div class="sm-row"><span>新窗口自动落位（桌面垫背）</span><label class="sm-sw"><input type="checkbox" id="ds-place" ${s.winPlaceOnClaim !== false ? "checked" : ""}><i></i></label></div><div class="sm-row"><span>最小化时联动隐藏</span><label class="sm-sw"><input type="checkbox" id="ds-hidemin" ${s.winHideOnMinimize !== false ? "checked" : ""}><i></i></label></div><div class="sm-row"><span>关闭桌面时隐藏到托盘</span><label class="sm-sw"><input type="checkbox" id="ds-tray" ${s.winCloseToTray !== false ? "checked" : ""}><i></i></label></div></div><p class="set-note">联动隐藏：最小化桌面时已登记的窗口整套跟着藏起，桌面自己留在宿主任务栏里找得到，恢复桌面时整套按原样回来（你自己单独最小化的窗口不会被动）。关闭桌面则藏得更彻底：任务栏不留按钮，宿主右下角系统托盘会出现终端机图标，点它（或照旧双击程序）整套恢复。无论哪种藏法，退出系统前所有被藏的窗口都会先恢复显示。</p><div class="set-sec">沉浸模式</div><div class="set-desc">开启后，终端机打开的一切只留在终端机里：已经登记进台前调度的窗口（包括桌面自己）会从宿主任务栏和 Alt-Tab 里消失，切换入口只剩台前调度与 Dock；宿主右下角的托盘图标是回宿主的锚，点它整套回来。没有被台前调度认领的窗口永远不会被隐藏，一直留在宿主任务栏上找得到。</div><div class="sm-card"><div class="sm-row"><span>沉浸模式</span><label class="sm-sw"><input type="checkbox" id="ds-immersive" ${s.immersiveMode ? "checked" : ""}><i></i></label></div><div class="sm-row"><span>桌面全屏</span><label class="sm-sw"><input type="checkbox" id="ds-fullscreen" ${s.desktopFullscreen ? "checked" : ""}><i></i></label></div></div><p class="set-note">桌面全屏：桌面视图以无边框全屏占据它所在的显示器，关掉这个开关就恢复原来的窗口大小与位置；两个开关都即时生效，不用重启。一句实话：万一终端机异常退出（被强杀或崩溃），个别已沉浸的窗口可能暂时留在隐藏状态——把那个窗口关掉即自愈，重新打开终端机时启动清扫也会把它们还原回任务栏。</p><div class="set-sec">导入的文件</div><div class="set-desc">从电脑导入到终端桌面的文件存在 Data/files 里，和应用图标混排在桌面上。关掉只是不在桌面上显示这些图标，文件本身、导入通道（拖入 / 桌面菜单导入 / 粘贴）都不受影响。</div><div class="sm-card"><div class="sm-row"><span>在桌面显示导入的文件</span><label class="sm-sw"><input type="checkbox" id="ds-files" ${s.filesOnDesktop !== false ? "checked" : ""}><i></i></label></div></div><div class="set-sec">菜单栏</div><div class="set-desc">菜单栏右侧的任务管理器入口：点开是速览面板（终端自己的进程分组、占用、结束与重启核心），完整窗口在「任务管理器」应用里（桌面、启动台、聚焦搜索都能打开）。关掉只是藏掉顶栏入口，应用本身还在。</div><div class="sm-card"><div class="sm-row"><span>顶栏显示任务管理器入口</span><label class="sm-sw"><input type="checkbox" id="ds-tmbar" ${s.taskmgrBar !== false ? "checked" : ""}><i></i></label></div></div><div class="set-sec">控制中心</div><div class="set-desc">菜单栏右边双开关图标打开的控制中心里放哪些格子，改动即时生效。节点大格是核心控制，和 macOS 的核心控件一样不能关。</div><div class="sm-card"><div class="sm-row"><span>节点（核心控制）</span><span class="set-val">始终显示</span></div>${[["immersive", "沉浸模式"], ["stage", "台前调度"], ["fullscreen", "桌面全屏"], ["dockhide", "Dock 自动隐藏"], ["remote", "远程协助"], ["wallpaper", "壁纸"]].map(([k, n]) => `<div class="sm-row"><span>${n}</span><label class="sm-sw"><input type="checkbox" id="ds-cc-${k}" ${s["cc_show_" + k] !== false ? "checked" : ""}><i></i></label></div>`).join("")}</div></div>`;
         G("ds-stage").onchange = (e) => toggleStage(e.target.checked);
         const sdSeg = G("ds-stagedisp");
         if (sdSeg) {
@@ -4938,6 +5600,7 @@ ${pr.textContent}> ${cmd}\r
         bindWinTgl("ds-tray", "winCloseToTray");
         bindWinTgl("ds-immersive", "immersiveMode");
         bindWinTgl("ds-fullscreen", "desktopFullscreen");
+        bindWinTgl("ds-tmbar", "taskmgrBar");
         ["immersive", "stage", "fullscreen", "dockhide", "remote", "wallpaper"].forEach((k) => bindWinTgl("ds-cc-" + k, "cc_show_" + k));
         const dockPosPaint = () => {
           const seg = G("ds-dockpos");
@@ -5077,12 +5740,19 @@ ${pr.textContent}> ${cmd}\r
       };
       const paintBrowser = async () => {
         const s = SETTINGS || SETDEF;
-        G("set-main").innerHTML = `<div class="set-page"><div class="set-sec">隔离 Chrome</div><div class="set-desc">独立档案存在 Data/ChromeProfile，历史、Cookie、登录都在里面，跟着文件夹走。</div><div class="sm-card"><div class="sm-row"><span>档案大小</span><span class="set-val" id="br-chrome-size">读取中…</span></div><div class="sm-row"><span>磁盘缓存上限（MB，0 = 不限制）</span><input class="set-num" id="br-cache" type="number" min="0" max="2000" step="50" value="${s.chromeCacheMB}"></div></div><p class="set-note">缓存是档案长胖的主因。上限在下次打开隔离 Chrome 时生效（启动参数 --disk-cache-size）；已经开着的窗口不受影响。要立刻瘦身去「存储空间」一键清理。</p><div class="set-sec">Firefox</div><div class="sm-card"><div class="sm-row"><span>组件状态</span><span class="set-val" id="br-ff">读取中…</span></div><div class="sm-row"><span>管理</span><button class="btn gray" id="br-ff-open">打开 Firefox 页</button></div></div><div class="set-sec">谷歌云同步</div><div class="set-desc">Chrome 的登录搬不了家（被那台电脑的 Windows 账户锁着），但开启谷歌同步后，换一台电脑在隔离 Chrome 里登一次谷歌，密码、书签、历史就会同步回来。同步开关在谷歌浏览器页里。</div><div class="row"><button class="btn gray" id="br-sync">去谷歌浏览器页开同步</button></div></div>`;
+        G("set-main").innerHTML = `<div class="set-page"><div class="set-sec">隔离 Chrome</div><div class="set-desc">独立档案存在 Data/ChromeProfile，历史、Cookie、登录都在里面，跟着文件夹走。</div><div class="sm-card"><div class="sm-row"><span>档案大小</span><span class="set-val" id="br-chrome-size">读取中…</span></div><div class="sm-row"><span>磁盘缓存上限（MB，0 = 不限制）</span><input class="set-num" id="br-cache" type="number" min="0" max="2000" step="50" value="${s.chromeCacheMB}"></div><div class="sm-row"><span>浏览器下载目录</span><span class="set-val">已锁定 Data/Downloads</span></div><div class="sm-row"><span>清扫宿主里的 PWA 快捷方式</span><label class="sm-sw"><input type="checkbox" id="br-sweep" ${s.pwaSweep !== false ? "checked" : ""}><i></i></label></div></div><p class="set-note">下载锁定（v0.69）：隔离 Chrome 和 Firefox 每次启动都会把下载目录钉到当前电脑的 Data/Downloads，控制台里有自检日志行——浏览器下载的东西不再落到宿主的下载文件夹。在 Chrome 里用「安装应用」装的 PWA 会在宿主开始菜单/桌面留下指向本档案的快捷方式，清扫会在浏览器启动时把这类快捷方式删掉并逐个记日志（只认路径指向本终端档案的，宿主自己 Chrome 的快捷方式不动）；关掉这个开关就不扫。</p><p class="set-note">缓存是档案长胖的主因。上限在下次打开隔离 Chrome 时生效（启动参数 --disk-cache-size）；已经开着的窗口不受影响。要立刻瘦身去「存储空间」一键清理。</p><div class="set-sec">Firefox</div><div class="sm-card"><div class="sm-row"><span>组件状态</span><span class="set-val" id="br-ff">读取中…</span></div><div class="sm-row"><span>管理</span><button class="btn gray" id="br-ff-open">打开 Firefox 页</button></div></div><div class="set-sec">谷歌云同步</div><div class="set-desc">Chrome 的登录搬不了家（被那台电脑的 Windows 账户锁着），但开启谷歌同步后，换一台电脑在隔离 Chrome 里登一次谷歌，密码、书签、历史就会同步回来。同步开关在谷歌浏览器页里。</div><div class="row"><button class="btn gray" id="br-sync">去谷歌浏览器页开同步</button></div></div>`;
         G("br-cache").onchange = async () => {
           const r = await saveSetting({ chromeCacheMB: +G("br-cache").value || 0 });
           if (r && r.error) {
             alert("保存失败：" + r.error);
             G("br-cache").value = (SETTINGS || SETDEF).chromeCacheMB;
+          }
+        };
+        G("br-sweep").onchange = async (e) => {
+          const r = await saveSetting({ pwaSweep: e.target.checked });
+          if (r && r.error) {
+            alert("保存失败：" + r.error);
+            e.target.checked = !e.target.checked;
           }
         };
         G("br-ff-open").onclick = () => openApp("firefox");
@@ -7697,7 +8367,7 @@ ${pr.textContent}> ${cmd}\r
 
   // web/src/b1/settings.ts
   var SETTINGS = null;
-  var SETDEF = { wallpaper: "tahoe", wallpaperFit: "fill", pdfZoom: "fit-width", imgZoom: "fit", uiScale: "100", stageManager: false, idleExitMinutes: 30, phoneMode: true, phoneTriggerWidth: 1200, phoneWidth: 400, chromeCacheMB: 200, stageAutoClaimBrowser: true, filesOnDesktop: true, remoteEnabled: false, winPlaceOnClaim: true, winHideOnMinimize: true, winCloseToTray: true, immersiveMode: false, desktopFullscreen: false, dockPosition: "bottom", dockAutoHide: false, dockIconSize: 52, cc_show_immersive: true, cc_show_stage: true, cc_show_fullscreen: true, cc_show_dockhide: true, cc_show_remote: true, cc_show_wallpaper: true, notify_allow_sandbox: true, notify_allow_update: true, notify_allow_servermon: true, notify_allow_node: true, notify_allow_remote: true, notify_allow_files: true, notify_allow_web: true, notify_banner_sandbox: true, notify_banner_update: true, notify_banner_servermon: true, notify_banner_node: true, notify_banner_remote: true, notify_banner_files: true, notify_banner_web: true, nc_widgets: '[{"id":"calendar","show":true},{"id":"server","show":true},{"id":"node","show":true}]', exitClosesApps: true, updateBeta: false, nodeStartMode: "last", nodeSubAuto: true, nodeSubIntervalMin: 360, nodeTestURL: "http://www.gstatic.com/generate_204", nodeTestTimeoutMs: 5e3, nodeClashAPI: true, summonHotkey: "F8", defaultOfficeSuite: "onlyoffice", stageDisplay: "preview", deskIconSize: 54, deskSort: "manual" };
+  var SETDEF = { wallpaper: "tahoe", wallpaperFit: "fill", pdfZoom: "fit-width", imgZoom: "fit", uiScale: "100", stageManager: false, idleExitMinutes: 30, phoneMode: true, phoneTriggerWidth: 1200, phoneWidth: 400, chromeCacheMB: 200, stageAutoClaimBrowser: true, filesOnDesktop: true, remoteEnabled: false, winPlaceOnClaim: true, winHideOnMinimize: true, winCloseToTray: true, immersiveMode: false, desktopFullscreen: false, dockPosition: "bottom", dockAutoHide: false, dockIconSize: 52, cc_show_immersive: true, cc_show_stage: true, cc_show_fullscreen: true, cc_show_dockhide: true, cc_show_remote: true, cc_show_wallpaper: true, notify_allow_sandbox: true, notify_allow_update: true, notify_allow_servermon: true, notify_allow_node: true, notify_allow_remote: true, notify_allow_files: true, notify_allow_web: true, notify_banner_sandbox: true, notify_banner_update: true, notify_banner_servermon: true, notify_banner_node: true, notify_banner_remote: true, notify_banner_files: true, notify_banner_web: true, nc_widgets: '[{"id":"calendar","show":true},{"id":"server","show":true},{"id":"node","show":true}]', exitClosesApps: true, updateBeta: false, nodeStartMode: "last", nodeSubAuto: true, nodeSubIntervalMin: 360, nodeTestURL: "http://www.gstatic.com/generate_204", nodeTestTimeoutMs: 5e3, nodeClashAPI: true, summonHotkey: "F8", defaultOfficeSuite: "onlyoffice", stageDisplay: "preview", deskIconSize: 54, deskSort: "manual", taskmgrBar: true, pwaSweep: true };
   function wallKey() {
     if (SETTINGS) return SETTINGS.wallpaper || "tahoe";
     return localStorage.getItem("mj-wall") || "tahoe";
@@ -8321,158 +8991,6 @@ ${pr.textContent}> ${cmd}\r
     }
   })();
 
-  // web/src/b1/apiclient.ts
-  function getVaultStatus() {
-    return api("/api/vault/status");
-  }
-
-  // web/src/b1/events.ts
-  var hub = createEvHub();
-  var MJEvents = {
-    on(topic, fn) {
-      return hub.on(topic, fn);
-    },
-    onCmd(fn) {
-      return hub.onCmd(fn);
-    }
-  };
-  function refresher(fn) {
-    let timer = null, running = false, again = false;
-    const kick = () => {
-      if (running) {
-        again = true;
-        return;
-      }
-      if (timer) return;
-      timer = setTimeout(async () => {
-        timer = null;
-        running = true;
-        try {
-          await fn();
-        } catch (e) {
-        }
-        running = false;
-        if (again) {
-          again = false;
-          kick();
-        }
-      }, 140);
-    };
-    return kick;
-  }
-  function refreshFolderPop() {
-    try {
-      if (openFolderId && openFolderEl) openFolderPop(openFolderId, openFolderEl);
-    } catch (e) {
-    }
-  }
-  MJEvents.on("files", refresher(async () => {
-    await loadDeskFiles();
-    renderDesk();
-    refreshFolderPop();
-  }));
-  MJEvents.on("layout", refresher(async () => {
-    await loadLayout();
-    renderDesk();
-    refreshFolderPop();
-  }));
-  MJEvents.on("webapps", refresher(async () => {
-    await loadWebApps();
-    renderDesk();
-    refreshFolderPop();
-  }));
-  MJEvents.on("storeapps", refresher(async () => {
-    await loadStoreApps();
-    await loadBoxApps();
-    renderDesk();
-  }));
-  MJEvents.on("settings", refresher(async () => {
-    await loadSettings();
-  }));
-  MJEvents.on("windows", refresher(async () => {
-    await refreshExtStrip();
-  }));
-  MJEvents.on("nodes", refresher(async () => {
-    await pollNode();
-  }));
-  MJEvents.on("vault", refresher(async () => {
-    const s = await getVaultStatus();
-    window.__vault = s;
-    if (s && s.locked && window.__vaultShowLock) {
-      try {
-        window.__vaultShowLock();
-      } catch (e) {
-      }
-    }
-  }));
-  function installShellZoomGuards() {
-    try {
-      document.addEventListener("wheel", (ev) => {
-        if (!ev.ctrlKey) return;
-        const chain = [];
-        let n = ev.target;
-        while (n && chain.length < 64) {
-          chain.push({ id: n.id || "", cls: typeof n.className === "string" ? n.className : "" });
-          n = n.parentElement || n.parentNode;
-        }
-        if (shellWheelSwallow(chain)) ev.preventDefault();
-      }, { passive: false, capture: true });
-      document.addEventListener("keydown", (ev) => {
-        if (!ev.ctrlKey || ev.altKey || ev.metaKey) return;
-        if (ev.key === "=" || ev.key === "+" || ev.key === "-" || ev.key === "_" || ev.key === "0") ev.preventDefault();
-      }, { capture: true });
-    } catch (e) {
-    }
-  }
-  installShellZoomGuards();
-  var es = null;
-  var attempt = 0;
-  var retryTimer = null;
-  var started = false;
-  function scheduleReconnect() {
-    if (retryTimer) return;
-    const delay = evBackoffDelay(attempt);
-    attempt++;
-    retryTimer = setTimeout(() => {
-      retryTimer = null;
-      connectEvents();
-    }, delay);
-  }
-  function connectEvents() {
-    try {
-      if (typeof EventSource === "undefined") {
-        scheduleReconnect();
-        return;
-      }
-      es = new EventSource("/api/view/stream");
-      es.onopen = () => {
-        attempt = 0;
-      };
-      es.onmessage = (ev) => {
-        try {
-          hub.dispatch(ev.data);
-        } catch (e) {
-        }
-      };
-      es.onerror = () => {
-        try {
-          if (es) es.close();
-        } catch (e) {
-        }
-        es = null;
-        scheduleReconnect();
-      };
-    } catch (e) {
-      scheduleReconnect();
-    }
-  }
-  function startEvents() {
-    if (started) return;
-    started = true;
-    connectEvents();
-  }
-  startEvents();
-
   // web/src/b1/expose.ts
   function pub(name, d) {
     Object.defineProperty(window, name, Object.assign({ configurable: true, enumerable: true }, d));
@@ -8528,6 +9046,7 @@ ${pr.textContent}> ${cmd}\r
   pub("toast", { get: () => toast });
   pub("applyDockLayout", { get: () => applyDockLayout });
   pub("ccTile", { get: () => ccTile });
+  pub("openAddApp", { get: () => openAddApp });
   pub("sysInfo", { get: __bind_sysInfo.get, set: __bind_sysInfo.set });
   pub("SETTINGS", { get: __bind_SETTINGS.get, set: __bind_SETTINGS.set });
   pub("openApp", { get: __bind_openApp.get, set: __bind_openApp.set });
@@ -9740,6 +10259,7 @@ function uiScaleKey(v) {
     STOREAPPS.filter((a) => !inFolder.has("store:" + a.id)).forEach((a) => pushSafe("store:" + a.id, a.name, () => storeIconHTML(a), () => launchStoreApp(a.id)));
     BOXAPPS.filter((a) => !inFolder.has("box:" + a.id)).forEach((a) => pushSafe("box:" + a.id, a.name, () => storeIconHTML(a), () => launchBoxApp(a.id)));
     PRODAPPS.filter((c) => !inFolder.has("prod:" + c.id)).forEach((c) => pushSafe("prod:" + c.id, c.name, () => prodIconHTML(c), () => launchProdApp(c.id)));
+    push("util:addapp", "添加应用", '<div class="appico g-sys" style="color:#fff">' + glyph("plus", 27) + "</div>", () => openAddApp());
     DESKORDER.forEach((k) => {
       if (byKey[k]) out.push(byKey[k]);
     });
@@ -9836,7 +10356,7 @@ function uiScaleKey(v) {
       en.open();
     };
     b.addEventListener("pointerdown", (ev) => {
-      if (ev.button !== 0 || lpQ.value.trim()) return;
+      if (ev.button !== 0 || lpQ.value.trim() || en.key === "util:addapp") return;
       const r = b.getBoundingClientRect();
       lpDrag = { el: b, en, sx: ev.clientX, sy: ev.clientY, ox: r.left, oy: r.top, active: false };
       try {

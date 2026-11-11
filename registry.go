@@ -108,6 +108,8 @@ var featureRegistry = []feature{
 			lr("/"),
 			lr("/api/layout"), lr("/api/layout/save"),
 			lr("/api/apps"), lr("/api/apps/save"), lr("/api/appopen"),
+			// v0.69 block 2: MJ-native add-app flows (addapp.go)
+			lr("/api/webapps/probe"), lr("/api/webapps/pin"), lr("/api/webapps/icon"),
 			lr("/api/browser"), lr("/api/wallpaper"),
 			lr("/api/wallpaper/fromfile"),
 			lr("/api/appicon/"), lr("/api/chrome/icon"),
@@ -119,8 +121,16 @@ var featureRegistry = []feature{
 			"wallpaper", "wallpaperFit", "uiScale", "filesOnDesktop", "deskIconSize", "deskSort",
 			"dockPosition", "dockAutoHide", "dockIconSize",
 			"cc_show_wallpaper", "cc_show_dockhide", "nc_widgets",
-			"chromeCacheMB",
+			"chromeCacheMB", "pwaSweep",
 		},
+	},
+	{
+		ID: "taskmgr", Name: "任务管理器",
+		Modules: []string{"taskmgr"},
+		Routes: []featureRoute{
+			lr("/api/taskmgr"), lr("/api/taskmgr/kill"), lr("/api/taskmgr/restart"),
+		},
+		Settings: []string{"taskmgrBar"},
 	},
 	{
 		ID: "windows", Name: "窗口管理",

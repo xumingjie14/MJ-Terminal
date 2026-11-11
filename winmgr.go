@@ -67,6 +67,11 @@ type extWindow struct {
 	// "firefox", "" for anything else).
 	Browser  bool   `json:"browser,omitempty"`
 	IconKind string `json:"icon,omitempty"`
+	// v0.69: AppWindow marks a window that can be pinned as a
+	// desktop web app （固定为桌面应用）: an app-mode window
+	// (site geometry key) or a window whose launch URL is a
+	// WEBAPPS entry. Computed on the copy in extWinListHandler.
+	AppWindow bool `json:"appwindow,omitempty"`
 
 	pid       uint32
 	lastTitle string // title at last AppID stamp; a change triggers a re-stamp
@@ -940,6 +945,12 @@ func extWinListHandler(w http.ResponseWriter, r *http.Request) {
 		// v0.56: identity facts for the strip (see the field
 		// comments on extWindow).
 		cp.Browser = cp.browser
+		// v0.69: pinnable as a desktop web app (see addapp.go).
+		// App-mode launches are the ones carrying a site
+		// geometry key; a plain browser window is not an app.
+		if cp.URL != "" && strings.HasPrefix(cp.geomKey, "site:") {
+			cp.AppWindow = true
+		}
 		switch platformProcessImageBase(cp.pid) {
 		case "chrome.exe", "msedge.exe":
 			cp.IconKind = "chrome"

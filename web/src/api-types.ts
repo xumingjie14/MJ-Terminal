@@ -68,6 +68,7 @@ export interface ExtWindow {
   minimized: boolean;
   browser?: boolean;
   icon?: string;
+  appwindow?: boolean;
 }
 
 export interface FFStatusResponse {
@@ -186,6 +187,8 @@ export interface MjSettings {
   phoneTriggerWidth: number;
   phoneWidth: number;
   chromeCacheMB: number;
+  pwaSweep: boolean;
+  taskmgrBar: boolean;
   stageAutoClaimBrowser: boolean;
   filesOnDesktop: boolean;
   remoteEnabled: boolean;
@@ -289,6 +292,8 @@ export interface SettingsResponse {
   phoneTriggerWidth: number;
   phoneWidth: number;
   chromeCacheMB: number;
+  pwaSweep: boolean;
+  taskmgrBar: boolean;
   stageAutoClaimBrowser: boolean;
   filesOnDesktop: boolean;
   remoteEnabled: boolean;
@@ -351,6 +356,46 @@ export interface SystemInfo {
   time: string;
 }
 
+export interface TaskMgrDaemon {
+  version: string;
+  uptimeSec: number;
+  cpu: number;
+  mem: number;
+  pid: number;
+}
+
+export interface TaskMgrGroup {
+  id: string;
+  name: string;
+  kind: string;
+  critical: boolean;
+  canRestart: boolean;
+  cpu: number;
+  mem: number;
+  procs: TaskMgrProc[];
+  windows: TaskMgrWindow[];
+}
+
+export interface TaskMgrProc {
+  pid: number;
+  name: string;
+  cpu: number;
+  mem: number;
+}
+
+export interface TaskMgrResponse {
+  daemon: TaskMgrDaemon;
+  groups: TaskMgrGroup[];
+  at: number;
+}
+
+export interface TaskMgrWindow {
+  hwnd: number;
+  app: string;
+  title: string;
+  hung: boolean;
+}
+
 export interface UpdateApplyResponse {
   ok: boolean;
   message: string;
@@ -409,6 +454,14 @@ export interface WebApp {
   name: string;
   url: string;
   winmode?: string;
+  icon?: string;
+}
+
+export interface WebAppProbeResponse {
+  ok: boolean;
+  exists: boolean;
+  name: string;
+  url: string;
 }
 
 export interface WebAppSaveResponse {

@@ -16,6 +16,11 @@ export let WEBAPPS=[];
 export function webLetter(n){return (String(n||'?').trim()[0]||'?').toUpperCase()}
 export function faviconURL(u){try{return 'https://www.google.com/s2/favicons?domain='+new URL(u).hostname+'&sz=128'}catch(e){return ''}}
 export function webIconHTML(a: any, mini?: any){
+ /* v0.69: an entry with a locally fetched icon (Data/webicons,
+    served by the daemon) renders it directly -- no external
+    favicon service involved. Entries without one keep the
+    classic behaviour below, byte for byte. */
+ if(a&&a.icon) return `<div class="appico webapp${mini?' mini':''}"><span class="icolet">${esc(webLetter(a.name))}</span><img src="/api/webapps/icon?f=${encodeURIComponent(a.icon)}" alt="" draggable="false" loading="lazy" onerror="this.remove()"></div>`;
  const f=faviconURL(a.url);
  const img=f?`<img src="${f}" alt="" draggable="false" loading="lazy" onerror="this.remove()">`:'';
  return `<div class="appico webapp${mini?' mini':''}"><span class="icolet">${esc(webLetter(a.name))}</span>${img}</div>`;

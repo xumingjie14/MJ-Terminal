@@ -24,5 +24,7 @@ import './ccnc';
 import './notify';
 import './apiclient';
 import './events';
+import './taskmgr';
+import './addapp';
 import './expose';
 import './boot';

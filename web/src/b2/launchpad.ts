@@ -22,6 +22,10 @@ export function lpEntries(){
  STOREAPPS.filter(a=>!inFolder.has('store:'+a.id)).forEach(a=>pushSafe('store:'+a.id,a.name,()=>storeIconHTML(a),()=>launchStoreApp(a.id)));
  BOXAPPS.filter(a=>!inFolder.has('box:'+a.id)).forEach(a=>pushSafe('box:'+a.id,a.name,()=>storeIconHTML(a),()=>launchBoxApp(a.id)));
  PRODAPPS.filter(c=>!inFolder.has('prod:'+c.id)).forEach(c=>pushSafe('prod:'+c.id,c.name,()=>prodIconHTML(c),()=>launchProdApp(c.id)));
+ /* v0.69 block 2, entry B: the add-app tile -- a utility entry
+    at the end of the grid (its key is not a real app, so the
+    shared DESKORDER write-backs treat it like any latecomer). */
+ push('util:addapp','添加应用','<div class="appico g-sys" style="color:#fff">'+glyph('plus',27)+'</div>',()=>openAddApp());
  DESKORDER.forEach(k=>{ if(byKey[k]) out.push(byKey[k]); });
  Object.keys(byKey).forEach(k=>{ if(!out.some(e=>e.key===k)) out.push(byKey[k]); });
  return out;
@@ -81,7 +85,7 @@ export function lpItemEl(en,vis){
   closeLP(); en.open();
  };
  b.addEventListener('pointerdown',ev=>{
-  if(ev.button!==0||lpQ.value.trim()) return; // no reordering inside search results
+  if(ev.button!==0||lpQ.value.trim()||en.key==='util:addapp') return; // no reordering inside search results; the add-app tile is a fixed utility, never dragged
   const r=b.getBoundingClientRect();
   lpDrag={el:b,en,sx:ev.clientX,sy:ev.clientY,ox:r.left,oy:r.top,active:false};
   try{ b.setPointerCapture(ev.pointerId); }catch(e){}

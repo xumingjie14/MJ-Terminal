@@ -1237,6 +1237,18 @@ func launchIsolatedBrowser(proxy bool, target string, appMode bool) error {
 	// as the proxy/cache arguments below (and Firefox's user.js):
 	// written into the profile before the browser starts.
 	seedChromeDarkTheme(profile)
+	// v0.69 block 3 (containment): pin the browser's download
+	// directory to THIS machine's Data/Downloads before launch,
+	// and say so in the console -- the self-check line. A live
+	// profile keeps the lock its starting launch wrote.
+	switch lockChromeDownloadDir(profile, downloadsDir()) {
+	case "locked":
+		logf("browser", "info", "下载目录已锁定 Data/Downloads（%s）", downloadsDir())
+	case "running":
+		logf("browser", "info", "下载目录已锁定 Data/Downloads（浏览器运行中，沿用档案里已锁定的目录）")
+	default:
+		logf("browser", "warn", "下载目录锁定失败：写不进档案 Preferences，下载可能落到宿主的下载文件夹")
+	}
 	// v0.68 (detail-fix ⑧): the web-notification bridge. The
 	// embedded extension is released into its managed dir under
 	// Data (config.json stamped with this daemon's base URL) and
@@ -1280,6 +1292,10 @@ func launchIsolatedBrowser(proxy bool, target string, appMode bool) error {
 		webNotifyLaunchCheck(launchAt)
 	}
 	noteSpawnedProcess(uint32(browserCmd.Process.Pid), "隔离浏览器")
+	// v0.69 block 3: sweep host Start Menu / Desktop shortcuts
+	// that Chrome's own "install app" dropped for this profile
+	// (containment.go; setting-gated, background).
+	maybeSweepPWAShortcuts()
 	host := target
 	if u, perr := url.Parse(target); perr == nil && u.Host != "" {
 		host = u.Host
@@ -1346,6 +1362,13 @@ type webApp struct {
 	// (two fields) load unchanged and untouched entries keep the
 	// exact old file format.
 	WinMode string `json:"winmode,omitempty"`
+	// v0.69: the entry's locally fetched site icon (a file name
+	// under Data/webicons, see addapp.go), persisted as an
+	// optional FOURTH field of the apps.txt line. Only entries
+	// added through the v0.69 flows carry one; the third field
+	// is then always written (possibly empty) so the columns
+	// never shift.
+	Icon string `json:"icon,omitempty"`
 }
 
 var webWinModes = map[string]bool{"memory": true, "phone": true, "desktop": true, "fullscreen": true}
@@ -1367,21 +1390,21 @@ func webAppWinMode(rawURL string) string {
 // which is remembered in Data/apps-deleted.txt (tombstones), so a
 // deletion never comes back.
 var bundledWebApps = []webApp{
-	{"X", "https://x.com", ""},
-	{"YouTube", "https://www.youtube.com", ""},
-	{"铭杰工作站", "https://fed-liquidity-mingjieofficial-7844s-projects.vercel.app/#/macro", ""},
-	{"TradingView", "https://www.tradingview.com/chart/", ""},
-	{"ETF 资金流", "https://farside.co.uk/eth", ""},
-	{"Coinglass", "https://www.coinglass.com", ""},
-	{"Gmail", "https://mail.google.com", ""},
-	{"谷歌翻译", "https://translate.google.com", ""},
-	{"哔哩哔哩", "https://www.bilibili.com", ""},
-	{"GitHub", "https://github.com", ""},
-	{"Vercel", "https://vercel.com/dashboard", ""},
-	{"ChatGPT", "https://chatgpt.com", ""},
-	{"Gemini", "https://gemini.google.com", ""},
-	{"Muse", "https://claude.ai", ""},
-	{"TikTok", "https://www.tiktok.com", ""},
+	{"X", "https://x.com", "", ""},
+	{"YouTube", "https://www.youtube.com", "", ""},
+	{"铭杰工作站", "https://fed-liquidity-mingjieofficial-7844s-projects.vercel.app/#/macro", "", ""},
+	{"TradingView", "https://www.tradingview.com/chart/", "", ""},
+	{"ETF 资金流", "https://farside.co.uk/eth", "", ""},
+	{"Coinglass", "https://www.coinglass.com", "", ""},
+	{"Gmail", "https://mail.google.com", "", ""},
+	{"谷歌翻译", "https://translate.google.com", "", ""},
+	{"哔哩哔哩", "https://www.bilibili.com", "", ""},
+	{"GitHub", "https://github.com", "", ""},
+	{"Vercel", "https://vercel.com/dashboard", "", ""},
+	{"ChatGPT", "https://chatgpt.com", "", ""},
+	{"Gemini", "https://gemini.google.com", "", ""},
+	{"Muse", "https://claude.ai", "", ""},
+	{"TikTok", "https://www.tiktok.com", "", ""},
 }
 
 // webAppRenames migrates a bundled entry's display name when the user
@@ -1437,7 +1460,7 @@ func loadWebApps() []webApp {
 		if line == "" {
 			continue
 		}
-		parts := strings.SplitN(line, "\t", 3)
+		parts := strings.SplitN(line, "\t", 4)
 		if len(parts) < 2 {
 			continue
 		}
@@ -1446,9 +1469,14 @@ func loadWebApps() []webApp {
 			continue
 		}
 		wa := webApp{Name: name, URL: u}
-		if len(parts) == 3 {
+		if len(parts) >= 3 {
 			if m := strings.TrimSpace(parts[2]); webWinModes[m] {
 				wa.WinMode = m
+			}
+		}
+		if len(parts) == 4 {
+			if f := strings.TrimSpace(parts[3]); webIconFileRe.MatchString(f) {
+				wa.Icon = f
 			}
 		}
 		out = append(out, wa)
@@ -1483,6 +1511,12 @@ func saveWebApps(list []webApp) {
 		line := a.Name + "\t" + a.URL
 		if a.WinMode != "" {
 			line += "\t" + a.WinMode
+		}
+		if a.Icon != "" {
+			if a.WinMode == "" {
+				line += "\t" // keep the icon in column four
+			}
+			line += "\t" + a.Icon
 		}
 		sb.WriteString(line + "\n")
 	}
@@ -1574,7 +1608,14 @@ func webAppSaveHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	list = append(list, webApp{Name: name, URL: u})
+	entry := webApp{Name: name, URL: u}
+	// v0.69: a genuinely new entry gets its site icon fetched
+	// through the node at add time (addapp.go); failure leaves
+	// the letter tile, never the save.
+	ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
+	ensureWebAppIcon(ctx, &entry)
+	cancel()
+	list = append(list, entry)
 	saveWebApps(list)
 	writeJSON(w, webAppSaveResponse{OK: true, Apps: list})
 }
@@ -2174,6 +2215,12 @@ func runServer(portFlag int, isDaemon bool) {
 	mux.HandleFunc("/api/layout/save", layoutSaveHandler)
 	mux.HandleFunc("/api/apps", webAppsHandler)
 	mux.HandleFunc("/api/apps/save", webAppSaveHandler)
+	mux.HandleFunc("/api/webapps/probe", webAppProbeHandler)
+	mux.HandleFunc("/api/webapps/pin", webAppPinHandler)
+	mux.HandleFunc("/api/webapps/icon", webAppIconHandler)
+	mux.HandleFunc("/api/taskmgr", taskMgrHandler)
+	mux.HandleFunc("/api/taskmgr/kill", taskMgrKillHandler)
+	mux.HandleFunc("/api/taskmgr/restart", taskMgrRestartHandler)
 	mux.HandleFunc("/api/appopen", openWebAppHandler)
 	mux.HandleFunc("/api/extwin", extWinListHandler)
 	mux.HandleFunc("/api/extwin/focus", extWinFocusHandler)

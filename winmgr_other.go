@@ -101,3 +101,13 @@ func platformCaptureWindowFrame(hwnd uint64, maxW int) ([]byte, error) {
 }
 
 func platformProcessImageBase(pid uint32) string { return "" }
+
+// v0.69 task-manager sampling stubs (no Win32 off Windows):
+// nothing is ever reported hung, and no per-process usage is
+// available, so the task manager shows process lists with no
+// CPU/memory figures rather than invented ones.
+func platformWindowHung(hwnd uint64) bool { return false }
+
+func platformProcUsage(pid uint32) (cpu100ns, create100ns int64, wsBytes uint64, ok bool) {
+	return 0, 0, 0, false
+}

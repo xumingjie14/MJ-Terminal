@@ -13,6 +13,7 @@ import { cancelDrag, dragState, __bind_dragState } from './drag';
 import { cancelFolderDrag, closeFolderPop, ctxEl, fpDrag, hideCtx, openFolderPop, __bind_fpDrag } from './folders';
 import { DESKFILES, PRODAPPS, STOREAPPS, loadFFState, loadProdApps, loadStoreApps, showFileCtx, toast } from './appsload';
 import { stageOverlay } from './overlay';
+import { openAddApp } from './addapp';
 /* ----- context menus (v0.56: one component, content by kind) -----
    ctxOpen paints items into the shared #ctxmenu; an item with a
    `sub` payload gets a hover submenu (radio items carry a ✓).
@@ -51,6 +52,7 @@ export function showCtx(x,y){
  const sorts=[['manual','手动'],['name','名称'],['freq','最常用'],['kind','种类'],['added','添加日期']].map(([v,n])=>({act:'sort',arg:v,label:n,radio:true,on:(sm===v)||(v==='manual'&&sm==='manual')}));
  ctxOpen(x,y,[
   {act:'nf',label:'新建文件夹',icon:'folderplus'},
+  {act:'addapp',label:'添加应用…',icon:'plus'},
   {act:'imp',label:'从电脑导入文件…',icon:'import'},
   {sep:true},
   {label:'图标大小',icon:'size',sub:sizes},
@@ -60,6 +62,7 @@ export function showCtx(x,y){
   {act:'ps',label:'个性化',icon:'palette'},
  ],(act,arg)=>{
   if(act==='nf') newFolder(x,y);
+  else if(act==='addapp') openAddApp();
   else if(act==='imp') document.getElementById('deskimp').click();
   else if(act==='rf') location.reload();
   else if(act==='ps') openApp('sys');

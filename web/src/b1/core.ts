@@ -18,6 +18,7 @@ export const APPS=[
  {id:'ssh',e:'',g:'g-ssh',glyph:'',n:'SSH',art:1},
  {id:'servermon',e:'',g:'g-servermon',glyph:'',n:'服务器',art:1},
  {id:'console',e:'≡',g:'g-console',glyph:'≡',n:'控制台',art:1},
+ {id:'taskmgr',e:'',g:'g-servermon',glyph:'',n:'任务管理器',gkey:'pulse'},
  {id:'appstore',e:'',g:'g-store',glyph:'',n:'应用商店',art:1},
  {id:'openclaw',e:'',g:'g-openclaw',glyph:'',n:'小龙虾',art:1},
  {id:'core',e:'',g:'g-core',glyph:'',n:'节点',art:1},

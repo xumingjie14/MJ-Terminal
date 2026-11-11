@@ -462,6 +462,13 @@ func seedFFProfile(dir string, proxy bool, appMode bool) error {
 	b.WriteString("user_pref(\"browser.cache.disk.capacity\", 262144);\n")
 	b.WriteString("user_pref(\"toolkit.legacyUserProfileCustomizations.stylesheets\", true);\n")
 	b.WriteString("user_pref(\"network.proxy.no_proxies_on\", \"localhost, 127.0.0.1\");\n")
+	// v0.69 block 3 (containment): downloads land in THIS
+	// machine's Data/Downloads, never the host user's folder.
+	// Seeded with the profile at every fresh launch; the prefs
+	// persist in the profile afterwards, so joined launches
+	// inherit them.
+	_ = os.MkdirAll(downloadsDir(), 0o755)
+	b.WriteString(ffDownloadPrefLines(downloadsDir()))
 	if proxy {
 		b.WriteString("user_pref(\"network.proxy.type\", 1);\n")
 		b.WriteString("user_pref(\"network.proxy.socks\", \"127.0.0.1\");\n")
@@ -482,7 +489,7 @@ func seedFFProfile(dir string, proxy bool, appMode bool) error {
 	if proxy {
 		proxyName = "走节点"
 	}
-	logf("firefox", "info", "已播种 Firefox 档案（模式：%s，网络：%s）", modeName, proxyName)
+	logf("firefox", "info", "已播种 Firefox 档案（模式：%s，网络：%s，下载目录已锁定 Data/Downloads）", modeName, proxyName)
 	css := "/* Managed by MJ Terminal: normal mode (chrome visible). */\n"
 	if appMode {
 		// v0.54 root cause (field report "app-mode window has no

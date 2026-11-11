@@ -61,6 +61,7 @@ declare var DESKFILES: any;
 declare function fileIconHTML(...args: any[]): any;
 declare var openDeskFile: any;
 declare function glyph(...args: any[]): any;
+declare function openAddApp(...args: any[]): any;
 declare function pollNode(...args: any[]): any;
 declare function loadDeskFiles(...args: any[]): any;
 declare function saveLayout(...args: any[]): any;

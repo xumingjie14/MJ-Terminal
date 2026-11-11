@@ -96,6 +96,71 @@ const (
 	errCodeMethod     = "method_not_allowed"
 )
 
+// ---------- v0.69: task manager + add-app contract types ----------
+
+// taskMgrProc is one process row inside a task-manager group.
+type taskMgrProc struct {
+	PID  uint32  `json:"pid"`
+	Name string  `json:"name"` // image base name
+	CPU  float64 `json:"cpu"`  // percent of total machine capacity, 0.1 steps
+	Mem  uint64  `json:"mem"`  // working set, bytes
+}
+
+// taskMgrWindow is one registered external window attached to
+// its process's group in the task manager.
+type taskMgrWindow struct {
+	HWND  uint64 `json:"hwnd"`
+	App   string `json:"app"`
+	Title string `json:"title"`
+	Hung  bool   `json:"hung"` // Win32 IsHungAppWindow verdict
+}
+
+// taskMgrGroup is one app family in GET /api/taskmgr: the
+// isolated Chrome with all its children aggregated, one Firefox
+// entry, the core, a component, a store app, the sandbox, ...
+// Critical groups ask the UI for a confirmation before ending;
+// CanRestart marks the one group with an existing restart path
+// (the core). The daemon itself is NOT a group (see Daemon).
+type taskMgrGroup struct {
+	ID         string          `json:"id"`
+	Name       string          `json:"name"`
+	Kind       string          `json:"kind"`
+	Critical   bool            `json:"critical"`
+	CanRestart bool            `json:"canRestart"`
+	CPU        float64         `json:"cpu"`
+	Mem        uint64          `json:"mem"`
+	Procs      []taskMgrProc   `json:"procs"`
+	Windows    []taskMgrWindow `json:"windows"`
+}
+
+// taskMgrDaemon is the daemon's own status row: display-only,
+// no end action exists for it by design.
+type taskMgrDaemon struct {
+	Version   string  `json:"version"`
+	UptimeSec int64   `json:"uptimeSec"`
+	CPU       float64 `json:"cpu"`
+	Mem       uint64  `json:"mem"`
+	PID       uint32  `json:"pid"`
+}
+
+// taskMgrResponse is GET /api/taskmgr.
+type taskMgrResponse struct {
+	Daemon taskMgrDaemon  `json:"daemon"`
+	Groups []taskMgrGroup `json:"groups"`
+	At     int64          `json:"at"` // unix seconds of the snapshot
+}
+
+// webAppProbeResponse is POST /api/webapps/probe: the prefill
+// for the 添加应用 dialog. Exists=true means the URL is already
+// on the desktop (Name carries the existing entry's name) and
+// nothing was fetched.
+type webAppProbeResponse struct {
+	OK     bool   `json:"ok"`
+	Exists bool   `json:"exists"`
+	Name   string `json:"name"`
+	URL    string `json:"url"`
+}
+
 // ---------- contract response types ----------
 
 // systemInfo is GET /api/system.
@@ -438,6 +503,8 @@ var apiContractTypes = []contractType{
 	{"UpdateApplyResponse", reflect.TypeOf(updateApplyResponse{})},
 	{"BusEvent", reflect.TypeOf(busEvent{})},
 	{"ViewCommand", reflect.TypeOf(viewCommand{})},
+	{"TaskMgrResponse", reflect.TypeOf(taskMgrResponse{})},
+	{"WebAppProbeResponse", reflect.TypeOf(webAppProbeResponse{})},
 }
 
 var rawMessageType = reflect.TypeOf(json.RawMessage{})

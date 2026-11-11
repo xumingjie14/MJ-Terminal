@@ -1135,3 +1135,80 @@ func platformExitShellFullscreen(hwnd uint64, style int32, rect [4]int32, zoomed
 	}
 	return true
 }
+
+// ---------- v0.69: task-manager sampling (taskmgr.go) ----------
+//
+// Per-process CPU time + creation time (GetProcessTimes) and
+// working set (K32GetProcessMemoryInfo), plus the hung-window
+// probe (IsHungAppWindow). All read-only, all against processes
+// this same user owns -- handles open with query rights only,
+// never VM_READ (the working-set counter needs none of it via
+// the PSAPI counters struct).
+
+var (
+	procIsHungAppWindow     = user32.NewProc("IsHungAppWindow")
+	procGetProcessTimes     = kernel32.NewProc("GetProcessTimes")
+	procK32GetProcessMemory = kernel32.NewProc("K32GetProcessMemoryInfo")
+)
+
+type tmFiletime struct {
+	Lo uint32
+	Hi uint32
+}
+
+func (f tmFiletime) ns100() int64 {
+	return (int64(f.Hi)<<32 | int64(f.Lo)) // 100ns units, as delivered
+}
+
+type tmMemCounters struct {
+	cb                         uint32
+	PageFaultCount             uint32
+	PeakWorkingSetSize         uintptr
+	WorkingSetSize             uintptr
+	QuotaPeakPagedPoolUsage    uintptr
+	QuotaPagedPoolUsage        uintptr
+	QuotaPeakNonPagedPoolUsage uintptr
+	QuotaNonPagedPoolUsage     uintptr
+	PagefileUsage              uintptr
+	PeakPagefileUsage          uintptr
+	PrivateUsage               uintptr
+}
+
+// platformWindowHung reports whether a top-level window is
+// hanging (Win32's own judgement: not responding to messages).
+func platformWindowHung(hwnd uint64) bool {
+	if hwnd == 0 {
+		return false
+	}
+	r, _, _ := procIsHungAppWindow.Call(uintptr(hwnd))
+	return r != 0
+}
+
+// platformProcUsage samples one process: cumulative kernel+user
+// CPU time in 100ns units, creation time in the same units
+// (a PID-reuse discriminator for the sampler), and the current
+// working set in bytes. ok=false when the process is gone or
+// the handle cannot be opened.
+func platformProcUsage(pid uint32) (cpu100ns, create100ns int64, wsBytes uint64, ok bool) {
+	if pid == 0 {
+		return 0, 0, 0, false
+	}
+	const processQueryLimited = 0x1000
+	h, _, _ := procOpenProcess.Call(processQueryLimited, 0, uintptr(pid))
+	if h == 0 {
+		return 0, 0, 0, false
+	}
+	defer procCloseHandle.Call(h)
+	var create, exit, kern, user tmFiletime
+	if r, _, _ := procGetProcessTimes.Call(h,
+		uintptr(unsafe.Pointer(&create)), uintptr(unsafe.Pointer(&exit)),
+		uintptr(unsafe.Pointer(&kern)), uintptr(unsafe.Pointer(&user))); r == 0 {
+		return 0, 0, 0, false
+	}
+	mc := tmMemCounters{}
+	mc.cb = uint32(unsafe.Sizeof(mc))
+	if r, _, _ := procK32GetProcessMemory.Call(h, uintptr(unsafe.Pointer(&mc)), uintptr(mc.cb)); r != 0 {
+		wsBytes = uint64(mc.WorkingSetSize)
+	}
+	return kern.ns100() + user.ns100(), create.ns100(), wsBytes, true
+}

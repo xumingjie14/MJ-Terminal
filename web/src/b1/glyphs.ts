@@ -54,6 +54,9 @@ search:'<circle cx="11" cy="11" r="6.6"/><path d="m15.9 15.9 4.6 4.6"/>',
 rotate:'<path d="M19.7 12a7.7 7.7 0 1 1-2.3-5.4"/><path d="M20.1 3.4v3.9h-3.9"/>',
 sidebar:'<rect x="4" y="5" width="16" height="14" rx="2"/><path d="M9.4 5v14"/>',
 app:'<rect x="4" y="4" width="16" height="16" rx="4.6"/><rect x="9.2" y="9.2" width="5.6" height="5.6" rx="1.7"/>',
+pulse:'<path d="M3 12h4l2.5-6.5 4.5 13 2.5-6.5H21"/>',
+pin:'<path d="M9.5 4.5h5l-1 5 2.5 2.5v2H8v-2L10.5 9.5z"/><path d="M12 14v6.5"/>',
+plus:'<path d="M12 5v14M5 12h14"/>',
 };
 export function glyph(n,s){
  return `<svg class="gly" width="${s||16}" height="${s||16}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${GLYPHS[n]||''}</svg>`;

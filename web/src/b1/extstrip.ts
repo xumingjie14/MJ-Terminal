@@ -7,7 +7,9 @@ import { SETTINGS } from './settings';
 import { openApp, syncDots } from './windows';
 import { onWinClosed, stageOn } from './stage';
 import { cleanWinTitle, webIconHTML } from './entries';
-import { ctxOpen } from './ctxmenu';
+import { ctxOpen, loadWebApps } from './ctxmenu';
+import { renderDesk } from './desktop';
+import { toast } from './appsload';
 /* ----- external app windows in the stage strip (v0.18 窗口统一·乙) -----
    The daemon registers the independent Chrome app windows it launches
    (YouTube, X, ...). With Stage Manager on they appear as static icon
@@ -81,13 +83,27 @@ export function extCtxEndpoint(act){
  return act==='focus'?'focus':act==='focusonly'?'focusonly':act==='min'?'minimize':'close';
 }
 export function showExtCtx(x,y,hwnd){
- const items=[
+ const items: any[]=[
   {act:'focus',label:'切换到该窗口',icon:'switch'},
   {act:'focusonly',label:'隐藏其他窗口',icon:'eyeoff'},
   {act:'min',label:'最小化',icon:'minimize'},
-  {act:'close',label:'关闭窗口',icon:'closex',danger:true},
  ];
+ /* v0.69 block 2, entry A: an app-mode window can be pinned
+    into the WEBAPPS ledger as a desktop app. The pin posts
+    only the handle -- the daemon knows the URL and title.
+    Handled here, NOT through extCtxEndpoint (whose mapping
+    the suites pin and whose fallthrough is 'close'). */
+ const card=extCards.get(hwnd);
+ if(card&&card.win&&card.win.appwindow&&card.win.url) items.push({act:'pin',label:'固定为桌面应用',icon:'pin'});
+ items.push({act:'close',label:'关闭窗口',icon:'closex',danger:true});
  ctxOpen(x,y,items,async act=>{
+  if(act==='pin'){
+   const r=await api('/api/webapps/pin',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hwnd})}).catch(()=>null);
+   if(r&&r.error){ toast(r.error); return; }
+   await loadWebApps(); renderDesk();
+   toast('已固定为桌面应用');
+   return;
+  }
   await api('/api/extwin/'+extCtxEndpoint(act),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hwnd})}).catch(()=>null);
   setTimeout(refreshExtStrip,350);
  });
@@ -152,6 +168,7 @@ export async function pumpThumb(card){
    changes; otherwise touch just the classes and the texts
    that actually changed. */
 export function paintExtCard(card,x,prev){
+ card.win=x; /* v0.69: the latest window record rides the card so the right-click menu knows whether this window can be pinned as a desktop app */
  const iconKey=(x.ikind||'')+'|'+(x.app||'')+'|'+(x.url||'');
  if(card.prev!==prev||card.iconKey!==iconKey){
   card.el.innerHTML=extCardInnerHTML(x,prev);

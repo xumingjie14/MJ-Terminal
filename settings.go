@@ -75,6 +75,16 @@ type mjSettings struct {
 	PhoneTriggerWidth int    `json:"phoneTriggerWidth"` // desktop width below which phone mode triggers (px)
 	PhoneWidth        int    `json:"phoneWidth"`        // landed width in phone mode (px)
 	ChromeCacheMB     int    `json:"chromeCacheMB"`     // isolated Chrome --disk-cache-size cap; 0 = no cap
+	// v0.69 block 3: sweep host Start Menu / Desktop shortcuts
+	// that Chrome's own PWA install dropped for this profile
+	// (containment.go). Default ON; off = never swept. Owned
+	// by the desktop feature, next to the other browser keys.
+	PWASweep bool `json:"pwaSweep"`
+	// v0.69 block 1: the Task Manager's menu-bar entry
+	// （顶栏显示任务管理器入口）. The 任务管理器 app itself is
+	// always available; this governs only the top-bar icon.
+	// Owned by the taskmgr feature. Default ON.
+	TaskmgrBar bool `json:"taskmgrBar"`
 	// v0.31: Stage Manager auto-claim for browser-spawned windows
 	// (popups, Ctrl+N, undocked DevTools). Default ON; the patrol in
 	// winmgr.go reads it every tick, so toggling applies at once.
@@ -262,6 +272,8 @@ func defaultSettings() mjSettings {
 		PhoneTriggerWidth:     1200,
 		PhoneWidth:            400,
 		ChromeCacheMB:         200,
+		PWASweep:              true,
+		TaskmgrBar:            true,
 		StageAutoClaimBrowser: true,
 		FilesOnDesktop:        true,
 		RemoteEnabled:         false,
@@ -413,6 +425,10 @@ func boolSettingPtr(s *mjSettings, key string) *bool {
 		return &s.NotifyAllowWeb
 	case "notify_banner_web":
 		return &s.NotifyBannerWeb
+	case "pwaSweep":
+		return &s.PWASweep
+	case "taskmgrBar":
+		return &s.TaskmgrBar
 	}
 	return nil
 }
@@ -757,6 +773,9 @@ func settingPhone() (enabled bool, triggerWidth, width int) {
 
 func settingChromeCacheMB() int { return settingsGet().ChromeCacheMB }
 
+// v0.69 accessors.
+func settingPWASweep() bool { return settingsGet().PWASweep }
+
 func settingStageAutoClaimBrowser() bool { return settingsGet().StageAutoClaimBrowser }
 
 func settingFilesOnDesktop() bool { return settingsGet().FilesOnDesktop }
@@ -1054,7 +1073,14 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 				"notify_allow_sandbox", "notify_allow_update", "notify_allow_servermon",
 				"notify_allow_node", "notify_allow_remote", "notify_allow_files",
 				"notify_banner_sandbox", "notify_banner_update", "notify_banner_servermon",
-				"notify_banner_node", "notify_banner_remote", "notify_banner_files":
+				"notify_banner_node", "notify_banner_remote", "notify_banner_files",
+				// v0.69: the v0.68 web-notification pair was in
+				// boolSettingPtr but missing from this family
+				// list, so the Settings toggles silently did
+				// not persist; they ride the same branch now.
+				// Plus this version's own two switches.
+				"notify_allow_web", "notify_banner_web",
+				"pwaSweep", "taskmgrBar":
 				// v0.47 boolean families, resolved through the
 				// boolSettingPtr whitelist.
 				var v bool

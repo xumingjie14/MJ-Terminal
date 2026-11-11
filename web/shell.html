@@ -617,6 +617,50 @@ table.gridtab td,table.gridtab th{white-space:nowrap;max-width:280px;overflow:hi
    still close it via the document pointerdown rule. */
 #folderpop{pointer-events:none}
 #folderpop .fp-panel{pointer-events:auto}
+/* ===== v0.69: task manager + add-app ===== */
+#mb-taskmgr{cursor:pointer;display:inline-flex;align-items:center;padding:3px 4px;border-radius:6px}
+#mb-taskmgr:hover,#mb-taskmgr.on{background:rgba(255,255,255,.16)}
+#tmpanel{position:fixed;top:46px;right:10px;width:392px;max-height:min(560px,calc(100vh - 60px));overflow:auto;border-radius:18px;padding:12px;z-index:1500}
+#tmpanel.hidden{display:none}
+.tmp-hd{display:flex;align-items:center;justify-content:space-between;font-weight:650;font-size:13.5px;margin-bottom:8px}
+.tmp-sec{font-size:11.5px;opacity:.6;margin:10px 2px 4px}
+.tmp-row{display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:8px;font-size:12.5px}
+.tmp-row:hover{background:rgba(255,255,255,.07)}
+.tmp-name{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tmp-num{font-variant-numeric:tabular-nums;opacity:.85;white-space:nowrap}
+.tmp-hung{color:#ff9f0a;font-size:11px;white-space:nowrap}
+.tmp-btn{border:0;border-radius:6px;background:rgba(255,255,255,.14);color:#fff;font:inherit;font-size:11.5px;padding:2.5px 9px;cursor:pointer;white-space:nowrap}
+.tmp-btn:hover{background:rgba(255,69,58,.75)}
+.tmp-btn.gray:hover{background:rgba(255,255,255,.28)}
+.tmp-sub{font-size:11px;opacity:.55;padding:0 6px 2px 14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tm-wrap{display:flex;flex-direction:column;height:100%}
+.tm-tools{display:flex;gap:8px;align-items:center;padding:12px 14px 10px;border-bottom:1px solid rgba(255,255,255,.08);flex-wrap:wrap}
+.tm-tools input[type=text]{flex:1;min-width:120px}
+.tm-table{flex:1;overflow:auto;padding:6px 10px}
+.tm-th,.tm-grow,.tm-prow{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;font-size:13px}
+.tm-th{font-size:12px;opacity:.65;position:sticky;top:0;background:inherit;z-index:1}
+.tm-th span[data-sort]{cursor:pointer;user-select:none}
+.tm-grow{font-weight:600;cursor:pointer}
+.tm-grow:hover,.tm-prow:hover{background:rgba(255,255,255,.06)}
+.tm-prow{font-size:12.5px;padding-left:26px;opacity:.92}
+.tm-c-name{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tm-c-cpu{width:64px;text-align:right;font-variant-numeric:tabular-nums}
+.tm-c-mem{width:76px;text-align:right;font-variant-numeric:tabular-nums}
+.tm-c-st{width:52px;text-align:center}
+.tm-c-act{width:118px;text-align:right;white-space:nowrap}
+.tm-daemon{margin:10px 14px 0;padding:10px 12px;border-radius:12px;background:rgba(255,255,255,.06);font-size:12.5px;line-height:1.75}
+.tm-foot{padding:7px 14px;font-size:12px;opacity:.6;border-top:1px solid rgba(255,255,255,.08)}
+#addapp{position:fixed;inset:0;z-index:1700;display:flex;align-items:center;justify-content:center;background:rgba(8,10,16,.42)}
+#addapp.hidden{display:none}
+#addapp-card{width:430px;max-width:calc(100vw - 40px);border-radius:18px;padding:18px}
+.aa-hd{font-size:16px;font-weight:650}
+.aa-desc{font-size:12.5px;opacity:.7;line-height:1.65;margin:6px 0 12px}
+.aa-row{display:flex;gap:8px;align-items:center;margin-top:8px}
+.aa-row .txt{flex:1}
+.aa-ico{width:34px;height:34px;flex:none;border-radius:8px;display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg,#7d7d85,#4a4a52);font-weight:650;font-size:15px;overflow:hidden}
+.aa-ico img{width:100%;height:100%;object-fit:cover}
+.aa-note{font-size:12px;min-height:16px;margin-top:8px;color:#ffd60a}
+.aa-note.ok{color:#30d158}
 </style>
 </head>
 <body>
@@ -631,6 +675,7 @@ table.gridtab td,table.gridtab th{white-space:nowrap;max-width:280px;overflow:hi
   <span class="right">
     <span id="mb-remote" title="远程协助状态（点开设置查看）"><span id="mb-rdot"></span><span id="mb-rtxt">远程协助中</span></span>
     <span id="mb-node" title="节点状态"><span id="mb-dot"></span><span id="mb-nodetxt">节点</span></span>
+    <span id="mb-taskmgr" title="任务管理器"><svg class="gly" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l2.5-6.5 4.5 13 2.5-6.5H21"/></svg></span>
     <span id="mb-stage" title="台前调度：只显示当前应用"><svg class="gly" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.9"/><rect x="13" y="4" width="7" height="7" rx="1.9"/><rect x="4" y="13" width="7" height="7" rx="1.9"/><rect x="13" y="13" width="7" height="7" rx="1.9"/></svg></span>
     <span title="网络"><svg class="gly" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.3 10a11.2 11.2 0 0 1 15.4 0M7 13.3a7.2 7.2 0 0 1 10 0M9.8 16.4a3.6 3.6 0 0 1 4.4 0"/><circle cx="12" cy="19.2" r="1.25" fill="currentColor" stroke="none"/></svg></span><span title="电池"><svg class="gly" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.8" y="8.3" width="16.7" height="7.8" rx="2.2"/><path d="M21.9 10.9v2.6"/><rect x="5.1" y="10.6" width="6" height="3.2" rx="1" fill="currentColor" stroke="none"/></svg></span>
     <span id="mb-spot" title="聚焦搜索（F5 或 Ctrl+Space）"><svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.6" fill="none" stroke="#fff" stroke-width="1.7"/><line x1="10.6" y1="10.6" x2="14.4" y2="14.4" stroke="#fff" stroke-width="1.9" stroke-linecap="round"/></svg></span>
@@ -647,6 +692,15 @@ table.gridtab td,table.gridtab th{white-space:nowrap;max-width:280px;overflow:hi
 <div id="extstrip" class="hidden"></div>
 <div id="ctxmenu" class="hidden"></div>
 <div id="ccpanel" class="glasspanel hidden"></div>
+<div id="tmpanel" class="glasspanel hidden"></div>
+<div id="addapp" class="hidden"><div id="addapp-card" class="glasspanel">
+  <div class="aa-hd">添加应用</div>
+  <p class="aa-desc">把一个网站钉到桌面，像应用一样打开。名称和图标会走节点自动抓取，你也可以改。</p>
+  <div class="aa-row"><input class="txt" id="aa-url" placeholder="网址，如 https://example.com" autocomplete="off"><button class="btn gray" id="aa-probe">识别</button></div>
+  <div class="aa-row"><span class="aa-ico" id="aa-ico">?</span><input class="txt" id="aa-name" placeholder="名称" autocomplete="off" style="flex:1"></div>
+  <div class="aa-note" id="aa-note"></div>
+  <div class="aa-row" style="justify-content:flex-end;margin-top:12px"><button class="btn gray" id="aa-cancel">取消</button><button class="btn" id="aa-save">添加到桌面</button></div>
+</div></div>
 <div id="ncenter" class="glasspanel nc-off"><div id="nc-scroll"></div><div class="nc-foot"><button id="nc-editbtn">编辑小部件</button></div></div>
 <div id="banners"></div>
 <div id="folderpop" class="hidden"></div>
