@@ -4980,9 +4980,9 @@ ${pr.textContent}> ${cmd}\r
       };
       const paintNotify = async () => {
         const s = SETTINGS || SETDEF;
-        const SRCS = [["sandbox", "应用隔离"], ["update", "软件更新"], ["servermon", "服务器监控"], ["node", "节点"], ["remote", "远程协助"], ["files", "文件"]];
+        const SRCS = [["sandbox", "应用隔离"], ["update", "软件更新"], ["servermon", "服务器监控"], ["node", "节点"], ["remote", "远程协助"], ["files", "文件"], ["web", "网页通知"]];
         const rowHTML = (idAttr, keyBase, name) => `<div class="sm-row"><span>${esc(name)}</span><span class="row"><span style="font-size:12px;opacity:.65">允许通知</span><label class="sm-sw"><input type="checkbox" id="nt-allow-${idAttr}" ${s["notify_allow_" + keyBase] !== false ? "checked" : ""}><i></i></label><span style="font-size:12px;opacity:.65">横幅</span><label class="sm-sw"><input type="checkbox" id="nt-banner-${idAttr}" ${s["notify_banner_" + keyBase] !== false ? "checked" : ""}><i></i></label></span></div>`;
-        G("set-main").innerHTML = `<div class="set-page"><div class="set-sec">系统通知</div><div class="set-desc">通知中心（点菜单栏右边的日期时间打开）里有两类东西：状态型的（隔离安装待登记、更新可用、服务器告警——状态在就一直在）和事件型的（装完了、断开了这类刚发生的事，留下来等你处理）。这里按来源逐个管：关掉「允许通知」，这个来源的事件不再记录、状态型也不再出现在通知中心（功能本身在各自页面照常）；关掉「横幅」只是不弹横幅，通知照样进通知中心。</div><div class="sm-card">${SRCS.map(([id2, n]) => rowHTML(id2, id2, n)).join("")}</div><p class="set-note">横幅是新事件发生时在桌面右上角滑入的小卡片，约 6 秒后自动消失，鼠标停在上面会等你。沉浸模式不拦横幅——它不是专注模式。</p><div class="set-sec">应用通知</div><div class="set-desc">你装的应用由终端机产生的事件（目前是安装完成）。默认都开；关掉某个应用，它的事就不再进通知中心。如实说明：网页自己在 Chrome 里发的通知走 Windows 通知中心，不在这里管，也管不到。</div><div class="sm-card" id="nt-apps"><div class="sm-row"><span>读取中…</span></div></div></div>`;
+        G("set-main").innerHTML = `<div class="set-page"><div class="set-sec">系统通知</div><div class="set-desc">通知中心（点菜单栏右边的日期时间打开）里有两类东西：状态型的（隔离安装待登记、更新可用、服务器告警——状态在就一直在）和事件型的（装完了、断开了这类刚发生的事，留下来等你处理）。这里按来源逐个管：关掉「允许通知」，这个来源的事件不再记录、状态型也不再出现在通知中心（功能本身在各自页面照常）；关掉「横幅」只是不弹横幅，通知照样进通知中心。</div><div class="sm-card">${SRCS.map(([id2, n]) => rowHTML(id2, id2, n)).join("")}</div><p class="set-note">横幅是新事件发生时在桌面右上角滑入的小卡片，约 6 秒后自动消失，鼠标停在上面会等你。沉浸模式不拦横幅——它不是专注模式。</p><div class="set-sec">应用通知</div><div class="set-desc">你装的应用由终端机产生的事件（目前是安装完成）。默认都开；关掉某个应用，它的事就不再进通知中心。网页通知（v0.68）：隔离 Chrome 里网页发的通知会通过随附的桥扩展进通知中心，按站点归到应用通知里，来源一眼能看出是哪个域名；总开关是上面系统通知里的「网页通知」，点通知能把对应的 Chrome 窗口带到前台。如实说明：宿主自己的浏览器和 Firefox 里网页的通知仍走 Windows 通知中心，管不到；网页 Service Worker 的后台推送也还拦不到，本版只接页面活着时发出的通知。</div><div class="sm-card" id="nt-apps"><div class="sm-row"><span>读取中…</span></div></div></div>`;
         const bindN = (elid, key) => {
           const el = G(elid);
           if (el) el.onchange = async (e) => {
@@ -7697,7 +7697,7 @@ ${pr.textContent}> ${cmd}\r
 
   // web/src/b1/settings.ts
   var SETTINGS = null;
-  var SETDEF = { wallpaper: "tahoe", wallpaperFit: "fill", pdfZoom: "fit-width", imgZoom: "fit", uiScale: "100", stageManager: false, idleExitMinutes: 30, phoneMode: true, phoneTriggerWidth: 1200, phoneWidth: 400, chromeCacheMB: 200, stageAutoClaimBrowser: true, filesOnDesktop: true, remoteEnabled: false, winPlaceOnClaim: true, winHideOnMinimize: true, winCloseToTray: true, immersiveMode: false, desktopFullscreen: false, dockPosition: "bottom", dockAutoHide: false, dockIconSize: 52, cc_show_immersive: true, cc_show_stage: true, cc_show_fullscreen: true, cc_show_dockhide: true, cc_show_remote: true, cc_show_wallpaper: true, notify_allow_sandbox: true, notify_allow_update: true, notify_allow_servermon: true, notify_allow_node: true, notify_allow_remote: true, notify_allow_files: true, notify_banner_sandbox: true, notify_banner_update: true, notify_banner_servermon: true, notify_banner_node: true, notify_banner_remote: true, notify_banner_files: true, nc_widgets: '[{"id":"calendar","show":true},{"id":"server","show":true},{"id":"node","show":true}]', exitClosesApps: true, updateBeta: false, nodeStartMode: "last", nodeSubAuto: true, nodeSubIntervalMin: 360, nodeTestURL: "http://www.gstatic.com/generate_204", nodeTestTimeoutMs: 5e3, nodeClashAPI: true, summonHotkey: "F8", defaultOfficeSuite: "onlyoffice", stageDisplay: "preview", deskIconSize: 54, deskSort: "manual" };
+  var SETDEF = { wallpaper: "tahoe", wallpaperFit: "fill", pdfZoom: "fit-width", imgZoom: "fit", uiScale: "100", stageManager: false, idleExitMinutes: 30, phoneMode: true, phoneTriggerWidth: 1200, phoneWidth: 400, chromeCacheMB: 200, stageAutoClaimBrowser: true, filesOnDesktop: true, remoteEnabled: false, winPlaceOnClaim: true, winHideOnMinimize: true, winCloseToTray: true, immersiveMode: false, desktopFullscreen: false, dockPosition: "bottom", dockAutoHide: false, dockIconSize: 52, cc_show_immersive: true, cc_show_stage: true, cc_show_fullscreen: true, cc_show_dockhide: true, cc_show_remote: true, cc_show_wallpaper: true, notify_allow_sandbox: true, notify_allow_update: true, notify_allow_servermon: true, notify_allow_node: true, notify_allow_remote: true, notify_allow_files: true, notify_allow_web: true, notify_banner_sandbox: true, notify_banner_update: true, notify_banner_servermon: true, notify_banner_node: true, notify_banner_remote: true, notify_banner_files: true, notify_banner_web: true, nc_widgets: '[{"id":"calendar","show":true},{"id":"server","show":true},{"id":"node","show":true}]', exitClosesApps: true, updateBeta: false, nodeStartMode: "last", nodeSubAuto: true, nodeSubIntervalMin: 360, nodeTestURL: "http://www.gstatic.com/generate_204", nodeTestTimeoutMs: 5e3, nodeClashAPI: true, summonHotkey: "F8", defaultOfficeSuite: "onlyoffice", stageDisplay: "preview", deskIconSize: 54, deskSort: "manual" };
   function wallKey() {
     if (SETTINGS) return SETTINGS.wallpaper || "tahoe";
     return localStorage.getItem("mj-wall") || "tahoe";
@@ -7793,7 +7793,7 @@ ${pr.textContent}> ${cmd}\r
   // web/src/b1/ccnc.ts
   var ANIM_BANNER_MS = 320;
   var BANNER_HOLD_MS = 6e3;
-  var NC_SRCNAMES = { sandbox: "应用隔离", update: "软件更新", servermon: "服务器监控", node: "节点", remote: "远程协助", files: "文件" };
+  var NC_SRCNAMES = { sandbox: "应用隔离", update: "软件更新", servermon: "服务器监控", node: "节点", remote: "远程协助", files: "文件", web: "网页通知" };
   var ccEl = document.getElementById("ccpanel");
   var ncEl = document.getElementById("ncenter");
   var bannersEl = document.getElementById("banners");
@@ -7816,7 +7816,34 @@ ${pr.textContent}> ${cmd}\r
       };
       go();
       setTimeout(go, 150);
+    } else if (route.startsWith("webnotify:")) {
+      focusWebNotify(route);
     } else openApp(route);
+  }
+  async function focusWebNotify(route) {
+    const rest = route.slice("webnotify:".length);
+    const cut = rest.lastIndexOf(":");
+    const host = cut > 0 ? rest.slice(0, cut) : rest, id = cut > 0 ? rest.slice(cut + 1) : "";
+    if (id) api("/api/webnotify/click", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) }).catch(() => {
+    });
+    try {
+      const r = await api("/api/extwin");
+      const ws = (r && r.windows || []).filter((w) => !w.shell);
+      const hostOf = (u) => {
+        try {
+          return new URL(u).host;
+        } catch (e) {
+          return "";
+        }
+      };
+      const pick = ws.find((w) => w.url && hostOf(w.url) === host) || ws.find((w) => w.browser);
+      if (pick) {
+        await api("/api/extwin/focus", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hwnd: pick.hwnd }) });
+        return;
+      }
+    } catch (e) {
+    }
+    openApp("browser");
   }
   function closeCC() {
     if (!ccOpen) return;

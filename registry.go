@@ -187,12 +187,18 @@ var featureRegistry = []feature{
 		Routes: []featureRoute{
 			lr("/api/notify"), lr("/api/notify/dismiss"),
 			lr("/api/notify/clear-source"), lr("/api/notify/stream"),
+			// v0.68 (detail-fix ⑧): the web-notification bridge
+			// endpoints (webnotify.go) -- local only, never on
+			// the remote mux.
+			lr("/api/webnotify"), lr("/api/webnotify/ping"),
+			lr("/api/webnotify/poll"), lr("/api/webnotify/click"),
 		},
 		Settings: []string{
 			"notify_allow_sandbox", "notify_allow_update", "notify_allow_servermon",
 			"notify_allow_node", "notify_allow_remote", "notify_allow_files",
 			"notify_banner_sandbox", "notify_banner_update", "notify_banner_servermon",
 			"notify_banner_node", "notify_banner_remote", "notify_banner_files",
+			"notify_allow_web", "notify_banner_web",
 		},
 		SettingPrefixes: []string{"notify_allow_app_", "notify_banner_app_"},
 	},

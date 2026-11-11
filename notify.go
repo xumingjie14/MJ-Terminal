@@ -41,6 +41,12 @@ const (
 	notifySrcNode      = "node"
 	notifySrcRemote    = "remote"
 	notifySrcFiles     = "files"
+	// v0.68 (detail-fix ⑧): the 网页通知 master switch. Web
+	// events themselves are recorded as app-category events of
+	// the sending site (see webnotify.go); this source id exists
+	// for the per-source switch pair notify_allow_web /
+	// notify_banner_web that gates the whole bridge.
+	notifySrcWeb = "web"
 )
 
 // notifySources lists every source with its 设置 → 通知 display
@@ -52,6 +58,7 @@ var notifySources = []struct{ ID, Name string }{
 	{notifySrcNode, "节点"},
 	{notifySrcRemote, "远程协助"},
 	{notifySrcFiles, "文件"},
+	{notifySrcWeb, "网页通知"},
 }
 
 func notifySourceName(id string) string {
@@ -361,9 +368,14 @@ func postNotify(source, key, title, body, route string) {
 //
 // Honest boundary, also stated in 设置 and the release notes:
 // this governs only events the TERMINAL itself generates about
-// its apps. A web page's own notifications inside Chrome belong
-// to the Windows notification center; the daemon cannot see or
-// gate them.
+// its apps. Web pages' own notifications in the host's browsers
+// stay with the Windows notification center -- the daemon never
+// sees them. Since v0.68 (detail-fix ⑧) the ISOLATED Chrome is
+// the exception: its pages' notifications arrive through the
+// bridge extension (webnotify.go), are recorded as app events
+// of the sending site, and are gated by the 网页通知 master
+// switch (notify_allow_web / notify_banner_web), not by the
+// per-app switches here.
 func postAppNotify(appID, appName, key, title, body, route string) {
 	go func() {
 		defer func() { _ = recover() }()

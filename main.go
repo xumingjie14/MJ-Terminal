@@ -1237,7 +1237,18 @@ func launchIsolatedBrowser(proxy bool, target string, appMode bool) error {
 	// as the proxy/cache arguments below (and Firefox's user.js):
 	// written into the profile before the browser starts.
 	seedChromeDarkTheme(profile)
+	// v0.68 (detail-fix ⑧): the web-notification bridge. The
+	// embedded extension is released into its managed dir under
+	// Data (config.json stamped with this daemon's base URL) and
+	// loaded unpacked for this profile. A release failure only
+	// loses the bridge -- it never blocks the launch.
+	extDir := releaseWebNotifyExt()
 	args := []string{"--user-data-dir=" + profile, "--no-first-run", "--start-maximized"}
+	extNote := ""
+	if extDir != "" {
+		args = append(args, "--load-extension="+extDir)
+		extNote = "，网页通知桥已加载"
+	}
 	// Disk-cache cap (v0.30, 设置 -> 浏览器）: the profile's caches
 	// are what bloats the portable folder over time; the cap keeps
 	// them bounded. 0 = no cap (the flag is simply not passed).
@@ -1258,9 +1269,15 @@ func launchIsolatedBrowser(proxy bool, target string, appMode bool) error {
 	// new window by diffing against it (Chrome hands off to a running
 	// instance, so the started process is not the window's owner).
 	before := platformSnapshotWindows(browser)
+	launchAt := time.Now()
 	browserCmd := exec.Command(browser, args...)
 	if err := browserCmd.Start(); err != nil {
 		return fmt.Errorf("浏览器打开失败: %w", err)
+	}
+	// v0.68: if the bridge never pings after this launch, the
+	// console hears about it once (webnotify.go has the rules).
+	if extDir != "" {
+		webNotifyLaunchCheck(launchAt)
 	}
 	noteSpawnedProcess(uint32(browserCmd.Process.Pid), "隔离浏览器")
 	host := target
@@ -1274,7 +1291,7 @@ func launchIsolatedBrowser(proxy bool, target string, appMode bool) error {
 	if appMode {
 		mode += " · 应用模式"
 	}
-	logf("browser", "info", "打开隔离浏览器：%s（%s，磁盘缓存上限 %s）", host, mode, cacheNote)
+	logf("browser", "info", "打开隔离浏览器：%s（%s，磁盘缓存上限 %s%s）", host, mode, cacheNote, extNote)
 	// Unified window management (v0.18 乙+丙): register this external
 	// window with the daemon so the Stage Manager can switch to it and
 	// the taskbar groups it with the rest. No-op off Windows.
@@ -2122,6 +2139,12 @@ func runServer(portFlag int, isDaemon bool) {
 	mux.HandleFunc("/api/notify/dismiss", notifyDismissHandler)
 	mux.HandleFunc("/api/notify/clear-source", notifyClearSourceHandler)
 	mux.HandleFunc("/api/notify/stream", notifyStreamHandler)
+	// v0.68 (detail-fix ⑧): the web-notification bridge
+	// extension's endpoints (webnotify.go), local mux only.
+	mux.HandleFunc("/api/webnotify", webNotifyHandler)
+	mux.HandleFunc("/api/webnotify/ping", webNotifyPingHandler)
+	mux.HandleFunc("/api/webnotify/poll", webNotifyPollHandler)
+	mux.HandleFunc("/api/webnotify/click", webNotifyClickHandler)
 	mux.HandleFunc("/api/view/stream", viewStreamHandler)
 	mux.HandleFunc("/api/view/overlay", viewOverlayHandler)
 	mux.HandleFunc("/api/hotkey/status", hotkeyStatusHandler)

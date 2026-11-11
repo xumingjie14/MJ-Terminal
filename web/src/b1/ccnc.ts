@@ -37,7 +37,7 @@ export const ANIM_PANEL_MS=280;   // CC dropdown fade/scale (CSS #ccpanel)
 export const ANIM_NC_MS=300;      // NC column slide (CSS #ncenter)
 export const ANIM_BANNER_MS=320;  // banner in/out (CSS .banner)
 export const BANNER_HOLD_MS=6000; // banner dwell before auto-dismiss
-export const NC_SRCNAMES={sandbox:'应用隔离',update:'软件更新',servermon:'服务器监控',node:'节点',remote:'远程协助',files:'文件'};
+export const NC_SRCNAMES={sandbox:'应用隔离',update:'软件更新',servermon:'服务器监控',node:'节点',remote:'远程协助',files:'文件',web:'网页通知'};
 
 
 export const ccEl=document.getElementById('ccpanel'), ncEl=document.getElementById('ncenter'), bannersEl=document.getElementById('banners');
@@ -50,7 +50,33 @@ export function routeJump(route){
   openApp('sys');
   const pg=route.slice(8), go=()=>{ if(window.sysGoto) window.sysGoto(pg); };
   go(); setTimeout(go,150);
+ } else if(route.startsWith('webnotify:')){
+  focusWebNotify(route);
  } else openApp(route);
+}
+/* v0.68 (detail-fix ⑧): a web page notification's click. The
+   route is "webnotify:<host>:<event id>": tell the daemon the
+   event was clicked (the bridge extension long-polls for it and
+   fires the page instance's own click event + focuses its tab),
+   and raise the Chrome window for that site through the normal
+   extwin machinery -- an app-mode window for the site wins, any
+   tracked browser window is next, the in-shell browser page is
+   the last resort. Window-level precision is what the machinery
+   has: a tabbed Chrome window cannot be aimed at one tab from
+   out here (the extension's tab focus covers that side). */
+export async function focusWebNotify(route){
+ const rest=route.slice('webnotify:'.length);
+ const cut=rest.lastIndexOf(':');
+ const host=cut>0?rest.slice(0,cut):rest, id=cut>0?rest.slice(cut+1):'';
+ if(id) api('/api/webnotify/click',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})}).catch(()=>{});
+ try{
+  const r=await api('/api/extwin');
+  const ws=((r&&r.windows)||[]).filter(w=>!w.shell);
+  const hostOf=u=>{ try{ return new URL(u).host; }catch(e){ return ''; } };
+  const pick=ws.find(w=>w.url&&hostOf(w.url)===host)||ws.find(w=>w.browser);
+  if(pick){ await api('/api/extwin/focus',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hwnd:pick.hwnd})}); return; }
+ }catch(e){}
+ openApp('browser');
 }
 export function closeCC(){ if(!ccOpen) return; ccOpen=false; ccEl.classList.add('hidden'); const b=document.getElementById('mb-cc'); if(b) b.classList.remove('on'); stageOverlay('cc',false); }
 export function openCC(){ closeNC(); ccOpen=true; ccEl.classList.remove('hidden'); ccEl.classList.add('pop'); requestAnimationFrame(()=>requestAnimationFrame(()=>ccEl.classList.remove('pop'))); const b=document.getElementById('mb-cc'); if(b) b.classList.add('on'); paintCC(); stageOverlay('cc',true); }

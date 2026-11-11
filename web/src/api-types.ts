@@ -215,6 +215,8 @@ export interface MjSettings {
   notify_banner_node: boolean;
   notify_banner_remote: boolean;
   notify_banner_files: boolean;
+  notify_allow_web: boolean;
+  notify_banner_web: boolean;
   nc_widgets: string;
   exitClosesApps: boolean;
   updateBeta: boolean;
@@ -316,6 +318,8 @@ export interface SettingsResponse {
   notify_banner_node: boolean;
   notify_banner_remote: boolean;
   notify_banner_files: boolean;
+  notify_allow_web: boolean;
+  notify_banner_web: boolean;
   nc_widgets: string;
   exitClosesApps: boolean;
   updateBeta: boolean;

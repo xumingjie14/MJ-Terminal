@@ -150,6 +150,13 @@ type mjSettings struct {
 	NotifyBannerNode    bool `json:"notify_banner_node"`
 	NotifyBannerRemote  bool `json:"notify_banner_remote"`
 	NotifyBannerFiles   bool `json:"notify_banner_files"`
+	// v0.68 (detail-fix ⑧): the web-notification bridge master
+	// switch pair （设置 → 通知 → 网页通知）. Allow off = the
+	// bridge extension's posts are rejected at /api/webnotify
+	// and nothing is recorded; banner off = recorded silently.
+	// Defaults follow the other sources: both ON.
+	NotifyAllowWeb  bool `json:"notify_allow_web"`
+	NotifyBannerWeb bool `json:"notify_banner_web"`
 	// v0.54: per-app notification switches （设置 → 通知 → 应用通知）.
 	// Keys are app notify ids (store-<id> / prod-<id> / firefox /
 	// openclaw / web-<slug>); an ABSENT entry means the default:
@@ -284,6 +291,8 @@ func defaultSettings() mjSettings {
 		NotifyBannerNode:      true,
 		NotifyBannerRemote:    true,
 		NotifyBannerFiles:     true,
+		NotifyAllowWeb:        true,
+		NotifyBannerWeb:       true,
 		NCWidgets:             defaultNCWidgets,
 		ExitClosesApps:        true,
 		NodeStartMode:         "last",
@@ -400,6 +409,10 @@ func boolSettingPtr(s *mjSettings, key string) *bool {
 		return &s.NotifyBannerRemote
 	case "notify_banner_files":
 		return &s.NotifyBannerFiles
+	case "notify_allow_web":
+		return &s.NotifyAllowWeb
+	case "notify_banner_web":
+		return &s.NotifyBannerWeb
 	}
 	return nil
 }
