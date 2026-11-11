@@ -9,6 +9,7 @@ import { showStageCtx } from './extstrip';
 import { saveSession } from './session';
 import { ffDeskIconHTML } from './appsload';
 import { render } from './pages';
+import { uiScaleFactor } from './settings';
 /* ----- windows ----- */
 export function appIcon(a: any, size?: any){
  if(a.id==='firefox')return ffDeskIconHTML();
@@ -33,8 +34,13 @@ export function makeWin(app,i){
  const title=w.querySelector('.title');
  title.addEventListener('pointerdown',(ev: any)=>{
    if(ev.target.closest('button'))return;bring(w);
-   const sx=ev.clientX-w.offsetLeft, sy=ev.clientY-w.offsetTop;
-   function mv(e){w.style.left=Math.max(0,e.clientX-sx)+'px';w.style.top=Math.max(44,e.clientY-sy)+'px'}
+   /* v0.67: pointer coordinates are VISUAL units under a UI
+      scale, offsetLeft/style are LOCAL -- convert the pointer
+      into local space once (uiToLocal) and drag entirely
+      there. */
+   const zf=uiScaleFactor();
+   const sx=uiToLocal(ev.clientX,zf)-w.offsetLeft, sy=uiToLocal(ev.clientY,zf)-w.offsetTop;
+   function mv(e){w.style.left=Math.max(0,uiToLocal(e.clientX,zf)-sx)+'px';w.style.top=Math.max(44,uiToLocal(e.clientY,zf)-sy)+'px'}
    function up(){removeEventListener('pointermove',mv);removeEventListener('pointerup',up);saveSession()}
    addEventListener('pointermove',mv);addEventListener('pointerup',up);
  });

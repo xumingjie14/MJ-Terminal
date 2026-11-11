@@ -58,7 +58,14 @@ type mjSettings struct {
 	// (100%). Written by 设置 → 组件 → 打开方式； the viewer can
 	// still zoom/pan/rotate freely per image, this is only where
 	// an open (and each prev/next hop) starts.
-	ImgZoom           string `json:"imgZoom"`
+	ImgZoom string `json:"imgZoom"`
+	// v0.67: the desktop UI's own display scale （界面缩放） --
+	// a percentage string from the uiScales domain ("100" the
+	// default). Written by 设置 → 外观 → 显示； the desktop view
+	// applies it as CSS zoom on its own document root, so it
+	// never reaches external windows or the daemon's other
+	// pages. The daemon only persists and validates it.
+	UIScale           string `json:"uiScale"`
 	StageManager      bool   `json:"stageManager"`      // Stage Manager on/off
 	IdleExitMinutes   int    `json:"idleExitMinutes"`   // daemon idle auto-exit; 0 = never
 	PhoneMode         bool   `json:"phoneMode"`         // phone-width landing on/off
@@ -238,6 +245,7 @@ func defaultSettings() mjSettings {
 		WallpaperFit:          "fill",
 		PDFZoom:               "fit-width",
 		ImgZoom:               "fit",
+		UIScale:               "100",
 		StageManager:          false,
 		IdleExitMinutes:       30,
 		PhoneMode:             true,
@@ -490,6 +498,18 @@ var imgZooms = map[string]bool{
 
 func validImgZoom(v string) bool { return imgZooms[v] }
 
+// v0.67: the desktop UI scale domain -- display-scaling
+// percentages as strings, anchored on 100/125/150 with the
+// reasonable neighbours the Settings seg offers. The view
+// mirrors this list in UISCALE_MODES (web/src/pure/fv.ts);
+// "100" is the default (no scaling, the pre-v0.67 behaviour).
+var uiScales = map[string]bool{
+	"80": true, "90": true, "100": true, "110": true,
+	"125": true, "150": true, "175": true, "200": true,
+}
+
+func validUIScale(v string) bool { return uiScales[v] }
+
 // wallpaperFitLabel is the user-facing name used in console
 // logs; an unknown value reports as the default's label.
 func wallpaperFitLabel(v string) string {
@@ -558,6 +578,9 @@ func sanitizeSettings(s mjSettings) mjSettings {
 	}
 	if !imgZooms[s.ImgZoom] {
 		s.ImgZoom = d.ImgZoom
+	}
+	if !uiScales[s.UIScale] {
+		s.UIScale = d.UIScale
 	}
 	if s.IdleExitMinutes < 0 || s.IdleExitMinutes > 240 {
 		s.IdleExitMinutes = d.IdleExitMinutes
@@ -869,6 +892,14 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 				} else if v != next.ImgZoom {
 					next.ImgZoom = v
 					changed = append(changed, "imgZoom = "+v)
+				}
+			case "uiScale":
+				var v string
+				if json.Unmarshal(val, &v) != nil || !validUIScale(v) {
+					fail = "uiScale 不是有效的缩放比例（80/90/100/110/125/150/175/200）"
+				} else if v != next.UIScale {
+					next.UIScale = v
+					changed = append(changed, "uiScale = "+v+"%")
 				}
 			case "stageManager":
 				var v bool

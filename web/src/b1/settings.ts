@@ -16,7 +16,7 @@ import { renderDesk } from './desktop';
    reports "fresh" (no settings file yet), the old local values are
    migrated up once and the local copies dropped. */
 export let SETTINGS=null;
-export const SETDEF={wallpaper:'tahoe',wallpaperFit:'fill',pdfZoom:'fit-width',imgZoom:'fit',stageManager:false,idleExitMinutes:30,phoneMode:true,phoneTriggerWidth:1200,phoneWidth:400,chromeCacheMB:200,stageAutoClaimBrowser:true,filesOnDesktop:true,remoteEnabled:false,winPlaceOnClaim:true,winHideOnMinimize:true,winCloseToTray:true,immersiveMode:false,desktopFullscreen:false,dockPosition:'bottom',dockAutoHide:false,dockIconSize:52,cc_show_immersive:true,cc_show_stage:true,cc_show_fullscreen:true,cc_show_dockhide:true,cc_show_remote:true,cc_show_wallpaper:true,notify_allow_sandbox:true,notify_allow_update:true,notify_allow_servermon:true,notify_allow_node:true,notify_allow_remote:true,notify_allow_files:true,notify_banner_sandbox:true,notify_banner_update:true,notify_banner_servermon:true,notify_banner_node:true,notify_banner_remote:true,notify_banner_files:true,nc_widgets:'[{"id":"calendar","show":true},{"id":"server","show":true},{"id":"node","show":true}]',exitClosesApps:true,updateBeta:false,nodeStartMode:'last',nodeSubAuto:true,nodeSubIntervalMin:360,nodeTestURL:'http://www.gstatic.com/generate_204',nodeTestTimeoutMs:5000,nodeClashAPI:true,summonHotkey:'F8',defaultOfficeSuite:'onlyoffice',stageDisplay:'preview',deskIconSize:54,deskSort:'manual'};
+export const SETDEF={wallpaper:'tahoe',wallpaperFit:'fill',pdfZoom:'fit-width',imgZoom:'fit',uiScale:'100',stageManager:false,idleExitMinutes:30,phoneMode:true,phoneTriggerWidth:1200,phoneWidth:400,chromeCacheMB:200,stageAutoClaimBrowser:true,filesOnDesktop:true,remoteEnabled:false,winPlaceOnClaim:true,winHideOnMinimize:true,winCloseToTray:true,immersiveMode:false,desktopFullscreen:false,dockPosition:'bottom',dockAutoHide:false,dockIconSize:52,cc_show_immersive:true,cc_show_stage:true,cc_show_fullscreen:true,cc_show_dockhide:true,cc_show_remote:true,cc_show_wallpaper:true,notify_allow_sandbox:true,notify_allow_update:true,notify_allow_servermon:true,notify_allow_node:true,notify_allow_remote:true,notify_allow_files:true,notify_banner_sandbox:true,notify_banner_update:true,notify_banner_servermon:true,notify_banner_node:true,notify_banner_remote:true,notify_banner_files:true,nc_widgets:'[{"id":"calendar","show":true},{"id":"server","show":true},{"id":"node","show":true}]',exitClosesApps:true,updateBeta:false,nodeStartMode:'last',nodeSubAuto:true,nodeSubIntervalMin:360,nodeTestURL:'http://www.gstatic.com/generate_204',nodeTestTimeoutMs:5000,nodeClashAPI:true,summonHotkey:'F8',defaultOfficeSuite:'onlyoffice',stageDisplay:'preview',deskIconSize:54,deskSort:'manual'};
 export function wallKey(){ if(SETTINGS) return SETTINGS.wallpaper||'tahoe'; return localStorage.getItem('mj-wall')||'tahoe' }
 /* v0.63: the custom wallpaper's fit mode (settings key
    wallpaperFit), normalized by the pure wpFitKey -- an unset
@@ -31,6 +31,30 @@ export function pdfZoomDefault(){ return pdfZoomKey(SETTINGS?SETTINGS.pdfZoom:nu
    unknown value reads as 'fit'. Read on each image open and
    each prev/next hop (navigation restarts at the default). */
 export function imgZoomDefault(){ return imgZoomKey(SETTINGS?SETTINGS.imgZoom:null) }
+/* v0.67: the desktop UI scale (settings key uiScale, a
+   percentage string like '125'), normalized by the pure
+   uiScaleKey -- an unset or unknown value reads as '100'.
+   The mechanism is CSS zoom on the desktop document's root:
+   Chromium lays the whole shell out in the zoomed space, so
+   flow layout, vw/vh units and media queries stay honest at
+   any scale. The one contract it imposes: getBoundingClientRect
+   and event clientX/clientY are reported in VISUAL (zoomed)
+   units while style lengths, the client/offset/scroll
+   properties stay in LOCAL (un-zoomed) units -- every glue
+   site that mixes the two converts through the pure
+   uiToLocal seam with this factor (window drag, context
+   menus, the desktop/folder/Launchpad drag engines, the
+   Dock, the viewers' anchors, the server chart). Only THIS
+   document is zoomed: external windows and the daemon's
+   other pages never see it. */
+export function uiScaleFactor(){ return uiScaleFactorOf(SETTINGS?SETTINGS.uiScale:null) }
+export function applyUiScale(){
+ try{
+  const de: any=document.documentElement; if(!de||!de.style) return;
+  const f=uiScaleFactor();
+  de.style.zoom=f===1?'':String(f);
+ }catch(e){}
+}
 /* v0.46 Dock basics: position + auto-hide are view-side behaviours
    over daemon settings (same pattern as the wallpaper). */
 export function dockPos(){ const p=SETTINGS&&SETTINGS.dockPosition; return (p==='left'||p==='right')?p:'bottom' }
@@ -52,7 +76,7 @@ export async function loadSettings(){
    localStorage.removeItem('mj-wall'); localStorage.removeItem('mj-stage');
   }
  }catch(e){ if(!SETTINGS) SETTINGS={...SETDEF} }
- applyWallpaper(); updateStageUI(); applyDeskIconSize();
+ applyWallpaper(); updateStageUI(); applyDeskIconSize(); applyUiScale();
 }
 /* v0.56 desktop icon size: one settings key (deskIconSize, px),
    three surfaces （设置 slider / 控制中心 slider / desktop blank

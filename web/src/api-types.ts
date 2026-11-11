@@ -179,6 +179,7 @@ export interface MjSettings {
   wallpaperFit: string;
   pdfZoom: string;
   imgZoom: string;
+  uiScale: string;
   stageManager: boolean;
   idleExitMinutes: number;
   phoneMode: boolean;
@@ -279,6 +280,7 @@ export interface SettingsResponse {
   wallpaperFit: string;
   pdfZoom: string;
   imgZoom: string;
+  uiScale: string;
   stageManager: boolean;
   idleExitMinutes: number;
   phoneMode: boolean;

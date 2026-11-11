@@ -4,7 +4,7 @@
    script scope. */
 import { APPS, api, esc } from './core';
 import { glyph } from './glyphs';
-import { pdfZoomDefault } from './settings';
+import { pdfZoomDefault, uiScaleFactor } from './settings';
 import { openApp } from './windows';
 /* ----- built-in PDF viewer (v0.65, detail-fix ⑥) -----
    macOS Preview grammar over pdf.js (vendored in the EXE,
@@ -17,7 +17,7 @@ import { openApp } from './windows';
    the entry again. The daemon validates the file BEFORE any
    window exists (POST /api/pdf/open: inside Data/files, .pdf,
    %PDF- header), and the bytes ride the existing range-capable
-   /api/files/raw. The pure seams (zoom scale, ctrl+wheel zoom,
+   /api/files/raw. The pure seams (zoom scale, wheel zoom,
    scroll->page, find matching/navigation, rotation) live in
    pure/fv.ts and are node-tested; this module is the DOM/pdf.js
    glue. */
@@ -290,27 +290,32 @@ function zoomStep(st: any, dir: number){
  else { for(let i=ZOOM_STEPS.length-1;i>=0;i--){ if(ZOOM_STEPS[i]<curPct-0.5){ next=ZOOM_STEPS[i]; break; } } }
  st.mode='percent'; st.pct=next; applyZoom(st);
 }
-/* ---------- ctrl+wheel zoom (v0.65-test2) ----------
-   Acrobat convention: ctrl+wheel zooms, plain wheel keeps
-   scrolling untouched (this listener is registered
-   non-passive on the viewer's own scroller and only acts on
-   ctrlKey, so the gesture never leaks to the shell or other
-   apps; Edge reports a trackpad pinch as ctrl+wheel, so
-   pinch rides the same path). The decision math is the pure
-   pdfWheelZoom seam. Events between animation frames
-   coalesce into ONE anchored applyZoom, each accumulating
-   from the pending target (st.pct once in 'percent' mode),
-   so a fast spin or pinch is one smooth gesture instead of
-   a storm of relayouts; the re-render itself is the same
-   generation-guarded path button zoom uses. */
+/* ---------- wheel zoom (v0.65-test2, ungated in v0.67) ----------
+   v0.65-test2 shipped this Ctrl-gated (the Acrobat
+   convention); the user flipped it in v0.67: PLAIN wheel
+   over the pages zooms, pointer-anchored, and page movement
+   lives on the keyboard (arrows / PageUp / PageDown / Home /
+   End), the scrollbar, the thumbnails and the page-number
+   entry. This listener is registered non-passive on the
+   viewer's own scroller and always acts, so the gesture
+   never leaks to the shell or other apps; Edge reports a
+   trackpad pinch as ctrl+wheel, which rides the same path
+   (the shell's ctrl+wheel guard deliberately passes events
+   originating inside this scroller -- see events.ts). The
+   decision math is the pure pdfWheelZoom seam. Events
+   between animation frames coalesce into ONE anchored
+   applyZoom, each accumulating from the pending target
+   (st.pct once in 'percent' mode), so a fast spin or pinch
+   is one smooth gesture instead of a storm of relayouts;
+   the re-render itself is the same generation-guarded path
+   button zoom uses. */
 function pdfWheel(st: any, ev: any){
- if(!ev.ctrlKey) return;
  if(st.destroyed||!st.doc) return;
  ev.preventDefault();
  const sc=st.els.scroll;
  const dy=ev.deltaMode===1?ev.deltaY*33:ev.deltaMode===2?ev.deltaY*Math.max(1,sc.clientHeight):ev.deltaY;
  const base=st.mode==='percent'?(+st.pct||100)/100:st.scale;
- const d=pdfWheelZoom(dy,true,base);
+ const d=pdfWheelZoom(dy,base);
  if(!d.zoom) return;
  st.mode='percent'; st.pct=d.scale*100;
  const rect=sc.getBoundingClientRect();
@@ -336,6 +341,13 @@ function pdfWheel(st: any, ev: any){
 function pdfAnchorAt(st: any, px: number, py: number){
  const sc=st.els.scroll;
  if(!st.numPages||!st.slots.length) return null;
+ /* px/py arrive in viewport space (clientX - rect.left):
+    under a UI scale != 100% (v0.67) rects and pointer
+    coordinates are VISUAL units while scrollLeft/offsetWidth
+    are LOCAL -- convert before mixing (uiToLocal seam). The
+    stored px/py are then local, which is the space
+    restorePdfAnchor writes back into scrollLeft/scrollTop. */
+ px=uiToLocal(px,uiScaleFactor()); py=uiToLocal(py,uiScaleFactor());
  const docX=sc.scrollLeft+px, docY=sc.scrollTop+py;
  let i=0;
  for(let k=0;k<st.numPages;k++){ if(st.tops[k]<=docY) i=k; else break; }

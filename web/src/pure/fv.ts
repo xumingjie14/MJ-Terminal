@@ -122,7 +122,7 @@ const PDFZOOM_MODES=[
 function pdfZoomValid(v){ return PDFZOOM_MODES.some(m=>m.id===v); }
 function pdfZoomKey(v){ return pdfZoomValid(v)?v:'fit-width'; }
 /* The scale band every zoom path enforces (pdfResolveScale
-   clamps to it, ctrl+wheel zoom clamps to it). */
+   clamps to it, wheel zoom clamps to it). */
 const PDF_SCALE_MIN=0.05, PDF_SCALE_MAX=10;
 /* The scale (CSS px per PDF point) a zoom state means for one
    page in a container. fit modes derive from the container;
@@ -189,23 +189,24 @@ function pdfFindStep(cur,total,dir){
 function pdfRotateNext(rot){
  return (((+rot||0)%360)+360+90)%360;
 }
-/* Ctrl+wheel zoom (v0.65-test2, the Acrobat/Chrome-PDF
-   convention): plain wheel keeps scrolling -- only a
-   ctrl+wheel event zooms, which is also exactly how Edge
-   reports a trackpad pinch, so pinch rides the same path.
-   Continuous, not stepped: the new scale is the current one
-   times exp(-deltaY * PDF_WHEEL_K), so one standard notch
+/* Wheel zoom (v0.65-test2 shipped it Ctrl-gated, the
+   Acrobat/Chrome-PDF convention; v0.67 removes the gate at
+   the user's word -- plain wheel over the pages zooms, Ctrl
+   rides the same path, and page movement moves to the
+   keyboard / scrollbar / thumbnails). Continuous, not
+   stepped: the new scale is the current one times
+   exp(-deltaY * PDF_WHEEL_K), so one standard notch
    (|deltaY| = 100) lands near x1.105 and small trackpad
-   deltas accumulate into a smooth glide; the result clamps
-   to the same band pdfResolveScale enforces. deltaY is in
-   pixel units (the caller normalizes line/page deltaModes
-   before calling). A zero/NaN delta, or pushing against a
-   clamp the scale already sits on, decides zoom:false so
-   the caller skips the relayout. */
+   deltas accumulate into a smooth glide; Edge reports a
+   trackpad pinch as ctrl+wheel, so pinch rides this path
+   too. The result clamps to the same band pdfResolveScale
+   enforces. deltaY is in pixel units (the caller normalizes
+   line/page deltaModes before calling). A zero/NaN delta,
+   or pushing against a clamp the scale already sits on,
+   decides zoom:false so the caller skips the relayout. */
 const PDF_WHEEL_K=0.001;
-function pdfWheelZoom(deltaY,ctrlKey,scale){
+function pdfWheelZoom(deltaY,scale){
  const s=(+scale>0&&isFinite(scale))?+scale:1;
- if(!ctrlKey) return {zoom:false,scale:s};
  const d=+deltaY;
  if(!d||!isFinite(d)) return {zoom:false,scale:s};
  const ns=Math.min(PDF_SCALE_MAX,Math.max(PDF_SCALE_MIN,s*Math.exp(-d*PDF_WHEEL_K)));
@@ -314,3 +315,50 @@ function imgStepIndex(cur,total,dir){
 /* Double-click: at fit, jump to actual size; anywhere else,
    back to fit. */
 function imgDblTarget(mode){ return mode==='fit'?'actual':'fit'; }
+/* v0.67: the desktop shell's Ctrl+wheel guard. The Edge --app
+   view zooms the WHOLE desktop UI on ctrl+wheel; the user
+   wants that gone, but the viewers zoom on wheel input
+   themselves (the PDF scroller .pdfv-scroll and the image
+   stage #iv-stage own non-passive wheel handlers). The guard
+   glue (b1/events.ts, capture phase on document) asks this
+   seam about a ctrl+wheel event's ancestor chain -- an array
+   of {id, cls} descriptors from the event target up to the
+   root, built by the glue so the seam stays DOM-free:
+   inside a viewer's scroll container the event PASSES (the
+   viewer's own handler zooms and preventDefaults); anywhere
+   else in the shell it is SWALLOWED (preventDefault, so the
+   page never zooms -- the accompanying scroll is eaten too,
+   the same trade Chrome's own PDF viewer makes). */
+function shellWheelSwallow(chain){
+ if(!chain) return true;
+ for(let i=0;i<chain.length;i++){
+  const d=chain[i]||{};
+  if(d.id==='iv-stage') return false;
+  if(/(^|\s)pdfv-scroll(\s|$)/.test(String(d.cls||''))) return false;
+ }
+ return true;
+}
+/* v0.67: the desktop UI scale （界面缩放比例， the user's
+   "屏幕分辨率" ask, confirmed as display scaling). The
+   persisted settings value is the percentage as a string
+   (settings.go uiScales mirrors this domain: '100' the
+   default). The mechanism is CSS zoom on the desktop
+   document's root element (see applyUiScale in b1/settings.ts
+   for the coordinate-space contract it imposes). */
+const UISCALE_MODES=[80,90,100,110,125,150,175,200];
+function uiScaleValid(v){ return UISCALE_MODES.indexOf(parseInt(v,10))>=0; }
+function uiScaleKey(v){ return uiScaleValid(v)?String(parseInt(v,10)):'100'; }
+function uiScaleFactorOf(v){ return (+uiScaleKey(v))/100; }
+/* Pointer/rect space -> local (style/scroll) space under a
+   root zoom factor z: getBoundingClientRect() and event
+   clientX/clientY are reported in VISUAL (zoomed) units
+   while style lengths, clientWidth and the offset/scroll
+   properties stay in LOCAL (un-zoomed) units (the CSS zoom
+   model). Every glue site that mixes the two divides the
+   visual value by z through this seam. A degenerate z reads
+   as 1 (no scale). */
+function uiToLocal(v,z){
+ const f=(+z>0&&isFinite(z))?+z:1;
+ const n=+v;
+ return isFinite(n)?n/f:0;
+}

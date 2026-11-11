@@ -12,8 +12,8 @@ const assert = require('assert');
 const html = fs.readFileSync(__dirname + '/index.html', 'utf8');
 const m = html.match(/\/\* === fv pure \(node-testable\) === \*\/([\s\S]*?)\/\* === end fv pure === \*\//);
 assert(m, 'fv pure block not found in index.html');
-const { FV_GROUPS, fvGroupOf, fvInGroup, fvSortList, fvVisible, fvToggleSel, fvRangeSel, FV_RECENT_CAP, fvMediaGroup, fvExtOf, WPFIT_MODES, WPFIT_BASE, wpFitValid, wpFitKey, wpFitCSS, wpFitShowsWallItem, PDFZOOM_MODES, pdfZoomValid, pdfZoomKey, pdfResolveScale, pdfPageAtScroll, pdfRenderWindow, pdfFindMatches, pdfFindStep, pdfRotateNext, pdfWheelZoom, IMGZOOM_MODES, imgZoomValid, imgZoomKey, IMG_SCALE_MIN, IMG_SCALE_MAX, imgEffSize, imgFitScale, imgResolveScale, imgWheelZoom, imgStepScale, imgAnchorPos, imgClampPan, imgRotateNext, imgStepIndex, imgDblTarget } = new Function(
-  m[1] + '\nreturn { FV_GROUPS, fvGroupOf, fvInGroup, fvSortList, fvVisible, fvToggleSel, fvRangeSel, FV_RECENT_CAP, fvMediaGroup, fvExtOf, WPFIT_MODES, WPFIT_BASE, wpFitValid, wpFitKey, wpFitCSS, wpFitShowsWallItem, PDFZOOM_MODES, pdfZoomValid, pdfZoomKey, pdfResolveScale, pdfPageAtScroll, pdfRenderWindow, pdfFindMatches, pdfFindStep, pdfRotateNext, pdfWheelZoom, IMGZOOM_MODES, imgZoomValid, imgZoomKey, IMG_SCALE_MIN, IMG_SCALE_MAX, imgEffSize, imgFitScale, imgResolveScale, imgWheelZoom, imgStepScale, imgAnchorPos, imgClampPan, imgRotateNext, imgStepIndex, imgDblTarget };'
+const { FV_GROUPS, fvGroupOf, fvInGroup, fvSortList, fvVisible, fvToggleSel, fvRangeSel, FV_RECENT_CAP, fvMediaGroup, fvExtOf, WPFIT_MODES, WPFIT_BASE, wpFitValid, wpFitKey, wpFitCSS, wpFitShowsWallItem, PDFZOOM_MODES, pdfZoomValid, pdfZoomKey, pdfResolveScale, pdfPageAtScroll, pdfRenderWindow, pdfFindMatches, pdfFindStep, pdfRotateNext, pdfWheelZoom, IMGZOOM_MODES, imgZoomValid, imgZoomKey, IMG_SCALE_MIN, IMG_SCALE_MAX, imgEffSize, imgFitScale, imgResolveScale, imgWheelZoom, imgStepScale, imgAnchorPos, imgClampPan, imgRotateNext, imgStepIndex, imgDblTarget, shellWheelSwallow, UISCALE_MODES, uiScaleValid, uiScaleKey, uiScaleFactorOf, uiToLocal } = new Function(
+  m[1] + '\nreturn { FV_GROUPS, fvGroupOf, fvInGroup, fvSortList, fvVisible, fvToggleSel, fvRangeSel, FV_RECENT_CAP, fvMediaGroup, fvExtOf, WPFIT_MODES, WPFIT_BASE, wpFitValid, wpFitKey, wpFitCSS, wpFitShowsWallItem, PDFZOOM_MODES, pdfZoomValid, pdfZoomKey, pdfResolveScale, pdfPageAtScroll, pdfRenderWindow, pdfFindMatches, pdfFindStep, pdfRotateNext, pdfWheelZoom, IMGZOOM_MODES, imgZoomValid, imgZoomKey, IMG_SCALE_MIN, IMG_SCALE_MAX, imgEffSize, imgFitScale, imgResolveScale, imgWheelZoom, imgStepScale, imgAnchorPos, imgClampPan, imgRotateNext, imgStepIndex, imgDblTarget, shellWheelSwallow, UISCALE_MODES, uiScaleValid, uiScaleKey, uiScaleFactorOf, uiToLocal };'
 )();
 
 const F = (name, kind, size, mtime) => ({ name, path: name, kind, size, mtime, ext: name.split('.').pop() });
@@ -171,23 +171,48 @@ assert.strictEqual(pdfRotateNext(0), 90);
 assert.strictEqual(pdfRotateNext(270), 0);
 assert.strictEqual(pdfRotateNext(360), 90);
 assert.strictEqual(pdfRotateNext(-90), 0);
-// ctrl+wheel zoom (v0.65-test2): the pure wheel decision seam
+// wheel zoom (v0.65-test2 shipped it ctrl-gated; v0.67 ungated
+// at the user's word): PLAIN wheel zooms -- no modifier in the
+// seam at all. Direction, the exp law and the clamps are the
+// same ones test2 pinned.
 const approx = (a, b) => Math.abs(a - b) < 1e-9;
-assert.deepStrictEqual(pdfWheelZoom(-100, false, 1), { zoom: false, scale: 1 }, 'plain wheel never zooms');
-assert.deepStrictEqual(pdfWheelZoom(100, false, 2), { zoom: false, scale: 2 }, 'plain wheel down keeps the scale');
-assert.deepStrictEqual(pdfWheelZoom(-100, undefined, 1), { zoom: false, scale: 1 }, 'no ctrl flag, no zoom');
-{ const d = pdfWheelZoom(-100, true, 1); assert(d.zoom && approx(d.scale, Math.exp(0.1)), 'wheel up (deltaY<0) zooms in'); }
-{ const d = pdfWheelZoom(100, true, 1); assert(d.zoom && approx(d.scale, Math.exp(-0.1)), 'wheel down (deltaY>0) zooms out'); }
-{ const up = pdfWheelZoom(-100, true, 1), dn = pdfWheelZoom(100, true, up.scale); assert(approx(dn.scale, 1), 'in then out by one notch returns to the start'); }
-{ let s = 1; for (let i = 0; i < 10; i++) s = pdfWheelZoom(-4, true, s).scale; assert(approx(s, pdfWheelZoom(-40, true, 1).scale), 'small trackpad deltas accumulate like one bigger delta'); }
-{ const one = pdfWheelZoom(-4, true, 1); assert(one.zoom && one.scale > 1 && one.scale < 1.01, 'a tiny trackpad delta is a smooth small step, not a button jump'); }
-assert.strictEqual(pdfWheelZoom(-100, true, 9.9).scale, 10, 'wheel zoom clamps at the top of the band');
-assert.deepStrictEqual(pdfWheelZoom(-100, true, 10), { zoom: false, scale: 10 }, 'already at max: no zoom decision');
-assert.strictEqual(pdfWheelZoom(100, true, 0.055).scale, 0.05, 'wheel zoom clamps at the bottom of the band');
-assert.deepStrictEqual(pdfWheelZoom(100, true, 0.05), { zoom: false, scale: 0.05 }, 'already at min: no zoom decision');
-assert.deepStrictEqual(pdfWheelZoom(0, true, 1.5), { zoom: false, scale: 1.5 }, 'a zero delta decides nothing');
-assert.deepStrictEqual(pdfWheelZoom(NaN, true, 1.5), { zoom: false, scale: 1.5 }, 'a NaN delta decides nothing');
-assert.deepStrictEqual(pdfWheelZoom(-100, true, 0), { zoom: true, scale: Math.exp(0.1) }, 'a degenerate current scale reads as 100%');
+{ const d = pdfWheelZoom(-100, 1); assert(d.zoom && approx(d.scale, Math.exp(0.1)), 'plain wheel up (deltaY<0) zooms in'); }
+{ const d = pdfWheelZoom(100, 1); assert(d.zoom && approx(d.scale, Math.exp(-0.1)), 'plain wheel down (deltaY>0) zooms out'); }
+{ const up = pdfWheelZoom(-100, 1), dn = pdfWheelZoom(100, up.scale); assert(approx(dn.scale, 1), 'in then out by one notch returns to the start'); }
+{ let s = 1; for (let i = 0; i < 10; i++) s = pdfWheelZoom(-4, s).scale; assert(approx(s, pdfWheelZoom(-40, 1).scale), 'small trackpad deltas accumulate like one bigger delta'); }
+{ const one = pdfWheelZoom(-4, 1); assert(one.zoom && one.scale > 1 && one.scale < 1.01, 'a tiny trackpad delta is a smooth small step, not a button jump'); }
+assert.strictEqual(pdfWheelZoom(-100, 9.9).scale, 10, 'wheel zoom clamps at the top of the band');
+assert.deepStrictEqual(pdfWheelZoom(-100, 10), { zoom: false, scale: 10 }, 'already at max: no zoom decision');
+assert.strictEqual(pdfWheelZoom(100, 0.055).scale, 0.05, 'wheel zoom clamps at the bottom of the band');
+assert.deepStrictEqual(pdfWheelZoom(100, 0.05), { zoom: false, scale: 0.05 }, 'already at min: no zoom decision');
+assert.deepStrictEqual(pdfWheelZoom(0, 1.5), { zoom: false, scale: 1.5 }, 'a zero delta decides nothing');
+assert.deepStrictEqual(pdfWheelZoom(NaN, 1.5), { zoom: false, scale: 1.5 }, 'a NaN delta decides nothing');
+assert.deepStrictEqual(pdfWheelZoom(-100, 0), { zoom: true, scale: Math.exp(0.1) }, 'a degenerate current scale reads as 100%');
+
+// --- shell ctrl+wheel guard (v0.67): the decision seam ---
+assert.strictEqual(shellWheelSwallow([{ id: '', cls: 'win' }, { id: '', cls: '' }]), true, 'ctrl+wheel outside any viewer is swallowed');
+assert.strictEqual(shellWheelSwallow([{ id: '', cls: 'pdfv-scroll' }]), false, 'inside the PDF scroller the event passes to the viewer');
+assert.strictEqual(shellWheelSwallow([{ id: '', cls: 'pdfv-page' }, { id: '', cls: 'pdfv-scroll theme' }]), false, 'a page inside the PDF scroller passes (the chain is walked)');
+assert.strictEqual(shellWheelSwallow([{ id: 'iv-frame', cls: '' }, { id: 'iv-stage', cls: '' }]), false, 'inside the image stage the event passes');
+assert.strictEqual(shellWheelSwallow([{ id: '', cls: 'pdfv-scrollx' }]), true, 'a lookalike class name does not pass');
+assert.strictEqual(shellWheelSwallow([]), true, 'an empty chain swallows');
+assert.strictEqual(shellWheelSwallow(null), true, 'no chain swallows');
+
+// --- UI scale (v0.67): domain, factor, coordinate conversion ---
+assert.deepStrictEqual(UISCALE_MODES, [80, 90, 100, 110, 125, 150, 175, 200], 'the offered UI scales');
+assert(uiScaleValid('125') && uiScaleValid(150) && uiScaleValid('80'), 'valid uiScales pass');
+assert(!uiScaleValid('120') && !uiScaleValid('abc') && !uiScaleValid('') && !uiScaleValid(null), 'off-domain uiScales fail');
+assert.strictEqual(uiScaleKey('150'), '150', 'a known uiScale passes through');
+assert.strictEqual(uiScaleKey('bogus'), '100', 'an unknown uiScale normalizes to 100');
+assert.strictEqual(uiScaleKey(null), '100', 'an unset uiScale reads as 100');
+assert.strictEqual(uiScaleFactorOf('125'), 1.25, 'the factor is percent/100');
+assert.strictEqual(uiScaleFactorOf('200'), 2);
+assert.strictEqual(uiScaleFactorOf(null), 1, 'an unset uiScale has factor 1');
+assert.strictEqual(uiToLocal(250, 1.25), 200, 'visual -> local at 125%');
+assert.strictEqual(uiToLocal(100, 1), 100, 'at 100% the conversion is the identity');
+assert.strictEqual(uiToLocal(100, 2), 50, 'at 200% a visual length halves into local');
+assert.strictEqual(uiToLocal(100, 0), 100, 'a degenerate factor reads as 1');
+assert.strictEqual(uiToLocal(NaN, 1.25), 0, 'a NaN length converts to 0');
 
 // --- image viewer (v0.66, detail-fix ⑦): zoom domain + open modes ---
 assert(IMGZOOM_MODES.some(m => m.id === 'fit') && IMGZOOM_MODES.some(m => m.id === 'actual'), 'image zoom modes are fit + actual');

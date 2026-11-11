@@ -44,6 +44,34 @@ func TestSummonHotkeyWhitelist(t *testing.T) {
 	}
 }
 
+// v0.67: the uiScale domain end to end (valid percentages,
+// the default, sanitize fallback) -- the view mirrors the
+// same list in UISCALE_MODES (web/src/pure/fv.ts).
+func TestUIScaleDomain(t *testing.T) {
+	for _, v := range []string{"80", "90", "100", "110", "125", "150", "175", "200"} {
+		if !validUIScale(v) {
+			t.Errorf("%q must be a valid uiScale", v)
+		}
+	}
+	for _, v := range []string{"", "0", "33", "120", "100.5", "abc", "1000"} {
+		if validUIScale(v) {
+			t.Errorf("%q must not be a valid uiScale", v)
+		}
+	}
+	if got := defaultSettings().UIScale; got != "100" {
+		t.Errorf("the default uiScale must be 100, got %q", got)
+	}
+	if s := sanitizeSettings(mjSettings{UIScale: "33", SummonHotkey: "F8"}); s.UIScale != "100" {
+		t.Errorf("sanitize must fall an unknown uiScale back to 100, got %q", s.UIScale)
+	}
+	if s := sanitizeSettings(mjSettings{UIScale: "150", SummonHotkey: "F8"}); s.UIScale != "150" {
+		t.Errorf("sanitize must keep a valid uiScale, got %q", s.UIScale)
+	}
+	if m := settingsMap(); m["uiScale"] != "100" {
+		t.Errorf("settingsMap should carry uiScale=100 by default, got %v", m["uiScale"])
+	}
+}
+
 // v0.56 keys: stageDisplay / deskIconSize / deskSort defaults
 // and sanitize fallbacks (a settings.json written by an older
 // or newer build, or by hand, must land on sane values).

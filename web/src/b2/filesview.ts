@@ -116,8 +116,13 @@ export function fvShowCtx(x,y,f){
  if(sel.length>1){
   ctxEl.innerHTML='<div class="ctxitem" id="fvx-exp">导出选中的 '+sel.length+' 个到电脑</div><div class="ctxitem" id="fvx-del" style="color:#ff9d97">删除选中的 '+sel.length+' 个</div>';
   ctxEl.classList.remove('hidden');
-  ctxEl.style.left=Math.min(x,innerWidth-240)+'px';
-  ctxEl.style.top=Math.min(y,innerHeight-140)+'px';
+  /* v0.67: this menu positions ITSELF from the raw event
+     coords (the single-select path delegates to showFileCtx
+     -> ctxOpen, which converts): under a UI scale the event
+     coords are VISUAL, style/innerWidth are LOCAL. */
+  const zf=uiScaleFactor();
+  ctxEl.style.left=Math.min(uiToLocal(x,zf),innerWidth-240)+'px';
+  ctxEl.style.top=Math.min(uiToLocal(y,zf),innerHeight-140)+'px';
   $50('fvx-exp').onclick=()=>{ hideCtx(); sel.forEach(exportDeskFile); };
   $50('fvx-del').onclick=()=>{ hideCtx(); fvDeleteFiles(sel); };
   return;

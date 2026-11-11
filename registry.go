@@ -116,7 +116,7 @@ var featureRegistry = []feature{
 			lr("/api/list"), lr("/api/run"), lr("/api/open"), lr("/api/openurl"),
 		},
 		Settings: []string{
-			"wallpaper", "wallpaperFit", "filesOnDesktop", "deskIconSize", "deskSort",
+			"wallpaper", "wallpaperFit", "uiScale", "filesOnDesktop", "deskIconSize", "deskSort",
 			"dockPosition", "dockAutoHide", "dockIconSize",
 			"cc_show_wallpaper", "cc_show_dockhide", "nc_widgets",
 			"chromeCacheMB",

@@ -80,6 +80,51 @@ MJEvents.on('vault', refresher(async () => {
   }
 }));
 
+/* ---- shell zoom guards (v0.67) ----
+   The Edge --app view zooms the whole desktop UI on
+   ctrl+wheel (and on the keyboard zoom chords); the user
+   wants the desktop's scale to be the 设置 → 外观 界面缩放
+   setting and nothing else. Two capture-phase guards on
+   document, installed before startEvents:
+   - wheel: a ctrl+wheel event is preventDefaulted so the
+     page never zooms -- UNLESS its target chain runs through
+     a viewer's own scroll container (the pure shellWheelSwallow
+     seam decides): the PDF scroller and the image stage zoom
+     on wheel themselves with their own non-passive handlers,
+     and a capture-phase preventDefault would starve them
+     (default is prevented before the event reaches them).
+     Swallowing also eats the accompanying scroll, the same
+     trade Chrome's PDF viewer makes. Plain wheel is never
+     touched. Note the guard does NOT stopPropagation: the
+     viewers' handlers must still receive passed events.
+   - keydown: ctrl + '=' / '-' / '0' get preventDefault ONLY
+     (again no stopPropagation), so the viewers' own ctrl+zoom
+     keys keep working; several in-shell text inputs accept
+     these keys as plain text (ctrl is not part of text
+     entry), so nothing else in the shell consumes the chord.
+     Whether the Edge view honours preventDefault for its
+     keyboard zoom cannot be verified from the build side --
+     the wheel guard above is the load-bearing half. */
+function installShellZoomGuards(): void {
+  try {
+    document.addEventListener('wheel', (ev: any) => {
+      if (!ev.ctrlKey) return;
+      const chain: any[] = [];
+      let n: any = ev.target;
+      while (n && chain.length < 64) {
+        chain.push({ id: n.id || '', cls: typeof n.className === 'string' ? n.className : '' });
+        n = n.parentElement || n.parentNode;
+      }
+      if (shellWheelSwallow(chain)) ev.preventDefault();
+    }, { passive: false, capture: true });
+    document.addEventListener('keydown', (ev: any) => {
+      if (!ev.ctrlKey || ev.altKey || ev.metaKey) return;
+      if (ev.key === '=' || ev.key === '+' || ev.key === '-' || ev.key === '_' || ev.key === '0') ev.preventDefault();
+    }, { capture: true });
+  } catch (e) {}
+}
+installShellZoomGuards();
+
 /* ---- connection management ---- */
 let es: any = null, attempt = 0, retryTimer: any = null, started = false;
 

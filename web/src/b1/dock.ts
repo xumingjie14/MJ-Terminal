@@ -3,7 +3,7 @@
    from -- the same names the pre-modular page shared through one
    script scope. */
 import { dockEl } from './core';
-import { SETTINGS, dockAutoHideOn, dockPos, settingsReady } from './settings';
+import { SETTINGS, dockAutoHideOn, dockPos, settingsReady, uiScaleFactor } from './settings';
 import { layoutStrip, stageOn } from './stage';
 import { dragState } from './drag';
 /* ----- dock behaviour (v0.46「Dock 基础行为包」) -----
@@ -39,7 +39,12 @@ export function dockMagApply(){
     been resized and let a CSS transition chase each write --
     that read as lag and jitter. Sizes are now written per frame
     with no transition at all. */
- const centers=icons.map(ic=>{ const r=ic.getBoundingClientRect(); return vertical? r.top+r.height/2 : r.left+r.width/2; });
+ /* v0.67: centres and the pointer are compared in LOCAL space
+    (the sizes written are local px, and the falloff radius is
+    in local pitches): rect centres arrive VISUAL under a UI
+    scale and dockPointer is stored local, so convert here. */
+ const zf=uiScaleFactor();
+ const centers=icons.map(ic=>{ const r=ic.getBoundingClientRect(); return vertical? uiToLocal(r.top+r.height/2,zf) : uiToLocal(r.left+r.width/2,zf); });
  const sizes=dockMagSizes(centers,vertical?dockPointer.y:dockPointer.x,dockBase(),DOCK_RADIUS_PITCHES*(dockBase()+DOCK_GAP),DOCK_PEAK);
  icons.forEach((ic,i)=>{ ic.style.width=sizes[i]+'px'; ic.style.height=sizes[i]+'px'; });
 }
@@ -50,7 +55,7 @@ export function dockMagReset(){
  setTimeout(()=>dockEl.classList.remove('settle'),DOCK_SETTLE_MS+40);
 }
 dockEl.addEventListener('pointermove',e=>{
- dockPointer={x:e.clientX,y:e.clientY};
+ dockPointer={x:uiToLocal(e.clientX,uiScaleFactor()),y:uiToLocal(e.clientY,uiScaleFactor())};
  if(!dockRAF) dockRAF=requestAnimationFrame(dockMagApply);
 });
 dockEl.addEventListener('pointerleave',()=>{ dockPointer=null; dockMagReset(); });
@@ -85,8 +90,10 @@ export function dockEdgeDist(x,y){
  return innerWidth-1-x;
 }
 export function dockNearDock(x,y){
- const r=dockEl.getBoundingClientRect(),m=14;
- return x>=r.left-m&&x<=r.right+m&&y>=r.top-m&&y<=r.bottom+m;
+ /* x/y are LOCAL (dockLastX/Y are stored converted); the
+    Dock's rect is VISUAL under a UI scale -- convert it. */
+ const r=dockEl.getBoundingClientRect(),m=14,zf=uiScaleFactor();
+ return x>=uiToLocal(r.left,zf)-m&&x<=uiToLocal(r.right,zf)+m&&y>=uiToLocal(r.top,zf)-m&&y<=uiToLocal(r.bottom,zf)+m;
 }
 export function dockArmHide(){
  if(dockHideT||dockHidden) return;
@@ -103,9 +110,12 @@ export function dockAutoHideArm(){
  if(!dockNearDock(dockLastX,dockLastY)) dockArmHide();
 }
 document.addEventListener('pointermove',e=>{
- dockLastX=e.clientX; dockLastY=e.clientY;
+ /* v0.67: dockLastX/Y live in LOCAL space -- dockEdgeDist
+    compares them against innerWidth/innerHeight (local). */
+ const zf=uiScaleFactor();
+ dockLastX=uiToLocal(e.clientX,zf); dockLastY=uiToLocal(e.clientY,zf);
  if(!dockAutoHideOn()||document.hidden) return;
- const now=performance.now(), d=dockEdgeDist(e.clientX,e.clientY);
+ const now=performance.now(), d=dockEdgeDist(dockLastX,dockLastY);
  if(dockHidden){
   if(d<=2){
    const slam=(now-dockPrevEdge.t)<=DOCK_SLAM_MS&&dockPrevEdge.d>40;
@@ -113,7 +123,7 @@ document.addEventListener('pointermove',e=>{
    else if(!dockShowT){ dockShowT=setTimeout(()=>{ dockShowT=0; if(dockEdgeDist(dockLastX,dockLastY)<=4) dockSetHidden(false); },DOCK_EDGE_DWELL_MS); }
   } else if(d>8){ clearTimeout(dockShowT); dockShowT=0; }
  } else {
-  if(dockNearDock(e.clientX,e.clientY)||d<=2||dockHoldActive()){ clearTimeout(dockHideT); dockHideT=0; }
+  if(dockNearDock(dockLastX,dockLastY)||d<=2||dockHoldActive()){ clearTimeout(dockHideT); dockHideT=0; }
   else dockArmHide();
  }
  dockPrevEdge={t:now,d};
@@ -123,10 +133,11 @@ document.addEventListener('pointermove',e=>{
    one is in flight and re-arm when it ends. Desktop icon drags
    are pointer-based and hold via dockHoldActive instead. */
 document.addEventListener('dragover',e=>{
- dockLastX=e.clientX; dockLastY=e.clientY;
+ const zf=uiScaleFactor();
+ dockLastX=uiToLocal(e.clientX,zf); dockLastY=uiToLocal(e.clientY,zf);
  if(!dockAutoHideOn()) return;
  clearTimeout(dockHideT); dockHideT=0;
- if(dockHidden&&dockEdgeDist(e.clientX,e.clientY)<=48) dockSetHidden(false);
+ if(dockHidden&&dockEdgeDist(dockLastX,dockLastY)<=48) dockSetHidden(false);
 });
 document.addEventListener('drop',()=>dockAutoHideArm());
 document.addEventListener('dragend',()=>dockAutoHideArm());
