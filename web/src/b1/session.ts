@@ -29,6 +29,11 @@ export function snapshotSession(){
      path) so restore can re-open it through the viewer. */
   const appEntry: any=APPS.find(a=>a.id===id);
   if(appEntry&&appEntry.pdfPath) r.pdf=appEntry.pdfPath;
+  /* v0.66: the image viewer is a singleton window over a
+     per-image state; the ledger records WHICH image it showed
+     (via the viewer's hook) so restore re-opens that picture,
+     not an empty frame. */
+  if(id==='imgview'&&(window as any).__mjImgPath){ const p=(window as any).__mjImgPath(); if(p) r.img=p; }
   if(w.classList.contains('staged')){ try{ const g=JSON.parse(w.dataset.sg||'{}'); r.l=g.l||''; r.t=g.t||''; r.wd=g.wd||''; }catch(e){} }
   else { r.l=w.style.left; r.t=w.style.top; r.wd=w.style.width; }
   wins.push(r);
@@ -49,6 +54,14 @@ export function restoreSession(){
      design; re-open the document through the viewer hook. */
    if((window as any).__mjRestorePDF) (window as any).__mjRestorePDF(r.pdf,{l:r.l,t:r.t,wd:r.wd});
    n++; continue;
+  }
+  if(r.img){ /* v0.66: the image viewer -- re-open the recorded
+     picture through its hook, then put the window back where
+     the ledger had it. */
+   if((window as any).__mjRestoreIMG) (window as any).__mjRestoreIMG(r.img);
+   const iw=document.getElementById('win-imgview');
+   if(iw){ if(r.l)iw.style.left=r.l; if(r.t)iw.style.top=r.t; if(r.wd)iw.style.width=r.wd; n++; }
+   continue;
   }
   if(!APPS.some(a=>a.id===r.id)) continue; /* the app no longer exists: skip it */
   openApp(r.id);

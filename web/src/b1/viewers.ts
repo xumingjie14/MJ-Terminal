@@ -4,7 +4,7 @@
    script scope. */
 import { api, esc } from './core';
 import { glyph } from './glyphs';
-import { gotoSys } from './settings';
+import { gotoSys, imgZoomDefault } from './settings';
 import { openApp } from './windows';
 import { openPDFViewer } from './pdfview';
 import { renderDesk } from './desktop';
@@ -57,30 +57,196 @@ export let openDeskFile: any = async function openDeskFile(p,kind){
  }
  openFilePanel(p,kind); /* xlsx / pptx / unknown */
 };
-/* image viewer: siblings are the other images in the same place */
-export let IMGV={cur:'',fit:true};
+/* ----- image viewer (v0.66, detail-fix ⑦): macOS Preview model -----
+   The pre-v0.66 viewer was a bare <img> with a fit/100% class
+   toggle -- no wheel zoom (the user's original complaint), no
+   pan, no rotate. This is a real viewer over the same singleton
+   'imgview' window: the natural bitmap sits in a positioned
+   FRAME (the rotated bounding box) inside the stage; wheel
+   zooms continuously, anchored at the pointer; an overflowing
+   frame drag-pans with clamped edges; prev/next walks the
+   sibling images of the same place. Rendering is a CSS
+   transform on the <img> itself (never a canvas redraw), so
+   animated GIF/WebP keep animating at any zoom, and static
+   images are the browser's own scaling of the natural bitmap.
+   All geometry (fit scale, wheel/step zoom, anchoring, pan
+   clamping, rotation, nav stepping) is the pure img* seams in
+   pure/fv.ts; this module is DOM glue. Opens, hops and decode
+   failures are reported to the daemon's log-only sink
+   (POST /api/files/event) so the console hub holds them under
+   [files], the tag this path's feature already owns. */
+export let IMGV={cur:'',mode:'fit',scale:1,rot:0,natW:0,natH:0,x:0,y:0,err:false};
+let imgDrag: any=null, imgBound=false, imgRO: any=null;
 export function imageSiblings(p){
  const pool=p.includes('/')?SUBLIST:DESKFILES;
  return pool.filter(f=>f.kind==='image').map(f=>f.path);
 }
+function imgEvent(event: string, detail?: string){
+ if(!IMGV.cur) return;
+ api('/api/files/event',{method:'POST',headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({path:IMGV.cur,event,detail:detail||''})}).catch(()=>{});
+}
+function imgEls(){
+ return { stage:document.getElementById('iv-stage'), frame:document.getElementById('iv-frame'),
+  img:document.getElementById('iv-img') as any, err:document.getElementById('iv-err'),
+  name:document.getElementById('iv-name'), zpct:document.getElementById('iv-zpct'),
+  pv:document.getElementById('iv-prev') as any, nx:document.getElementById('iv-next') as any };
+}
+/* Lay the frame out from the state: size from the effective
+   (post-rotation) box at the current scale, position clamped
+   (centered on any axis where the frame fits). 'keep' preserves
+   the current position (resize/rotate stay put); otherwise the
+   frame re-centres. */
+function layoutImage(keep){
+ const {stage,frame,img,zpct}=imgEls(); if(!stage||!frame||!img) return;
+ const vw=stage.clientWidth, vh=stage.clientHeight;
+ if(!IMGV.natW||!IMGV.natH||!vw||!vh) return;
+ IMGV.scale=imgResolveScale(IMGV.mode,IMGV.scale,IMGV.natW,IMGV.natH,IMGV.rot,vw,vh);
+ const e=imgEffSize(IMGV.natW,IMGV.natH,IMGV.rot);
+ const fw=e.w*IMGV.scale, fh=e.h*IMGV.scale;
+ if(!keep){ IMGV.x=(vw-fw)/2; IMGV.y=(vh-fh)/2; }
+ const c=imgClampPan(IMGV.x,IMGV.y,fw,fh,vw,vh); IMGV.x=c.x; IMGV.y=c.y;
+ frame.style.width=fw+'px'; frame.style.height=fh+'px';
+ frame.style.transform='translate('+IMGV.x+'px,'+IMGV.y+'px)';
+ img.style.width=(IMGV.natW*IMGV.scale)+'px'; img.style.height=(IMGV.natH*IMGV.scale)+'px';
+ img.style.transform='translate(-50%,-50%) rotate('+IMGV.rot+'deg)';
+ stage.style.cursor=(fw>vw||fh>vh)?(imgDrag?'grabbing':'grab'):'default';
+ if(zpct) zpct.textContent=Math.round(IMGV.scale*100)+'%';
+}
+/* Zoom to a new scale, keeping the stage point (cx,cy) --
+   stage-centre when omitted -- fixed on the image. */
+function zoomImageTo(ns,cx?: number,cy?: number){
+ const {stage,frame}=imgEls(); if(!stage||!frame) return;
+ const vw=stage.clientWidth, vh=stage.clientHeight;
+ const e=imgEffSize(IMGV.natW,IMGV.natH,IMGV.rot);
+ const ow=e.w*IMGV.scale, oh=e.h*IMGV.scale;
+ if(cx===undefined){ cx=vw/2; cy=vh/2; }
+ const a=imgAnchorPos(cx,cy,IMGV.x,IMGV.y,ow,oh,e.w*ns,e.h*ns);
+ IMGV.x=a.x; IMGV.y=a.y; IMGV.scale=ns; IMGV.mode='custom';
+ layoutImage(true);
+}
+function setImageMode(mode){
+ const {stage}=imgEls(); if(!stage) return;
+ IMGV.mode=mode;
+ if(mode==='fit'){ IMGV.scale=imgFitScale(IMGV.natW,IMGV.natH,IMGV.rot,stage.clientWidth,stage.clientHeight); }
+ else if(mode==='actual'){ IMGV.scale=1; }
+ layoutImage(false);
+}
 export function openImageViewer(p){
  openApp('imgview'); setWinTitle('imgview',p.split('/').pop());
  IMGV.cur=p; paintImageViewer();
+ imgEvent('open');
 }
 export function paintImageViewer(){
- const img=document.getElementById('iv-img'); if(!img) return;
+ const {img,name,pv,nx,err}=imgEls(); if(!img) return;
  const sib=imageSiblings(IMGV.cur);
  const i=sib.indexOf(IMGV.cur);
- document.getElementById('iv-name').textContent=IMGV.cur.split('/').pop()+(sib.length>1?(' · '+(i+1)+' / '+sib.length):'');
- img.classList.toggle('full',!IMGV.fit);
- img.src='/api/files/raw?path='+encodeURIComponent(IMGV.cur);
- const pv=document.getElementById('iv-prev'), nx=document.getElementById('iv-next');
+ if(name) name.textContent=IMGV.cur.split('/').pop()+(sib.length>1?(' · '+(i+1)+' / '+sib.length):'');
  if(pv) pv.disabled=sib.length<2; if(nx) nx.disabled=sib.length<2;
+ /* Every (re)paint restarts at the default-open zoom with no
+    rotation -- an open and a prev/next hop alike (Preview
+    restarts per image). onload lays out once the natural size
+    is known; onerror is the honest failure state. */
+ IMGV.mode=imgZoomDefault(); IMGV.rot=0; IMGV.natW=0; IMGV.natH=0; IMGV.err=false;
+ if(err) err.style.display='none';
+ img.style.visibility='hidden';
+ img.onload=()=>{ IMGV.natW=img.naturalWidth; IMGV.natH=img.naturalHeight;
+  if(!IMGV.natW||!IMGV.natH){ img.onerror(); return; }
+  img.style.visibility=''; layoutImage(false); };
+ img.onerror=()=>{ if(!IMGV.cur||img.getAttribute('src')!==imgRawSrc(IMGV.cur)) return;
+  IMGV.err=true; img.style.visibility='hidden';
+  if(err) err.style.display='flex';
+  imgEvent('error','图片文件读不出来（可能已损坏或格式不受支持）'); };
+ img.src=imgRawSrc(IMGV.cur);
 }
+function imgRawSrc(p){ return '/api/files/raw?path='+encodeURIComponent(p); }
 export function stepImage(d){
  const sib=imageSiblings(IMGV.cur); if(sib.length<2) return;
- let i=sib.indexOf(IMGV.cur); i=(i+d+sib.length)%sib.length;
+ const i=imgStepIndex(sib.indexOf(IMGV.cur),sib.length,d); if(i<0) return;
  IMGV.cur=sib[i]; setWinTitle('imgview',IMGV.cur.split('/').pop()); paintImageViewer();
+ imgEvent('nav');
+}
+function rotateImage(){
+ IMGV.rot=imgRotateNext(IMGV.rot);
+ /* Keep the frame's centre fixed across the quarter turn:
+     the effective box changes shape, so re-centre at the same
+     scale and let the clamp settle any overflow. */
+ layoutImage(false);
+}
+/* Session hooks (the pdfview pattern): the snapshot asks for
+   the current image and restores through the viewer, so a
+   rebuilt view comes back showing the same picture. */
+try{ (window as any).__mjImgPath=()=>IMGV.cur||'';
+ (window as any).__mjRestoreIMG=(p: string)=>{ openImageViewer(p); }; }catch(e){}
+/* All of the viewer's listeners, attached once from the
+   pages bind (the imgview window is created once per view). */
+export function bindImageViewer(){
+ if(imgBound) return; imgBound=true;
+ const {stage,img}=imgEls(); if(!stage||!img) return;
+ const pv=document.getElementById('iv-prev') as any, nx=document.getElementById('iv-next') as any;
+ if(pv) pv.onclick=()=>stepImage(-1);
+ if(nx) nx.onclick=()=>stepImage(1);
+ const zin=document.getElementById('iv-zin') as any, zout=document.getElementById('iv-zout') as any;
+ if(zin) zin.onclick=()=>{ const d=imgStepScale(IMGV.scale,1); if(d.zoom) zoomImageTo(d.scale); };
+ if(zout) zout.onclick=()=>{ const d=imgStepScale(IMGV.scale,-1); if(d.zoom) zoomImageTo(d.scale); };
+ const fit=document.getElementById('iv-fit') as any, act=document.getElementById('iv-actual') as any, rot=document.getElementById('iv-rot') as any;
+ if(fit) fit.onclick=()=>setImageMode('fit');
+ if(act) act.onclick=()=>setImageMode('actual');
+ if(rot) rot.onclick=()=>rotateImage();
+ stage.addEventListener('wheel',(ev: any)=>{
+  if(IMGV.err||!IMGV.natW) return;
+  ev.preventDefault();
+  let dy=ev.deltaY||0;
+  if(ev.deltaMode===1) dy*=33; else if(ev.deltaMode===2) dy*=stage.clientHeight;
+  const d=imgWheelZoom(dy,IMGV.scale); if(!d.zoom) return;
+  const r=stage.getBoundingClientRect();
+  zoomImageTo(d.scale,ev.clientX-r.left,ev.clientY-r.top);
+ },{passive:false});
+ stage.addEventListener('pointerdown',(ev: any)=>{
+  if(IMGV.err||!IMGV.natW) return;
+  const fr=document.getElementById('iv-frame'); if(!fr) return;
+  if(fr.offsetWidth<=stage.clientWidth&&fr.offsetHeight<=stage.clientHeight) return;
+  imgDrag={sx:ev.clientX,sy:ev.clientY,x:IMGV.x,y:IMGV.y};
+  stage.setPointerCapture(ev.pointerId);
+  stage.style.cursor='grabbing';
+ });
+ stage.addEventListener('pointermove',(ev: any)=>{
+  if(!imgDrag) return;
+  const e=imgEffSize(IMGV.natW,IMGV.natH,IMGV.rot);
+  const c=imgClampPan(imgDrag.x+(ev.clientX-imgDrag.sx),imgDrag.y+(ev.clientY-imgDrag.sy),
+   e.w*IMGV.scale,e.h*IMGV.scale,stage.clientWidth,stage.clientHeight);
+  IMGV.x=c.x; IMGV.y=c.y;
+  const fr=document.getElementById('iv-frame');
+  if(fr) fr.style.transform='translate('+IMGV.x+'px,'+IMGV.y+'px)';
+ });
+ const endDrag=()=>{ if(!imgDrag) return; imgDrag=null; layoutImage(true); };
+ stage.addEventListener('pointerup',endDrag);
+ stage.addEventListener('pointercancel',endDrag);
+ stage.addEventListener('dblclick',(ev: any)=>{
+  if(IMGV.err||!IMGV.natW) return;
+  const t=imgDblTarget(IMGV.mode);
+  if(t==='actual'){ const r=stage.getBoundingClientRect(); zoomImageTo(1,ev.clientX-r.left,ev.clientY-r.top); }
+  else setImageMode('fit');
+ });
+ if(typeof ResizeObserver!=='undefined'){
+  imgRO=new ResizeObserver(()=>{ if(IMGV.cur&&IMGV.natW) layoutImage(IMGV.mode!=='fit'); });
+  imgRO.observe(stage);
+ }
+ document.addEventListener('keydown',(ev: any)=>{
+  const w=document.getElementById('win-imgview');
+  if(!w||w.classList.contains('hidden')) return;
+  const t=ev.target as any;
+  if(t&&(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.isContentEditable)) return;
+  if(ev.key==='ArrowLeft'){ stepImage(-1); return; }
+  if(ev.key==='ArrowRight'){ stepImage(1); return; }
+  if(IMGV.err||!IMGV.natW) return;
+  const mod=ev.metaKey||ev.ctrlKey;
+  if(ev.key==='+'||ev.key==='='){ ev.preventDefault(); const d=imgStepScale(IMGV.scale,1); if(d.zoom) zoomImageTo(d.scale); }
+  else if(ev.key==='-'||ev.key==='_'){ ev.preventDefault(); const d=imgStepScale(IMGV.scale,-1); if(d.zoom) zoomImageTo(d.scale); }
+  else if(ev.key==='0'){ ev.preventDefault(); if(mod) setImageMode(imgZoomDefault()); else zoomImageTo(1); }
+  else if(!mod&&(ev.key==='f'||ev.key==='F')) setImageMode('fit');
+  else if(!mod&&(ev.key==='r'||ev.key==='R')) rotateImage();
+ });
 }
 export async function openTextViewer(p){
  openApp('textview'); setWinTitle('textview',p.split('/').pop());

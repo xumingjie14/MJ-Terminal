@@ -2188,6 +2188,7 @@ func runServer(portFlag int, isDaemon bool) {
 	mux.HandleFunc("/api/files/rename", filesRenameHandler)
 	mux.HandleFunc("/api/files/delete", filesDeleteHandler)
 	mux.HandleFunc("/api/files/raw", filesRawHandler)
+	mux.HandleFunc("/api/files/event", filesEventHandler)
 	mux.HandleFunc("/api/files/thumb", filesThumbHandler)
 	mux.HandleFunc("/api/files/text", filesTextHandler)
 	mux.HandleFunc("/api/files/csv", filesCSVHandler)

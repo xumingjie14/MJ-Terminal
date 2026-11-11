@@ -12,8 +12,8 @@ const assert = require('assert');
 const html = fs.readFileSync(__dirname + '/index.html', 'utf8');
 const m = html.match(/\/\* === fv pure \(node-testable\) === \*\/([\s\S]*?)\/\* === end fv pure === \*\//);
 assert(m, 'fv pure block not found in index.html');
-const { FV_GROUPS, fvGroupOf, fvInGroup, fvSortList, fvVisible, fvToggleSel, fvRangeSel, FV_RECENT_CAP, fvMediaGroup, fvExtOf, WPFIT_MODES, WPFIT_BASE, wpFitValid, wpFitKey, wpFitCSS, wpFitShowsWallItem, PDFZOOM_MODES, pdfZoomValid, pdfZoomKey, pdfResolveScale, pdfPageAtScroll, pdfRenderWindow, pdfFindMatches, pdfFindStep, pdfRotateNext, pdfWheelZoom } = new Function(
-  m[1] + '\nreturn { FV_GROUPS, fvGroupOf, fvInGroup, fvSortList, fvVisible, fvToggleSel, fvRangeSel, FV_RECENT_CAP, fvMediaGroup, fvExtOf, WPFIT_MODES, WPFIT_BASE, wpFitValid, wpFitKey, wpFitCSS, wpFitShowsWallItem, PDFZOOM_MODES, pdfZoomValid, pdfZoomKey, pdfResolveScale, pdfPageAtScroll, pdfRenderWindow, pdfFindMatches, pdfFindStep, pdfRotateNext, pdfWheelZoom };'
+const { FV_GROUPS, fvGroupOf, fvInGroup, fvSortList, fvVisible, fvToggleSel, fvRangeSel, FV_RECENT_CAP, fvMediaGroup, fvExtOf, WPFIT_MODES, WPFIT_BASE, wpFitValid, wpFitKey, wpFitCSS, wpFitShowsWallItem, PDFZOOM_MODES, pdfZoomValid, pdfZoomKey, pdfResolveScale, pdfPageAtScroll, pdfRenderWindow, pdfFindMatches, pdfFindStep, pdfRotateNext, pdfWheelZoom, IMGZOOM_MODES, imgZoomValid, imgZoomKey, IMG_SCALE_MIN, IMG_SCALE_MAX, imgEffSize, imgFitScale, imgResolveScale, imgWheelZoom, imgStepScale, imgAnchorPos, imgClampPan, imgRotateNext, imgStepIndex, imgDblTarget } = new Function(
+  m[1] + '\nreturn { FV_GROUPS, fvGroupOf, fvInGroup, fvSortList, fvVisible, fvToggleSel, fvRangeSel, FV_RECENT_CAP, fvMediaGroup, fvExtOf, WPFIT_MODES, WPFIT_BASE, wpFitValid, wpFitKey, wpFitCSS, wpFitShowsWallItem, PDFZOOM_MODES, pdfZoomValid, pdfZoomKey, pdfResolveScale, pdfPageAtScroll, pdfRenderWindow, pdfFindMatches, pdfFindStep, pdfRotateNext, pdfWheelZoom, IMGZOOM_MODES, imgZoomValid, imgZoomKey, IMG_SCALE_MIN, IMG_SCALE_MAX, imgEffSize, imgFitScale, imgResolveScale, imgWheelZoom, imgStepScale, imgAnchorPos, imgClampPan, imgRotateNext, imgStepIndex, imgDblTarget };'
 )();
 
 const F = (name, kind, size, mtime) => ({ name, path: name, kind, size, mtime, ext: name.split('.').pop() });
@@ -188,5 +188,92 @@ assert.deepStrictEqual(pdfWheelZoom(100, true, 0.05), { zoom: false, scale: 0.05
 assert.deepStrictEqual(pdfWheelZoom(0, true, 1.5), { zoom: false, scale: 1.5 }, 'a zero delta decides nothing');
 assert.deepStrictEqual(pdfWheelZoom(NaN, true, 1.5), { zoom: false, scale: 1.5 }, 'a NaN delta decides nothing');
 assert.deepStrictEqual(pdfWheelZoom(-100, true, 0), { zoom: true, scale: Math.exp(0.1) }, 'a degenerate current scale reads as 100%');
+
+// --- image viewer (v0.66, detail-fix ⑦): zoom domain + open modes ---
+assert(IMGZOOM_MODES.some(m => m.id === 'fit') && IMGZOOM_MODES.some(m => m.id === 'actual'), 'image zoom modes are fit + actual');
+assert(imgZoomValid('fit') && imgZoomValid('actual') && !imgZoomValid('fill') && !imgZoomValid(''), 'imgZoom domain is exactly fit/actual');
+assert.strictEqual(imgZoomKey('actual'), 'actual', 'a known imgZoom passes through');
+assert.strictEqual(imgZoomKey('bogus'), 'fit', 'an unknown imgZoom normalizes to fit');
+assert.strictEqual(imgZoomKey(null), 'fit', 'an unset imgZoom reads as fit');
+
+// --- effective size: quarter turns swap the axes ---
+assert.deepStrictEqual(imgEffSize(400, 300, 0), { w: 400, h: 300 }, 'no rotation keeps the box');
+assert.deepStrictEqual(imgEffSize(400, 300, 90), { w: 300, h: 400 }, '90 degrees swaps the box');
+assert.deepStrictEqual(imgEffSize(400, 300, 180), { w: 400, h: 300 }, '180 keeps the box');
+assert.deepStrictEqual(imgEffSize(400, 300, 270), { w: 300, h: 400 }, '270 swaps the box');
+assert.deepStrictEqual(imgEffSize(400, 300, -90), { w: 300, h: 400 }, 'a negative rotation normalizes');
+
+// --- fit scale: whole image visible, never enlarged past 100% ---
+assert(approx(imgFitScale(2000, 1000, 0, 500, 500), 0.25), 'a big image fits by its tighter axis');
+assert.strictEqual(imgFitScale(100, 50, 0, 500, 500), 1, 'a small image fits at 100%, never enlarged');
+assert(approx(imgFitScale(400, 300, 90, 300, 600), 1), 'fit uses the rotated box (300x400 in 300x600 is exactly 100%)');
+assert.strictEqual(imgFitScale(0, 0, 0, 500, 500), 1, 'degenerate natural size falls back to 1');
+assert.strictEqual(imgFitScale(100, 100, 0, 0, 0), 1, 'a zero container falls back to 1');
+
+// --- resolve scale per mode ---
+assert.strictEqual(imgResolveScale('actual', 3, 2000, 1000, 0, 500, 500), 1, 'actual is always 100%');
+assert(approx(imgResolveScale('fit', 3, 2000, 1000, 0, 500, 500), 0.25), 'fit derives from the container, ignoring the custom scale');
+assert.strictEqual(imgResolveScale('custom', 2.5, 2000, 1000, 0, 500, 500), 2.5, 'custom keeps the user scale');
+assert.strictEqual(imgResolveScale('custom', 99, 2000, 1000, 0, 500, 500), IMG_SCALE_MAX, 'custom clamps at the top of the band');
+assert.strictEqual(imgResolveScale('custom', 0.001, 2000, 1000, 0, 500, 500), IMG_SCALE_MIN, 'custom clamps at the bottom of the band');
+assert.strictEqual(imgResolveScale('custom', NaN, 2000, 1000, 0, 500, 500), 1, 'a degenerate custom scale reads as 100%');
+
+// --- wheel zoom: plain wheel zooms (no modifier gate), continuous, clamped ---
+{ const d = imgWheelZoom(-100, 1); assert(d.zoom && approx(d.scale, Math.exp(0.1)), 'plain wheel up zooms in'); }
+{ const d = imgWheelZoom(100, 1); assert(d.zoom && approx(d.scale, Math.exp(-0.1)), 'plain wheel down zooms out'); }
+{ const up = imgWheelZoom(-100, 1), dn = imgWheelZoom(100, up.scale); assert(approx(dn.scale, 1), 'one notch in then out returns to the start'); }
+{ let s = 1; for (let i = 0; i < 10; i++) s = imgWheelZoom(-4, s).scale; assert(approx(s, imgWheelZoom(-40, 1).scale), 'small trackpad deltas accumulate like one bigger delta'); }
+assert.strictEqual(imgWheelZoom(-100, 15.9).scale, IMG_SCALE_MAX, 'wheel zoom clamps at the image band top (16x, wider than the PDF band)');
+assert.deepStrictEqual(imgWheelZoom(-100, IMG_SCALE_MAX), { zoom: false, scale: IMG_SCALE_MAX }, 'already at max: no zoom decision');
+assert.strictEqual(imgWheelZoom(100, 0.055).scale, IMG_SCALE_MIN, 'wheel zoom clamps at the bottom');
+assert.deepStrictEqual(imgWheelZoom(0, 1.5), { zoom: false, scale: 1.5 }, 'a zero delta decides nothing');
+assert.deepStrictEqual(imgWheelZoom(NaN, 1.5), { zoom: false, scale: 1.5 }, 'a NaN delta decides nothing');
+
+// --- step zoom: fixed ratio, clamped ---
+assert(approx(imgStepScale(1, 1).scale, 1.25), 'one step in is x1.25');
+assert(approx(imgStepScale(1, -1).scale, 0.8), 'one step out is /1.25');
+{ const a = imgStepScale(1, 1), b = imgStepScale(a.scale, -1); assert(approx(b.scale, 1), 'step in then out returns to the start'); }
+assert.deepStrictEqual(imgStepScale(IMG_SCALE_MAX, 1), { zoom: false, scale: IMG_SCALE_MAX }, 'stepping at the top stays');
+assert.deepStrictEqual(imgStepScale(IMG_SCALE_MIN, -1), { zoom: false, scale: IMG_SCALE_MIN }, 'stepping at the bottom stays');
+
+// --- pointer anchoring: the content point under the cursor stays put ---
+{
+  const a = imgAnchorPos(300, 200, 100, 50, 400, 300, 800, 600);
+  assert(approx(a.x, -100) && approx(a.y, -100), 'doubling the frame around the cursor keeps the pointed fraction');
+  const fx = (300 - a.x) / 800, fy = (200 - a.y) / 600;
+  assert(approx(fx, 0.5) && approx(fy, 0.5), 'the pointed fraction is identical before and after');
+}
+{
+  const a = imgAnchorPos(100, 50, 100, 50, 400, 300, 800, 600);
+  assert(approx(a.x, 100) && approx(a.y, 50), 'zooming at the frame corner keeps the corner fixed');
+}
+assert.deepStrictEqual(imgAnchorPos(10, 10, 0, 0, 0, 0, 100, 100), { x: 0, y: 0 }, 'a degenerate frame anchors nowhere');
+
+// --- pan clamping: smaller axis centred, larger axis edge-clamped ---
+assert.deepStrictEqual(imgClampPan(999, -999, 200, 100, 500, 400), { x: 150, y: 150 }, 'a frame smaller than the viewport is centred on both axes, wherever it was dragged');
+assert.deepStrictEqual(imgClampPan(50, 50, 1000, 800, 500, 400), { x: 0, y: 0 }, 'an overflowing frame cannot slide past its top-left edge');
+assert.deepStrictEqual(imgClampPan(-900, -900, 1000, 800, 500, 400), { x: -500, y: -400 }, 'an overflowing frame cannot slide past its bottom-right edge');
+assert.deepStrictEqual(imgClampPan(-250, -200, 1000, 800, 500, 400), { x: -250, y: -200 }, 'a position inside the slide range passes through');
+assert.deepStrictEqual(imgClampPan(-250, 999, 1000, 100, 500, 400), { x: -250, y: 150 }, 'axes clamp independently (x slides, y centres)');
+
+// --- rotation composition: fit after a quarter turn uses the swapped box ---
+assert.strictEqual(imgRotateNext(0), 90); assert.strictEqual(imgRotateNext(90), 180);
+assert.strictEqual(imgRotateNext(270), 0, 'rotation wraps to 0');
+assert.strictEqual(imgRotateNext(-90), 0, 'a negative rotation normalizes before stepping');
+{ let r = 0; for (let i = 0; i < 4; i++) r = imgRotateNext(r); assert.strictEqual(r, 0, 'four quarter turns come home'); }
+assert(approx(imgResolveScale('fit', 1, 400, 300, 90, 150, 150), 0.375), 'fit of the rotated 300x400 box into 150x150 is 0.375');
+
+// --- navigation: wrap-around stepping, nowhere on an unknown current ---
+assert.strictEqual(imgStepIndex(0, 3, 1), 1, 'next from the first');
+assert.strictEqual(imgStepIndex(2, 3, 1), 0, 'next wraps last -> first');
+assert.strictEqual(imgStepIndex(0, 3, -1), 2, 'prev wraps first -> last');
+assert.strictEqual(imgStepIndex(-1, 3, 1), -1, 'an unknown current navigates nowhere');
+assert.strictEqual(imgStepIndex(0, 0, 1), -1, 'an empty list navigates nowhere');
+assert.strictEqual(imgStepIndex(5, 3, 1), -1, 'an out-of-range current navigates nowhere');
+
+// --- double-click toggle ---
+assert.strictEqual(imgDblTarget('fit'), 'actual', 'double-click at fit goes to actual size');
+assert.strictEqual(imgDblTarget('custom'), 'fit', 'double-click zoomed goes back to fit');
+assert.strictEqual(imgDblTarget('actual'), 'fit', 'double-click at actual goes back to fit');
 
 console.log('filesview_test: all assertions passed');

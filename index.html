@@ -464,9 +464,9 @@ a{color:#64d2ff}
 #dropveil.hidden{display:none}
 #toast{position:fixed;left:50%;bottom:118px;transform:translateX(-50%);z-index:3200;background:rgba(28,28,34,.9);border:1px solid rgba(255,255,255,.22);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);color:#fff;border-radius:12px;padding:10px 18px;font-size:13.5px;box-shadow:0 14px 34px rgba(0,0,0,.45);max-width:80vw;text-align:center}
 #toast.hidden{display:none}
-.imgstage{flex:1;display:flex;align-items:center;justify-content:center;min-height:0;background:rgba(0,0,0,.25);border-radius:12px;overflow:auto}
-.imgstage img{max-width:100%;max-height:100%;object-fit:contain}
-.imgstage img.full{max-width:none;max-height:none}
+.imgstage{flex:1;position:relative;min-height:0;background:rgba(0,0,0,.25);border-radius:12px;overflow:hidden;touch-action:none}
+#iv-frame{position:absolute;left:0;top:0;transform-origin:0 0;will-change:transform}
+#iv-img{position:absolute;left:50%;top:50%;max-width:none;max-height:none;transform-origin:center center;user-select:none;-webkit-user-drag:none}
 pre.textview{white-space:pre-wrap;word-break:break-all;font-family:ui-monospace,Consolas,monospace;font-size:12.5px;line-height:1.65;color:#e8e8ed}
 /* v0.65: built-in PDF viewer (Preview grammar; b1/pdfview.ts) */
 .pdfv{position:relative;display:flex;flex-direction:column;height:100%}
@@ -968,6 +968,10 @@ function createEvHub(nowFn) {
       const r = { id, z: parseInt(w.style.zIndex || "0", 10) || 0 };
       const appEntry = APPS.find((a) => a.id === id);
       if (appEntry && appEntry.pdfPath) r.pdf = appEntry.pdfPath;
+      if (id === "imgview" && window.__mjImgPath) {
+        const p = window.__mjImgPath();
+        if (p) r.img = p;
+      }
       if (w.classList.contains("staged")) {
         try {
           const g = JSON.parse(w.dataset.sg || "{}");
@@ -1007,6 +1011,17 @@ function createEvHub(nowFn) {
       if (r.pdf) {
         if (window.__mjRestorePDF) window.__mjRestorePDF(r.pdf, { l: r.l, t: r.t, wd: r.wd });
         n++;
+        continue;
+      }
+      if (r.img) {
+        if (window.__mjRestoreIMG) window.__mjRestoreIMG(r.img);
+        const iw = document.getElementById("win-imgview");
+        if (iw) {
+          if (r.l) iw.style.left = r.l;
+          if (r.t) iw.style.top = r.t;
+          if (r.wd) iw.style.width = r.wd;
+          n++;
+        }
         continue;
       }
       if (!APPS.some((a) => a.id === r.id)) continue;
@@ -2367,37 +2382,260 @@ function createEvHub(nowFn) {
     }
     openFilePanel(p, kind);
   };
-  var IMGV = { cur: "", fit: true };
+  var IMGV = { cur: "", mode: "fit", scale: 1, rot: 0, natW: 0, natH: 0, x: 0, y: 0, err: false };
+  var imgDrag = null;
+  var imgBound = false;
+  var imgRO = null;
   function imageSiblings(p) {
     const pool = p.includes("/") ? SUBLIST : DESKFILES;
     return pool.filter((f) => f.kind === "image").map((f) => f.path);
+  }
+  function imgEvent(event, detail) {
+    if (!IMGV.cur) return;
+    api("/api/files/event", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: IMGV.cur, event, detail: detail || "" })
+    }).catch(() => {
+    });
+  }
+  function imgEls() {
+    return {
+      stage: document.getElementById("iv-stage"),
+      frame: document.getElementById("iv-frame"),
+      img: document.getElementById("iv-img"),
+      err: document.getElementById("iv-err"),
+      name: document.getElementById("iv-name"),
+      zpct: document.getElementById("iv-zpct"),
+      pv: document.getElementById("iv-prev"),
+      nx: document.getElementById("iv-next")
+    };
+  }
+  function layoutImage(keep) {
+    const { stage, frame, img, zpct } = imgEls();
+    if (!stage || !frame || !img) return;
+    const vw = stage.clientWidth, vh = stage.clientHeight;
+    if (!IMGV.natW || !IMGV.natH || !vw || !vh) return;
+    IMGV.scale = imgResolveScale(IMGV.mode, IMGV.scale, IMGV.natW, IMGV.natH, IMGV.rot, vw, vh);
+    const e = imgEffSize(IMGV.natW, IMGV.natH, IMGV.rot);
+    const fw = e.w * IMGV.scale, fh = e.h * IMGV.scale;
+    if (!keep) {
+      IMGV.x = (vw - fw) / 2;
+      IMGV.y = (vh - fh) / 2;
+    }
+    const c = imgClampPan(IMGV.x, IMGV.y, fw, fh, vw, vh);
+    IMGV.x = c.x;
+    IMGV.y = c.y;
+    frame.style.width = fw + "px";
+    frame.style.height = fh + "px";
+    frame.style.transform = "translate(" + IMGV.x + "px," + IMGV.y + "px)";
+    img.style.width = IMGV.natW * IMGV.scale + "px";
+    img.style.height = IMGV.natH * IMGV.scale + "px";
+    img.style.transform = "translate(-50%,-50%) rotate(" + IMGV.rot + "deg)";
+    stage.style.cursor = fw > vw || fh > vh ? imgDrag ? "grabbing" : "grab" : "default";
+    if (zpct) zpct.textContent = Math.round(IMGV.scale * 100) + "%";
+  }
+  function zoomImageTo(ns, cx, cy) {
+    const { stage, frame } = imgEls();
+    if (!stage || !frame) return;
+    const vw = stage.clientWidth, vh = stage.clientHeight;
+    const e = imgEffSize(IMGV.natW, IMGV.natH, IMGV.rot);
+    const ow = e.w * IMGV.scale, oh = e.h * IMGV.scale;
+    if (cx === void 0) {
+      cx = vw / 2;
+      cy = vh / 2;
+    }
+    const a = imgAnchorPos(cx, cy, IMGV.x, IMGV.y, ow, oh, e.w * ns, e.h * ns);
+    IMGV.x = a.x;
+    IMGV.y = a.y;
+    IMGV.scale = ns;
+    IMGV.mode = "custom";
+    layoutImage(true);
+  }
+  function setImageMode(mode) {
+    const { stage } = imgEls();
+    if (!stage) return;
+    IMGV.mode = mode;
+    if (mode === "fit") {
+      IMGV.scale = imgFitScale(IMGV.natW, IMGV.natH, IMGV.rot, stage.clientWidth, stage.clientHeight);
+    } else if (mode === "actual") {
+      IMGV.scale = 1;
+    }
+    layoutImage(false);
   }
   function openImageViewer(p) {
     openApp("imgview");
     setWinTitle("imgview", p.split("/").pop());
     IMGV.cur = p;
     paintImageViewer();
+    imgEvent("open");
   }
   function paintImageViewer() {
-    const img = document.getElementById("iv-img");
+    const { img, name, pv, nx, err } = imgEls();
     if (!img) return;
     const sib = imageSiblings(IMGV.cur);
     const i = sib.indexOf(IMGV.cur);
-    document.getElementById("iv-name").textContent = IMGV.cur.split("/").pop() + (sib.length > 1 ? " · " + (i + 1) + " / " + sib.length : "");
-    img.classList.toggle("full", !IMGV.fit);
-    img.src = "/api/files/raw?path=" + encodeURIComponent(IMGV.cur);
-    const pv = document.getElementById("iv-prev"), nx = document.getElementById("iv-next");
+    if (name) name.textContent = IMGV.cur.split("/").pop() + (sib.length > 1 ? " · " + (i + 1) + " / " + sib.length : "");
     if (pv) pv.disabled = sib.length < 2;
     if (nx) nx.disabled = sib.length < 2;
+    IMGV.mode = imgZoomDefault();
+    IMGV.rot = 0;
+    IMGV.natW = 0;
+    IMGV.natH = 0;
+    IMGV.err = false;
+    if (err) err.style.display = "none";
+    img.style.visibility = "hidden";
+    img.onload = () => {
+      IMGV.natW = img.naturalWidth;
+      IMGV.natH = img.naturalHeight;
+      if (!IMGV.natW || !IMGV.natH) {
+        img.onerror();
+        return;
+      }
+      img.style.visibility = "";
+      layoutImage(false);
+    };
+    img.onerror = () => {
+      if (!IMGV.cur || img.getAttribute("src") !== imgRawSrc(IMGV.cur)) return;
+      IMGV.err = true;
+      img.style.visibility = "hidden";
+      if (err) err.style.display = "flex";
+      imgEvent("error", "图片文件读不出来（可能已损坏或格式不受支持）");
+    };
+    img.src = imgRawSrc(IMGV.cur);
+  }
+  function imgRawSrc(p) {
+    return "/api/files/raw?path=" + encodeURIComponent(p);
   }
   function stepImage(d) {
     const sib = imageSiblings(IMGV.cur);
     if (sib.length < 2) return;
-    let i = sib.indexOf(IMGV.cur);
-    i = (i + d + sib.length) % sib.length;
+    const i = imgStepIndex(sib.indexOf(IMGV.cur), sib.length, d);
+    if (i < 0) return;
     IMGV.cur = sib[i];
     setWinTitle("imgview", IMGV.cur.split("/").pop());
     paintImageViewer();
+    imgEvent("nav");
+  }
+  function rotateImage() {
+    IMGV.rot = imgRotateNext(IMGV.rot);
+    layoutImage(false);
+  }
+  try {
+    window.__mjImgPath = () => IMGV.cur || "";
+    window.__mjRestoreIMG = (p) => {
+      openImageViewer(p);
+    };
+  } catch (e) {
+  }
+  function bindImageViewer() {
+    if (imgBound) return;
+    imgBound = true;
+    const { stage, img } = imgEls();
+    if (!stage || !img) return;
+    const pv = document.getElementById("iv-prev"), nx = document.getElementById("iv-next");
+    if (pv) pv.onclick = () => stepImage(-1);
+    if (nx) nx.onclick = () => stepImage(1);
+    const zin = document.getElementById("iv-zin"), zout = document.getElementById("iv-zout");
+    if (zin) zin.onclick = () => {
+      const d = imgStepScale(IMGV.scale, 1);
+      if (d.zoom) zoomImageTo(d.scale);
+    };
+    if (zout) zout.onclick = () => {
+      const d = imgStepScale(IMGV.scale, -1);
+      if (d.zoom) zoomImageTo(d.scale);
+    };
+    const fit = document.getElementById("iv-fit"), act = document.getElementById("iv-actual"), rot = document.getElementById("iv-rot");
+    if (fit) fit.onclick = () => setImageMode("fit");
+    if (act) act.onclick = () => setImageMode("actual");
+    if (rot) rot.onclick = () => rotateImage();
+    stage.addEventListener("wheel", (ev) => {
+      if (IMGV.err || !IMGV.natW) return;
+      ev.preventDefault();
+      let dy = ev.deltaY || 0;
+      if (ev.deltaMode === 1) dy *= 33;
+      else if (ev.deltaMode === 2) dy *= stage.clientHeight;
+      const d = imgWheelZoom(dy, IMGV.scale);
+      if (!d.zoom) return;
+      const r = stage.getBoundingClientRect();
+      zoomImageTo(d.scale, ev.clientX - r.left, ev.clientY - r.top);
+    }, { passive: false });
+    stage.addEventListener("pointerdown", (ev) => {
+      if (IMGV.err || !IMGV.natW) return;
+      const fr = document.getElementById("iv-frame");
+      if (!fr) return;
+      if (fr.offsetWidth <= stage.clientWidth && fr.offsetHeight <= stage.clientHeight) return;
+      imgDrag = { sx: ev.clientX, sy: ev.clientY, x: IMGV.x, y: IMGV.y };
+      stage.setPointerCapture(ev.pointerId);
+      stage.style.cursor = "grabbing";
+    });
+    stage.addEventListener("pointermove", (ev) => {
+      if (!imgDrag) return;
+      const e = imgEffSize(IMGV.natW, IMGV.natH, IMGV.rot);
+      const c = imgClampPan(
+        imgDrag.x + (ev.clientX - imgDrag.sx),
+        imgDrag.y + (ev.clientY - imgDrag.sy),
+        e.w * IMGV.scale,
+        e.h * IMGV.scale,
+        stage.clientWidth,
+        stage.clientHeight
+      );
+      IMGV.x = c.x;
+      IMGV.y = c.y;
+      const fr = document.getElementById("iv-frame");
+      if (fr) fr.style.transform = "translate(" + IMGV.x + "px," + IMGV.y + "px)";
+    });
+    const endDrag = () => {
+      if (!imgDrag) return;
+      imgDrag = null;
+      layoutImage(true);
+    };
+    stage.addEventListener("pointerup", endDrag);
+    stage.addEventListener("pointercancel", endDrag);
+    stage.addEventListener("dblclick", (ev) => {
+      if (IMGV.err || !IMGV.natW) return;
+      const t = imgDblTarget(IMGV.mode);
+      if (t === "actual") {
+        const r = stage.getBoundingClientRect();
+        zoomImageTo(1, ev.clientX - r.left, ev.clientY - r.top);
+      } else setImageMode("fit");
+    });
+    if (typeof ResizeObserver !== "undefined") {
+      imgRO = new ResizeObserver(() => {
+        if (IMGV.cur && IMGV.natW) layoutImage(IMGV.mode !== "fit");
+      });
+      imgRO.observe(stage);
+    }
+    document.addEventListener("keydown", (ev) => {
+      const w = document.getElementById("win-imgview");
+      if (!w || w.classList.contains("hidden")) return;
+      const t = ev.target;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      if (ev.key === "ArrowLeft") {
+        stepImage(-1);
+        return;
+      }
+      if (ev.key === "ArrowRight") {
+        stepImage(1);
+        return;
+      }
+      if (IMGV.err || !IMGV.natW) return;
+      const mod = ev.metaKey || ev.ctrlKey;
+      if (ev.key === "+" || ev.key === "=") {
+        ev.preventDefault();
+        const d = imgStepScale(IMGV.scale, 1);
+        if (d.zoom) zoomImageTo(d.scale);
+      } else if (ev.key === "-" || ev.key === "_") {
+        ev.preventDefault();
+        const d = imgStepScale(IMGV.scale, -1);
+        if (d.zoom) zoomImageTo(d.scale);
+      } else if (ev.key === "0") {
+        ev.preventDefault();
+        if (mod) setImageMode(imgZoomDefault());
+        else zoomImageTo(1);
+      } else if (!mod && (ev.key === "f" || ev.key === "F")) setImageMode("fit");
+      else if (!mod && (ev.key === "r" || ev.key === "R")) rotateImage();
+    });
   }
   async function openTextViewer(p) {
     openApp("textview");
@@ -4421,7 +4659,7 @@ function createEvHub(nowFn) {
     }
     if (id === "appstore") b.innerHTML = `<h3>应用商店 · 便携应用</h3><p class="mut" style="margin-top:6px">这里的都是<b style="color:#fff">免安装的便携版</b>：从官方源直下、装进 EXE 旁的 <b style="color:#fff">Data/apps</b>，程序和数据都跟着文件夹走，宿主电脑不留东西。每个应用上架前都验过包，并钉死了校验和，下载对不上会自动拒绝。</p><div class="row" style="margin-top:10px"><input class="txt" id="st-q" placeholder="搜索应用…"><span class="tag" id="st-count"></span></div><div style="display:flex;gap:12px;margin-top:12px;align-items:flex-start"><div id="st-cats" style="width:102px;flex:none;display:flex;flex-direction:column;gap:4px"></div><div id="st-grid" style="flex:1;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;align-content:start"></div></div><p class="mut" id="st-foot" style="margin-top:12px"></p><hr style="border-color:rgba(255,255,255,.14);margin:18px 0"><h3>隔离安装 · 只有安装版的软件</h3><p class="mut" style="margin-top:6px">微信这种<b style="color:#fff">只有安装版</b>的软件，可以装进<b style="color:#fff">隔离盒子</b>：整个安装过程被隔离组件接住，程序和数据都落在 Data/sandbox 里，跟着文件夹走，宿主电脑不留东西。要先装好隔离组件（设置 → 应用隔离，过一次管理员确认）。</p><div id="st-box" style="margin-top:10px"></div>`;
     if (id === "openclaw") b.innerHTML = `<h3>小龙虾 OpenClaw</h3><div class="sm-card" style="margin-top:10px"><div class="sm-row"><span>状态</span><span id="oc-st-state">读取中…</span></div><div class="sm-row"><span>版本</span><span id="oc-st-ver">—</span></div><div class="sm-row"><span>运行时长</span><span id="oc-st-up">—</span></div><div class="sm-row"><span>内存占用（整个进程树）</span><span id="oc-st-rss">—</span></div><div class="sm-row"><span>组件占用磁盘</span><span id="oc-st-disk">—</span></div><div class="sm-row"><span>模型出口</span><span id="oc-st-route">—</span></div></div><div class="row" style="margin-top:10px"><button class="btn" id="oc-dl">下载组件</button><button class="btn gray" id="oc-check">检查更新</button><span class="tag" id="oc-prog"></span></div><div id="oc-main" style="display:none"><div class="row" style="margin-top:12px"><button class="btn" id="oc-start">启动</button><button class="btn red" id="oc-stop">停止</button><button class="btn gray" id="oc-console">打开控制台</button></div><p class="mut" style="margin-top:8px">网关令牌 <span class="tag" id="oc-token">…</span> <button class="btn gray" id="oc-tokcopy">复制令牌</button> <span style="font-size:12px">打开控制台要令牌时粘贴它；令牌存在组件自己的配置里，跟着文件夹走，不用记。</span></p><div class="sm-sec">设置</div><div class="sm-card"><div class="sm-row"><span>模型流量走本地节点</span><label class="sm-sw"><input type="checkbox" id="oc-p-vianode"><i></i></label></div><div class="sm-row"><span>打开终端机时自动启动</span><label class="sm-sw"><input type="checkbox" id="oc-p-autostart"><i></i></label></div><div class="sm-row"><span>崩溃后自动重启（10 分钟内最多 3 次）</span><label class="sm-sw"><input type="checkbox" id="oc-p-crash"><i></i></label></div></div><p class="mut" style="font-size:12px;margin-top:6px">走节点：节点在跑时模型请求经节点出去；节点起不来会明示本次直连，绝不假装走了节点。</p><div class="sm-sec">配置向导 · 模型</div><div class="sm-card"><div class="sm-row"><span>当前配置</span><span id="oc-wiz-cur">读取中…</span></div><div class="row" style="margin-top:8px" id="oc-wiz-provs"><button class="btn" data-p="openai">OpenAI</button><button class="btn gray" data-p="anthropic">Anthropic</button><button class="btn gray" data-p="deepseek">DeepSeek</button><button class="btn gray" data-p="custom">自定义接口</button></div><div class="row" style="margin-top:8px;display:none" id="oc-wiz-idrow"><input class="txt" id="oc-wiz-id" placeholder="厂商标识（小写字母开头，如 myapi）" style="max-width:240px"></div><div class="row" style="margin-top:8px"><input class="txt" id="oc-wiz-base" placeholder="接口地址（留空用官方地址）"></div><div class="row" style="margin-top:8px"><input class="txt" id="oc-wiz-key" type="password" placeholder="API Key（留空 = 不修改已保存的）" autocomplete="off"></div><div class="row" style="margin-top:8px"><input class="txt" id="oc-wiz-model" list="oc-wiz-models" placeholder="模型名，如 gpt-5.1"><datalist id="oc-wiz-models"></datalist></div><div class="row" style="margin-top:8px"><button class="btn" id="oc-wiz-save">保存配置</button><button class="btn gray" id="oc-wiz-test">测试连接</button><span class="tag" id="oc-wiz-msg"></span></div><p class="mut" style="font-size:12px;margin-top:6px">保存走小龙虾自己的配置命令：立即生效、不用重启网关，改前它会自动备份旧配置。Key 只写进组件配置，不进日志。自定义接口按 OpenAI 兼容协议。Telegram 等消息渠道去小龙虾控制台里配。</p></div><div class="sm-sec">运行日志</div><div class="sm-card"><pre id="oc-log" style="max-height:220px;overflow:auto;font-size:11.5px;line-height:1.55;white-space:pre-wrap;word-break:break-all;margin:0">（暂无日志）</pre><div class="row" style="margin-top:6px"><button class="btn gray" id="oc-log-refresh">刷新日志</button><span class="mut" style="font-size:12px">网关自己的输出；终端机的系统事件在「控制台」应用里看（模块：小龙虾）</span></div></div><div class="sm-sec">数据与组件</div><div class="sm-card"><div class="sm-row"><span>数据导出（配置 + 它记住的东西，换电脑用）</span><button class="btn gray" id="oc-export">导出</button></div><div class="sm-row"><span>数据导入（导入前自动备份现有数据）</span><span><input type="file" id="oc-import-file" accept=".zip" style="display:none"><button class="btn gray" id="oc-import">导入…</button></span></div><div class="sm-row"><span>卸载组件（程序、配置、数据全删）</span><button class="btn red" id="oc-uninst">卸载</button></div><p class="mut" style="font-size:12px;margin-top:6px" id="oc-dir"></p></div></div><details style="margin-top:14px"><summary class="mut" style="cursor:pointer;font-size:12.5px">安装须知（重型组件，先看一眼）</summary><p class="mut" style="margin-top:6px;line-height:1.7">小龙虾是一个能<b style="color:#fff">操作电脑、收发消息</b>的 AI 助手。它是<b style="color:#fff">按需下载的重型组件</b>：<br>· <b style="color:#fff">体积约 630 MB</b>，装在 EXE 旁的 Data/openclaw，跟着文件夹走；<br>· 运行时<b style="color:#fff">内存约 1 GB</b> 量级，老电脑会吃力（上面的状态卡能实时看）；<br>· 它权限很大（能跑命令、动文件、替你发消息），<b style="color:#fff">只建议装在自己的电脑上，不要装到公用电脑</b>；<br>· 模型 API Key 自备：在上面的配置向导里填，或去小龙虾自己的控制台里配。</p></details>`;
-    if (id === "imgview") b.innerHTML = `<div style="display:flex;flex-direction:column;height:100%"><div class="row" style="padding-bottom:10px"><button class="btn gray" id="iv-prev">‹ 上一张</button><button class="btn gray" id="iv-next">下一张 ›</button><button class="btn gray" id="iv-fit">适应窗口 / 100%</button><span class="tag" id="iv-name">图片</span></div><div class="imgstage"><img id="iv-img" alt=""></div><p class="mut" style="margin-top:8px;font-size:12px">同目录的其他图片可以用按钮或键盘 ← → 切换。</p></div>`;
+    if (id === "imgview") b.innerHTML = `<div style="display:flex;flex-direction:column;height:100%"><div class="row" style="padding-bottom:10px;flex-wrap:wrap;gap:6px"><button class="btn gray" id="iv-prev">‹ 上一张</button><button class="btn gray" id="iv-next">下一张 ›</button><button class="btn gray" id="iv-zout" title="缩小（−）">−</button><span class="tag" id="iv-zpct">100%</span><button class="btn gray" id="iv-zin" title="放大（＋）">＋</button><button class="btn gray" id="iv-fit">适合窗口</button><button class="btn gray" id="iv-actual">实际大小</button><button class="btn gray" id="iv-rot" title="旋转 90°（R）">旋转</button><span class="tag" id="iv-name">图片</span></div><div class="imgstage" id="iv-stage"><div id="iv-frame"><img id="iv-img" alt="" draggable="false"></div><div id="iv-err" style="display:none;position:absolute;inset:0;align-items:center;justify-content:center;color:#ffb4a2;font-size:13px;padding:20px;text-align:center">这张图片读不出来，可能已损坏或格式不受支持。</div></div><p class="mut" style="margin-top:8px;font-size:12px">滚轮缩放（指针处为中心）· 放大后拖动平移 · 双击切换适合窗口 / 实际大小 · ← → 切换图片 · R 旋转。</p></div>`;
     if (id === "textview") b.innerHTML = `<div class="row" style="padding-bottom:10px"><span class="tag" id="tv-name">文本</span><label style="font-size:12.5px"><input type="checkbox" id="tv-wrap" checked> 自动换行</label><span class="tag" id="tv-note"></span></div><pre class="textview" id="tv-pre">读取中…</pre>`;
     if (id === "gridview") b.innerHTML = `<p class="mut" id="gv-note" style="margin-bottom:8px">读取中…</p><table class="gridtab" id="gv-tab"></table>`;
     if (id === "ziplist") b.innerHTML = `<h3 id="zl-name">文件夹</h3><div id="zl-list" class="mut" style="margin-top:10px">加载中…</div><p class="mut" style="margin-top:8px;font-size:12px">这是解压出来的文件夹（在 Data/files 里）。双击文件用系统内的方式打开；子文件夹暂不在这里展开。</p>`;
@@ -4862,7 +5100,7 @@ ${pr.textContent}> ${cmd}\r
           clearInterval(prodIv);
           prodIv = null;
         }
-        G("set-main").innerHTML = `<div class="set-page"><div class="set-sec">组件</div><div class="set-desc">按需下载的重型组件，装在 EXE 旁，跟着文件夹走。点「管理」去各自的应用页下载、启停或卸载。</div><div class="sm-card"><div class="sm-row"><span>Firefox</span><span class="row"><span class="set-val" id="cp-ff">读取中…</span><button class="btn gray" data-openapp="firefox">管理</button></span></div><div class="sm-row"><span>小龙虾 OpenClaw</span><span class="row"><span class="set-val" id="cp-oc">读取中…</span><button class="btn gray" data-openapp="openclaw">管理</button></span></div><div class="sm-row"><span>应用隔离 Sandboxie</span><span class="row"><span class="set-val" id="cp-sbie">读取中…</span><button class="btn gray" id="cp-sbie-go">管理</button></span></div></div><p class="set-note">应用隔离的组件包已内置在程序里（装的时候不用联网），驱动装在当前这台电脑上；细节和诚实说明在「应用隔离」页。</p><div class="set-sec">生产力组件</div><div class="set-desc">五个开源软件做成的便携组件，按需逐个下载（合计约 1.3 GB），装进 EXE 旁的 <b style="color:#fff">Data/components</b>；每个组件的数据都收在自己的组件目录里，跟着文件夹走。没装的在桌面上是「未下载」图标，点它也会开始下载。</div><div class="sm-card" id="cp-prod"><div class="sm-row"><span>读取中…</span></div></div><div class="set-sec">打开方式</div><div class="sm-card"><div class="sm-row"><span>默认办公套件</span><span class="sm-seg" id="cp-office">${["onlyoffice", "libreoffice"].map((v) => `<button data-v="${v}" class="${(SETTINGS.defaultOfficeSuite || "onlyoffice") === v ? "on" : ""}">${v === "onlyoffice" ? "ONLYOFFICE" : "LibreOffice"}</button>`).join("")}</span></div></div><p class="set-note">打开文档 / 表格 / 演示文件时优先用哪个套件；只装了一个就用那个，都没装会先请你下载。图片装了 ImageGlass 就用它打开，代码和文本装了 VSCodium 就用它打开，没装走内置查看器。</p><div class="set-sec">PDF 查看器</div><div class="sm-card"><div class="sm-row"><span>打开 PDF 时的默认缩放</span><span class="sm-seg" id="cp-pdfzoom">${PDFZOOM_MODES.map((m) => `<button data-v="${m.id}" class="${pdfZoomKey(SETTINGS.pdfZoom) === m.id ? "on" : ""}">${m.n}</button>`).join("")}</span></div></div><p class="set-note">PDF 用系统内置查看器打开（v0.65，不再经宿主软件或隔离浏览器）。这里定的是每次打开时的起始缩放，文档开着时的缩放、旋转不受影响。</p></div>`;
+        G("set-main").innerHTML = `<div class="set-page"><div class="set-sec">组件</div><div class="set-desc">按需下载的重型组件，装在 EXE 旁，跟着文件夹走。点「管理」去各自的应用页下载、启停或卸载。</div><div class="sm-card"><div class="sm-row"><span>Firefox</span><span class="row"><span class="set-val" id="cp-ff">读取中…</span><button class="btn gray" data-openapp="firefox">管理</button></span></div><div class="sm-row"><span>小龙虾 OpenClaw</span><span class="row"><span class="set-val" id="cp-oc">读取中…</span><button class="btn gray" data-openapp="openclaw">管理</button></span></div><div class="sm-row"><span>应用隔离 Sandboxie</span><span class="row"><span class="set-val" id="cp-sbie">读取中…</span><button class="btn gray" id="cp-sbie-go">管理</button></span></div></div><p class="set-note">应用隔离的组件包已内置在程序里（装的时候不用联网），驱动装在当前这台电脑上；细节和诚实说明在「应用隔离」页。</p><div class="set-sec">生产力组件</div><div class="set-desc">五个开源软件做成的便携组件，按需逐个下载（合计约 1.3 GB），装进 EXE 旁的 <b style="color:#fff">Data/components</b>；每个组件的数据都收在自己的组件目录里，跟着文件夹走。没装的在桌面上是「未下载」图标，点它也会开始下载。</div><div class="sm-card" id="cp-prod"><div class="sm-row"><span>读取中…</span></div></div><div class="set-sec">打开方式</div><div class="sm-card"><div class="sm-row"><span>默认办公套件</span><span class="sm-seg" id="cp-office">${["onlyoffice", "libreoffice"].map((v) => `<button data-v="${v}" class="${(SETTINGS.defaultOfficeSuite || "onlyoffice") === v ? "on" : ""}">${v === "onlyoffice" ? "ONLYOFFICE" : "LibreOffice"}</button>`).join("")}</span></div></div><p class="set-note">打开文档 / 表格 / 演示文件时优先用哪个套件；只装了一个就用那个，都没装会先请你下载。图片装了 ImageGlass 就用它打开，代码和文本装了 VSCodium 就用它打开，没装走内置查看器。</p><div class="set-sec">PDF 查看器</div><div class="sm-card"><div class="sm-row"><span>打开 PDF 时的默认缩放</span><span class="sm-seg" id="cp-pdfzoom">${PDFZOOM_MODES.map((m) => `<button data-v="${m.id}" class="${pdfZoomKey(SETTINGS.pdfZoom) === m.id ? "on" : ""}">${m.n}</button>`).join("")}</span></div></div><p class="set-note">PDF 用系统内置查看器打开（v0.65，不再经宿主软件或隔离浏览器）。这里定的是每次打开时的起始缩放，文档开着时的缩放、旋转不受影响。</p><div class="set-sec">图片查看器</div><div class="sm-card"><div class="sm-row"><span>打开图片时的默认缩放</span><span class="sm-seg" id="cp-imgzoom">${IMGZOOM_MODES.map((m) => `<button data-v="${m.id}" class="${imgZoomKey(SETTINGS.imgZoom) === m.id ? "on" : ""}">${m.n}</button>`).join("")}</span></div></div><p class="set-note">图片用系统内置查看器打开（v0.66，滚轮缩放、拖动平移、旋转、上一张/下一张）。这里定的是每次打开和切换图片时的起始缩放，图片开着时的缩放不受影响。</p></div>`;
         G("set-main").querySelectorAll("[data-openapp]").forEach((b) => b.onclick = () => openApp(b.dataset.openapp));
         G("cp-sbie-go").onclick = () => goto("isolation");
         try {
@@ -4964,6 +5202,15 @@ ${pr.textContent}> ${cmd}\r
             return;
           }
           pz.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+        });
+        const iz = G("cp-imgzoom");
+        if (iz) iz.querySelectorAll("button").forEach((b) => b.onclick = async () => {
+          const r = await saveSetting({ imgZoom: b.dataset.v });
+          if (r && r.error) {
+            alert("保存失败：" + r.error);
+            return;
+          }
+          iz.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
         });
       };
       const paintIsolation = () => {
@@ -6775,18 +7022,7 @@ ${pr.textContent}> ${cmd}\r
       };
     }
     if (id === "imgview") {
-      document.getElementById("iv-prev").onclick = () => stepImage(-1);
-      document.getElementById("iv-next").onclick = () => stepImage(1);
-      document.getElementById("iv-fit").onclick = () => {
-        IMGV.fit = !IMGV.fit;
-        paintImageViewer();
-      };
-      document.addEventListener("keydown", (ev) => {
-        const w = document.getElementById("win-imgview");
-        if (!w || w.classList.contains("hidden")) return;
-        if (ev.key === "ArrowLeft") stepImage(-1);
-        else if (ev.key === "ArrowRight") stepImage(1);
-      });
+      bindImageViewer();
     }
     if (id === "textview") {
       document.getElementById("tv-wrap").onchange = (e) => {
@@ -7453,7 +7689,7 @@ ${pr.textContent}> ${cmd}\r
 
   // web/src/b1/settings.ts
   var SETTINGS = null;
-  var SETDEF = { wallpaper: "tahoe", wallpaperFit: "fill", pdfZoom: "fit-width", stageManager: false, idleExitMinutes: 30, phoneMode: true, phoneTriggerWidth: 1200, phoneWidth: 400, chromeCacheMB: 200, stageAutoClaimBrowser: true, filesOnDesktop: true, remoteEnabled: false, winPlaceOnClaim: true, winHideOnMinimize: true, winCloseToTray: true, immersiveMode: false, desktopFullscreen: false, dockPosition: "bottom", dockAutoHide: false, dockIconSize: 52, cc_show_immersive: true, cc_show_stage: true, cc_show_fullscreen: true, cc_show_dockhide: true, cc_show_remote: true, cc_show_wallpaper: true, notify_allow_sandbox: true, notify_allow_update: true, notify_allow_servermon: true, notify_allow_node: true, notify_allow_remote: true, notify_allow_files: true, notify_banner_sandbox: true, notify_banner_update: true, notify_banner_servermon: true, notify_banner_node: true, notify_banner_remote: true, notify_banner_files: true, nc_widgets: '[{"id":"calendar","show":true},{"id":"server","show":true},{"id":"node","show":true}]', exitClosesApps: true, updateBeta: false, nodeStartMode: "last", nodeSubAuto: true, nodeSubIntervalMin: 360, nodeTestURL: "http://www.gstatic.com/generate_204", nodeTestTimeoutMs: 5e3, nodeClashAPI: true, summonHotkey: "F8", defaultOfficeSuite: "onlyoffice", stageDisplay: "preview", deskIconSize: 54, deskSort: "manual" };
+  var SETDEF = { wallpaper: "tahoe", wallpaperFit: "fill", pdfZoom: "fit-width", imgZoom: "fit", stageManager: false, idleExitMinutes: 30, phoneMode: true, phoneTriggerWidth: 1200, phoneWidth: 400, chromeCacheMB: 200, stageAutoClaimBrowser: true, filesOnDesktop: true, remoteEnabled: false, winPlaceOnClaim: true, winHideOnMinimize: true, winCloseToTray: true, immersiveMode: false, desktopFullscreen: false, dockPosition: "bottom", dockAutoHide: false, dockIconSize: 52, cc_show_immersive: true, cc_show_stage: true, cc_show_fullscreen: true, cc_show_dockhide: true, cc_show_remote: true, cc_show_wallpaper: true, notify_allow_sandbox: true, notify_allow_update: true, notify_allow_servermon: true, notify_allow_node: true, notify_allow_remote: true, notify_allow_files: true, notify_banner_sandbox: true, notify_banner_update: true, notify_banner_servermon: true, notify_banner_node: true, notify_banner_remote: true, notify_banner_files: true, nc_widgets: '[{"id":"calendar","show":true},{"id":"server","show":true},{"id":"node","show":true}]', exitClosesApps: true, updateBeta: false, nodeStartMode: "last", nodeSubAuto: true, nodeSubIntervalMin: 360, nodeTestURL: "http://www.gstatic.com/generate_204", nodeTestTimeoutMs: 5e3, nodeClashAPI: true, summonHotkey: "F8", defaultOfficeSuite: "onlyoffice", stageDisplay: "preview", deskIconSize: 54, deskSort: "manual" };
   function wallKey() {
     if (SETTINGS) return SETTINGS.wallpaper || "tahoe";
     return localStorage.getItem("mj-wall") || "tahoe";
@@ -7463,6 +7699,9 @@ ${pr.textContent}> ${cmd}\r
   }
   function pdfZoomDefault() {
     return pdfZoomKey(SETTINGS ? SETTINGS.pdfZoom : null);
+  }
+  function imgZoomDefault() {
+    return imgZoomKey(SETTINGS ? SETTINGS.imgZoom : null);
   }
   function dockPos() {
     const p = SETTINGS && SETTINGS.dockPosition;
@@ -8513,6 +8752,72 @@ function pdfWheelZoom(deltaY, ctrlKey, scale) {
   if (!d || !isFinite(d)) return { zoom: false, scale: s };
   const ns = Math.min(PDF_SCALE_MAX, Math.max(PDF_SCALE_MIN, s * Math.exp(-d * PDF_WHEEL_K)));
   return { zoom: ns !== s, scale: ns };
+}
+const IMGZOOM_MODES = [
+  { id: "fit", n: "适合窗口" },
+  { id: "actual", n: "实际大小" }
+];
+function imgZoomValid(v) {
+  return IMGZOOM_MODES.some((m) => m.id === v);
+}
+function imgZoomKey(v) {
+  return imgZoomValid(v) ? v : "fit";
+}
+const IMG_SCALE_MIN = 0.05, IMG_SCALE_MAX = 16;
+function imgEffSize(natW, natH, rot) {
+  const r = ((+rot || 0) % 360 + 360) % 360;
+  if (r === 90 || r === 270) return { w: +natH || 0, h: +natW || 0 };
+  return { w: +natW || 0, h: +natH || 0 };
+}
+function imgFitScale(natW, natH, rot, contW, contH) {
+  const e = imgEffSize(natW, natH, rot);
+  if (!(e.w > 0) || !(e.h > 0) || !(contW > 0) || !(contH > 0)) return 1;
+  const s = Math.min(contW / e.w, contH / e.h);
+  if (!(s > 0) || !isFinite(s)) return 1;
+  return Math.min(1, Math.max(IMG_SCALE_MIN, s));
+}
+function imgResolveScale(mode, custom, natW, natH, rot, contW, contH) {
+  if (mode === "actual") return 1;
+  if (mode === "custom") {
+    const s = +custom;
+    if (s > 0 && isFinite(s)) return Math.min(IMG_SCALE_MAX, Math.max(IMG_SCALE_MIN, s));
+    return 1;
+  }
+  return imgFitScale(natW, natH, rot, contW, contH);
+}
+function imgWheelZoom(deltaY, scale) {
+  const s = +scale > 0 && isFinite(scale) ? +scale : 1;
+  const d = +deltaY;
+  if (!d || !isFinite(d)) return { zoom: false, scale: s };
+  const ns = Math.min(IMG_SCALE_MAX, Math.max(IMG_SCALE_MIN, s * Math.exp(-d * PDF_WHEEL_K)));
+  return { zoom: ns !== s, scale: ns };
+}
+function imgStepScale(scale, dir) {
+  const s = +scale > 0 && isFinite(scale) ? +scale : 1;
+  const f = dir < 0 ? 1 / 1.25 : 1.25;
+  const ns = Math.min(IMG_SCALE_MAX, Math.max(IMG_SCALE_MIN, s * f));
+  return { zoom: ns !== s, scale: ns };
+}
+function imgAnchorPos(px, py, x, y, w, h, nw, nh) {
+  if (!(w > 0) || !(h > 0)) return { x: 0, y: 0 };
+  const fx = (px - x) / w, fy = (py - y) / h;
+  return { x: px - fx * nw, y: py - fy * nh };
+}
+function imgClampPan(x, y, w, h, vw, vh) {
+  const cx = w <= vw ? (vw - w) / 2 : Math.min(0, Math.max(vw - w, x));
+  const cy = h <= vh ? (vh - h) / 2 : Math.min(0, Math.max(vh - h, y));
+  return { x: cx, y: cy };
+}
+function imgRotateNext(rot) {
+  return ((+rot || 0) % 360 + 360 + 90) % 360;
+}
+function imgStepIndex(cur, total, dir) {
+  const n = +total || 0;
+  if (n <= 0 || cur < 0 || cur >= n) return -1;
+  return ((cur + (dir < 0 ? -1 : 1)) % n + n) % n;
+}
+function imgDblTarget(mode) {
+  return mode === "fit" ? "actual" : "fit";
 }
 /* === end fv pure === */
 (() => {

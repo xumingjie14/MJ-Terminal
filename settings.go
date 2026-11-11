@@ -51,7 +51,14 @@ type mjSettings struct {
 	// page visible) or "actual" (100%). Written by 设置 → 组件 →
 	// 打开方式； the viewer can still zoom freely per document,
 	// this is only where an open starts.
-	PDFZoom           string `json:"pdfZoom"`
+	PDFZoom string `json:"pdfZoom"`
+	// v0.66 (detail-fix ⑦): the built-in image viewer's default
+	// zoom, applied when a picture opens -- "fit" (the default:
+	// whole image visible, never enlarged past 100%) or "actual"
+	// (100%). Written by 设置 → 组件 → 打开方式； the viewer can
+	// still zoom/pan/rotate freely per image, this is only where
+	// an open (and each prev/next hop) starts.
+	ImgZoom           string `json:"imgZoom"`
 	StageManager      bool   `json:"stageManager"`      // Stage Manager on/off
 	IdleExitMinutes   int    `json:"idleExitMinutes"`   // daemon idle auto-exit; 0 = never
 	PhoneMode         bool   `json:"phoneMode"`         // phone-width landing on/off
@@ -230,6 +237,7 @@ func defaultSettings() mjSettings {
 		Wallpaper:             "tahoe",
 		WallpaperFit:          "fill",
 		PDFZoom:               "fit-width",
+		ImgZoom:               "fit",
 		StageManager:          false,
 		IdleExitMinutes:       30,
 		PhoneMode:             true,
@@ -472,6 +480,16 @@ var pdfZooms = map[string]bool{
 
 func validPDFZoom(v string) bool { return pdfZooms[v] }
 
+// v0.66 (detail-fix ⑦): the image viewer's default-zoom domain,
+// mirroring pdfZooms. The view maps them in imgResolveScale
+// (web/src/pure/fv.ts): "fit" derives the scale from the window
+// (capped at 100% -- fit never enlarges), "actual" is 100%.
+var imgZooms = map[string]bool{
+	"fit": true, "actual": true,
+}
+
+func validImgZoom(v string) bool { return imgZooms[v] }
+
 // wallpaperFitLabel is the user-facing name used in console
 // logs; an unknown value reports as the default's label.
 func wallpaperFitLabel(v string) string {
@@ -537,6 +555,9 @@ func sanitizeSettings(s mjSettings) mjSettings {
 	}
 	if !pdfZooms[s.PDFZoom] {
 		s.PDFZoom = d.PDFZoom
+	}
+	if !imgZooms[s.ImgZoom] {
+		s.ImgZoom = d.ImgZoom
 	}
 	if s.IdleExitMinutes < 0 || s.IdleExitMinutes > 240 {
 		s.IdleExitMinutes = d.IdleExitMinutes
@@ -840,6 +861,14 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 				} else if v != next.PDFZoom {
 					next.PDFZoom = v
 					changed = append(changed, "pdfZoom = "+v)
+				}
+			case "imgZoom":
+				var v string
+				if json.Unmarshal(val, &v) != nil || !validImgZoom(v) {
+					fail = "imgZoom 不是有效的缩放方式（fit/actual）"
+				} else if v != next.ImgZoom {
+					next.ImgZoom = v
+					changed = append(changed, "imgZoom = "+v)
 				}
 			case "stageManager":
 				var v bool

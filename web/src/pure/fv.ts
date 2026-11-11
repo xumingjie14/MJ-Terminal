@@ -211,3 +211,106 @@ function pdfWheelZoom(deltaY,ctrlKey,scale){
  const ns=Math.min(PDF_SCALE_MAX,Math.max(PDF_SCALE_MIN,s*Math.exp(-d*PDF_WHEEL_K)));
  return {zoom:ns!==s,scale:ns};
 }
+/* v0.66 （细节修复 ⑦): the built-in image viewer's pure logic --
+   the viewer glue (b1/viewers.ts) is DOM over these seams, the
+   same split as the PDF viewer above. The viewer renders the
+   natural bitmap in a positioned FRAME (the rotated bounding
+   box, effW x effH CSS px at scale 1); all position math is the
+   frame's top-left in viewport coordinates, so pan clamping,
+   pointer anchoring and rotation compose without special cases.
+   Zoom modes mirror the daemon's imgZoom settings domain
+   (settings.go imgZooms): fit (the default) / actual, plus the
+   viewer's transient 'custom' once the user zooms by hand. */
+const IMGZOOM_MODES=[
+ {id:'fit',n:'适合窗口'},{id:'actual',n:'实际大小'},
+];
+function imgZoomValid(v){ return IMGZOOM_MODES.some(m=>m.id===v); }
+function imgZoomKey(v){ return imgZoomValid(v)?v:'fit'; }
+/* The scale band every image zoom path enforces. The top is
+   generous (pixel-peeping a small image is legitimate); the
+   bottom keeps a huge photo from vanishing to a dot. */
+const IMG_SCALE_MIN=0.05, IMG_SCALE_MAX=16;
+/* The frame size at scale 1: a quarter turn swaps the axes. */
+function imgEffSize(natW,natH,rot){
+ const r=(((+rot||0)%360)+360)%360;
+ if(r===90||r===270) return {w:+natH||0,h:+natW||0};
+ return {w:+natW||0,h:+natH||0};
+}
+/* The "fit" scale: the whole frame inside the container,
+   capped at 100% (fit never enlarges -- a small image opens at
+   actual size, like Preview; wheel/buttons can still zoom in).
+   Degenerate inputs fall back to 1. */
+function imgFitScale(natW,natH,rot,contW,contH){
+ const e=imgEffSize(natW,natH,rot);
+ if(!(e.w>0)||!(e.h>0)||!(contW>0)||!(contH>0)) return 1;
+ const s=Math.min(contW/e.w,contH/e.h);
+ if(!(s>0)||!isFinite(s)) return 1;
+ return Math.min(1,Math.max(IMG_SCALE_MIN,s));
+}
+/* The scale a zoom state means. fit derives from the
+   container; actual is 100%; custom is the user's scale. */
+function imgResolveScale(mode,custom,natW,natH,rot,contW,contH){
+ if(mode==='actual') return 1;
+ if(mode==='custom'){
+  const s=+custom;
+  if(s>0&&isFinite(s)) return Math.min(IMG_SCALE_MAX,Math.max(IMG_SCALE_MIN,s));
+  return 1;
+ }
+ return imgFitScale(natW,natH,rot,contW,contH);
+}
+/* Wheel zoom (the headline of ⑦): an image window has no
+   page-scroll role to protect, so the PLAIN wheel zooms (ctrl
+   rides the same path). Same continuous law as pdfWheelZoom --
+   one notch is about x1.105, trackpad deltas accumulate into a
+   glide -- but no modifier gate and the wider image band. */
+function imgWheelZoom(deltaY,scale){
+ const s=(+scale>0&&isFinite(scale))?+scale:1;
+ const d=+deltaY;
+ if(!d||!isFinite(d)) return {zoom:false,scale:s};
+ const ns=Math.min(IMG_SCALE_MAX,Math.max(IMG_SCALE_MIN,s*Math.exp(-d*PDF_WHEEL_K)));
+ return {zoom:ns!==s,scale:ns};
+}
+/* Button/keyboard step zoom: a fixed ratio per step, clamped
+   to the band; at a bound it reports the bound (zoom:false
+   when nothing moved). */
+function imgStepScale(scale,dir){
+ const s=(+scale>0&&isFinite(scale))?+scale:1;
+ const f=dir<0?1/1.25:1.25;
+ const ns=Math.min(IMG_SCALE_MAX,Math.max(IMG_SCALE_MIN,s*f));
+ return {zoom:ns!==s,scale:ns};
+}
+/* Pointer anchoring: given the frame at (x,y) sized w x h and
+   a pointer at (px,py) in the same viewport coordinates, the
+   frame position that keeps the pointed content point fixed
+   when the frame becomes nw x nh. */
+function imgAnchorPos(px,py,x,y,w,h,nw,nh){
+ if(!(w>0)||!(h>0)) return {x:0,y:0};
+ const fx=(px-x)/w, fy=(py-y)/h;
+ return {x:px-fx*nw,y:py-fy*nh};
+}
+/* Pan clamping, per axis: a frame smaller than the viewport
+   on that axis is CENTERED there (no pan on that axis at all);
+   a larger frame may slide until its edges meet the
+   viewport's -- it can never be dragged past them into empty
+   space. */
+function imgClampPan(x,y,w,h,vw,vh){
+ const cx=w<=vw?(vw-w)/2:Math.min(0,Math.max(vw-w,x));
+ const cy=h<=vh?(vh-h)/2:Math.min(0,Math.max(vh-h,y));
+ return {x:cx,y:cy};
+}
+/* Per-image rotation steps (the toolbar's 旋转 button):
+   always one of 0/90/180/270, like pdfRotateNext. */
+function imgRotateNext(rot){
+ return (((+rot||0)%360)+360+90)%360;
+}
+/* Prev/next navigation over the sibling list: step with wrap
+   (the old viewer's stepImage semantics -- last -> first);
+   an unknown current (or an empty list) navigates nowhere. */
+function imgStepIndex(cur,total,dir){
+ const n=+total||0;
+ if(n<=0||cur<0||cur>=n) return -1;
+ return ((cur+(dir<0?-1:1))%n+n)%n;
+}
+/* Double-click: at fit, jump to actual size; anywhere else,
+   back to fit. */
+function imgDblTarget(mode){ return mode==='fit'?'actual':'fit'; }

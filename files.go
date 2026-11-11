@@ -449,6 +449,59 @@ func filesRawHandler(w http.ResponseWriter, r *http.Request) {
 	http.ServeContent(w, r, filepath.Base(abs), fi.ModTime(), f)
 }
 
+// filesEventKinds is the whitelist of view-reported image
+// viewer events (v0.66, detail-fix ⑦), mirroring the PDF
+// viewer's sink (pdfEventKinds): the raw route stays silent by
+// design (the desktop also pulls thumbnails through file
+// routes), so the viewer reports the events only it can see --
+// an open, a prev/next hop, an undecodable file -- and the
+// console hub holds the story under [files].
+var filesEventKinds = map[string]string{
+	"open":  "info",
+	"nav":   "info",
+	"error": "error",
+}
+
+// filesEventHandler logs view-side image viewer events:
+// POST /api/files/event {path, event, detail?}. Log-only: it
+// changes no state, and the path must resolve inside Data/files
+// like every other files route.
+func filesEventHandler(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Path   string `json:"path"`
+		Event  string `json:"event"`
+		Detail string `json:"detail"`
+	}
+	if err := decodeJSONBody(r, &body); err != nil {
+		writeJSON(w, map[string]any{"error": "请求内容不对"})
+		return
+	}
+	level, ok := filesEventKinds[body.Event]
+	if !ok {
+		writeJSON(w, map[string]any{"error": "不认识的事件"})
+		return
+	}
+	abs, err := filesResolve(body.Path)
+	if err != nil {
+		writeJSON(w, map[string]any{"error": "文件名不对"})
+		return
+	}
+	name := filepath.Base(abs)
+	detail := strings.NewReplacer("\r", " ", "\n", " ").Replace(body.Detail)
+	if len(detail) > 200 {
+		detail = detail[:200] + "…"
+	}
+	switch body.Event {
+	case "open":
+		logf("files", level, "图片查看器打开：%s", name)
+	case "nav":
+		logf("files", level, "图片查看器切换：%s", name)
+	default:
+		logf("files", level, "图片打开失败：%s（%s）", name, detail)
+	}
+	writeJSON(w, map[string]any{"ok": true})
+}
+
 // ---------- thumbnails ----------
 
 // GET /api/files/thumb?name=<top-level image name>: a ~128px JPEG

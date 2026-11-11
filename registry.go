@@ -202,9 +202,15 @@ var featureRegistry = []feature{
 		Routes: []featureRoute{
 			lr("/api/files"), lr("/api/files/sub"), lr("/api/files/import"),
 			lr("/api/files/rename"), lr("/api/files/delete"), lr("/api/files/raw"),
+			lr("/api/files/event"),
 			lr("/api/files/thumb"), lr("/api/files/text"), lr("/api/files/csv"),
 			lr("/api/files/run"), lr("/api/files/unzip"),
 		},
+		// v0.66 (detail-fix ⑦): the built-in image viewer's
+		// default-open zoom lives here -- the viewer itself rides
+		// the files routes above (bytes via /api/files/raw, event
+		// log sink via /api/files/event).
+		Settings: []string{"imgZoom"},
 	},
 	{
 		// v0.65 (detail-fix ⑥): the built-in PDF viewer. The

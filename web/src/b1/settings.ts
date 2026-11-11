@@ -16,7 +16,7 @@ import { renderDesk } from './desktop';
    reports "fresh" (no settings file yet), the old local values are
    migrated up once and the local copies dropped. */
 export let SETTINGS=null;
-export const SETDEF={wallpaper:'tahoe',wallpaperFit:'fill',pdfZoom:'fit-width',stageManager:false,idleExitMinutes:30,phoneMode:true,phoneTriggerWidth:1200,phoneWidth:400,chromeCacheMB:200,stageAutoClaimBrowser:true,filesOnDesktop:true,remoteEnabled:false,winPlaceOnClaim:true,winHideOnMinimize:true,winCloseToTray:true,immersiveMode:false,desktopFullscreen:false,dockPosition:'bottom',dockAutoHide:false,dockIconSize:52,cc_show_immersive:true,cc_show_stage:true,cc_show_fullscreen:true,cc_show_dockhide:true,cc_show_remote:true,cc_show_wallpaper:true,notify_allow_sandbox:true,notify_allow_update:true,notify_allow_servermon:true,notify_allow_node:true,notify_allow_remote:true,notify_allow_files:true,notify_banner_sandbox:true,notify_banner_update:true,notify_banner_servermon:true,notify_banner_node:true,notify_banner_remote:true,notify_banner_files:true,nc_widgets:'[{"id":"calendar","show":true},{"id":"server","show":true},{"id":"node","show":true}]',exitClosesApps:true,updateBeta:false,nodeStartMode:'last',nodeSubAuto:true,nodeSubIntervalMin:360,nodeTestURL:'http://www.gstatic.com/generate_204',nodeTestTimeoutMs:5000,nodeClashAPI:true,summonHotkey:'F8',defaultOfficeSuite:'onlyoffice',stageDisplay:'preview',deskIconSize:54,deskSort:'manual'};
+export const SETDEF={wallpaper:'tahoe',wallpaperFit:'fill',pdfZoom:'fit-width',imgZoom:'fit',stageManager:false,idleExitMinutes:30,phoneMode:true,phoneTriggerWidth:1200,phoneWidth:400,chromeCacheMB:200,stageAutoClaimBrowser:true,filesOnDesktop:true,remoteEnabled:false,winPlaceOnClaim:true,winHideOnMinimize:true,winCloseToTray:true,immersiveMode:false,desktopFullscreen:false,dockPosition:'bottom',dockAutoHide:false,dockIconSize:52,cc_show_immersive:true,cc_show_stage:true,cc_show_fullscreen:true,cc_show_dockhide:true,cc_show_remote:true,cc_show_wallpaper:true,notify_allow_sandbox:true,notify_allow_update:true,notify_allow_servermon:true,notify_allow_node:true,notify_allow_remote:true,notify_allow_files:true,notify_banner_sandbox:true,notify_banner_update:true,notify_banner_servermon:true,notify_banner_node:true,notify_banner_remote:true,notify_banner_files:true,nc_widgets:'[{"id":"calendar","show":true},{"id":"server","show":true},{"id":"node","show":true}]',exitClosesApps:true,updateBeta:false,nodeStartMode:'last',nodeSubAuto:true,nodeSubIntervalMin:360,nodeTestURL:'http://www.gstatic.com/generate_204',nodeTestTimeoutMs:5000,nodeClashAPI:true,summonHotkey:'F8',defaultOfficeSuite:'onlyoffice',stageDisplay:'preview',deskIconSize:54,deskSort:'manual'};
 export function wallKey(){ if(SETTINGS) return SETTINGS.wallpaper||'tahoe'; return localStorage.getItem('mj-wall')||'tahoe' }
 /* v0.63: the custom wallpaper's fit mode (settings key
    wallpaperFit), normalized by the pure wpFitKey -- an unset
@@ -26,6 +26,11 @@ export function wallFit(){ return wpFitKey(SETTINGS?SETTINGS.wallpaperFit:null) 
    normalized by the pure pdfZoomKey -- an unset or unknown
    value reads as 'fit-width'. Read once per document open. */
 export function pdfZoomDefault(){ return pdfZoomKey(SETTINGS?SETTINGS.pdfZoom:null) }
+/* v0.66: the image viewer's default zoom (settings key
+   imgZoom), normalized by the pure imgZoomKey -- an unset or
+   unknown value reads as 'fit'. Read on each image open and
+   each prev/next hop (navigation restarts at the default). */
+export function imgZoomDefault(){ return imgZoomKey(SETTINGS?SETTINGS.imgZoom:null) }
 /* v0.46 Dock basics: position + auto-hide are view-side behaviours
    over daemon settings (same pattern as the wallpaper). */
 export function dockPos(){ const p=SETTINGS&&SETTINGS.dockPosition; return (p==='left'||p==='right')?p:'bottom' }
