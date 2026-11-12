@@ -1254,6 +1254,10 @@ func patrolTick() {
 	if !servicesActive() {
 		return // v0.48: vault locked (or sealing) -- hands off
 	}
+	// v0.69-test4: the containment exit re-pin watchdog rides
+	// this cadence (two lockfile stats per tick, no loop of
+	// its own) -- see containment.go watchBrowserProfileExits.
+	watchBrowserProfileExits()
 	// Prune + housekeeping first (same as the list handler does on
 	// poll): dead registrations disappear even when the desktop
 	// view is closed.

@@ -1167,11 +1167,11 @@ func seedChromeDarkTheme(profile string) {
 		return
 	}
 	// v0.69-test3: the Preferences Chrome reads live under the
-	// profile's Default/ subdir (chromePrefsPath) -- this seed
+	// profile's Default/ subdir (chromiumPrefsPath) -- this seed
 	// wrote the user-data-dir root from v0.54 to test2, a file
 	// Chrome never opens; the DWM caption layer carried the
 	// visible effect, which is why nobody noticed.
-	prefPath := chromePrefsPath(profile)
+	prefPath := chromiumPrefsPath(profile)
 	prefs := map[string]any{}
 	if b, err := os.ReadFile(prefPath); err == nil && len(b) > 0 {
 		if err := json.Unmarshal(b, &prefs); err != nil {
@@ -1246,17 +1246,22 @@ func launchIsolatedBrowser(proxy bool, target string, appMode bool) error {
 	// as the proxy/cache arguments below (and Firefox's user.js):
 	// written into the profile before the browser starts.
 	seedChromeDarkTheme(profile)
-	// v0.69 block 3 (containment): pin the browser's download
-	// directory to THIS machine's Data/Downloads before launch,
-	// and say so in the console -- the self-check line. A live
-	// profile keeps the lock its starting launch wrote.
-	switch lockChromeDownloadDir(profile, downloadsDir()) {
+	// v0.69 block 3 (containment): pin the browser's landing
+	// directories to THIS machine's Data/Downloads before
+	// launch, and say so in the console -- the self-check
+	// line. A live profile keeps the pin its starting launch
+	// wrote. Round 2 (test4): the pin covers the Save-As
+	// memory and the prompt flag too (chromiumLandingPrefs),
+	// and the exit watchdog (containment.go) re-pins the
+	// profile whenever the browser fully exits, so a resident
+	// instance cannot keep the old values alive forever.
+	switch pinChromiumLanding(profile, downloadsDir()) {
 	case "locked":
-		logf("browser", "info", "下载目录已锁定 Data/Downloads（%s）", downloadsDir())
+		logf("browser", "info", "下载/保存目录已锁定 Data/Downloads（%s）", downloadsDir())
 	case "running":
-		logf("browser", "info", "下载目录已锁定 Data/Downloads（浏览器运行中，沿用档案里已锁定的目录）")
+		logf("browser", "info", "下载/保存目录已锁定 Data/Downloads（浏览器运行中，沿用档案里已锁定的目录）")
 	default:
-		logf("browser", "warn", "下载目录锁定失败：写不进档案 Preferences，下载可能落到宿主的下载文件夹")
+		logf("browser", "warn", "下载/保存目录锁定失败：写不进档案 Preferences，下载可能落到宿主的下载文件夹")
 	}
 	// v0.68 (detail-fix ⑧): the web-notification bridge. The
 	// embedded extension is released into its managed dir under
@@ -1978,6 +1983,29 @@ func spawnShellWindow(url string, proxy bool) (browser string, before map[uint64
 	browser = findShellBrowser()
 	profile := shellProfileDir()
 	_ = os.MkdirAll(profile, 0o755)
+	// v0.69-test4 (containment round 2): the desktop view is
+	// an Edge shell over Data/ShellProfile, and downloads
+	// triggered INSIDE the view -- console log exports,
+	// Files downloads, SSH downloads, data exports -- fell
+	// to the host Downloads folder because the view profile's
+	// own landing keys were never pinned. Pin the same three
+	// keys as the isolated browser before every spawn (Edge
+	// and Chrome share the Chromium layout and key names, so
+	// it is the same pin). Skipped while the vault is locked:
+	// the spawn then uses the throwaway lock profile, Data is
+	// sealed, and the lock screen has no download flows --
+	// the real profile is pinned on the first unlocked spawn
+	// and by the exit watchdog.
+	if !vaultLocked() {
+		switch pinChromiumLanding(profile, downloadsDir()) {
+		case "locked":
+			logf("browser", "info", "桌面视图下载/保存目录已锁定 Data/Downloads（%s）", downloadsDir())
+		case "running":
+			logf("browser", "info", "桌面视图下载/保存目录已锁定 Data/Downloads（视图运行中，沿用档案里已锁定的目录）")
+		default:
+			logf("browser", "warn", "桌面视图下载/保存目录锁定失败：写不进档案 Preferences，视图内下载可能落到宿主的下载文件夹")
+		}
+	}
 	if browser == "" {
 		return "", nil, exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
 	}

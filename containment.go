@@ -30,6 +30,35 @@ package main
 //     profile's path, so it can never match. Every deletion is
 //     logged with its full path.
 //
+// Round 2 (v0.69-test4, after the test3 field round): the
+// download-directory pin alone did not close the browser's
+// exits. (a) The Save-As family (image / link save-as,
+// Ctrl+S, print-to-PDF) never consults
+// download.default_directory -- Chromium keeps a SEPARATE
+// savefile memory, and a profile that once saved into the
+// host Downloads folder keeps opening its save dialogs
+// there; download.prompt_for_download likewise pops a
+// dialog rooted in that old memory. The pin now covers all
+// three keys (chromiumLandingPrefs). (b) Preferences can
+// only be written while the browser is fully exited, so a
+// resident instance kept sailing on the old values while
+// the launch-time pin silently no-opped; an exit watchdog
+// on the patrol cadence (below) re-pins a profile the
+// moment its lockfile disappears. (c) The desktop VIEW (an
+// Edge shell over Data/ShellProfile) had never been pinned
+// at all: console log exports, Files / SSH downloads and
+// data exports triggered inside the view landed in the
+// host Downloads folder; the shell spawn pins the same
+// three keys (main.go spawnShellWindow). (d) Firefox
+// remembered its last save directory PER SITE; the seeded
+// user.js now disables the per-site memory and pins the
+// one global lastDir too (ffDownloadPrefLines). The
+// boundary is unchanged: a location the PROGRAM picks is
+// always Data; a location the USER picks by hand inside a
+// save dialog (or by dragging out) is an explicit export
+// and is not intercepted -- but the dialog always STARTS
+// in Data.
+//
 // Audit trail for the rest of the rule lives in the v0.69
 // report: store apps install under Data/apps (apps.go
 // appsRoot), components under Data/components (procomp.go
@@ -50,29 +79,43 @@ import (
 // downloadsDir is the one place browser downloads may land.
 func downloadsDir() string { return filepath.Join(dataDir(), "Downloads") }
 
-// chromePrefsPath is where Chrome actually keeps the default
-// profile's Preferences: <user-data-dir>/Default/Preferences.
-// The user-data-dir ROOT carries no Preferences file Chrome
-// reads -- v0.54's theme seed and v0.69-test2's download lock
-// both wrote profile/Preferences, a dead file Chrome never
-// opened, so on real machines the seed and the lock silently
-// did nothing (the theme's visible effect was carried by the
-// DWM caption layer instead) while the tests, built on the
-// same wrong layout, stayed green. Both writers go through
-// this one helper since v0.69-test3.
-func chromePrefsPath(profile string) string {
+// chromiumPrefsPath is where a Chromium browser actually
+// keeps the default profile's Preferences:
+// <user-data-dir>/Default/Preferences. Chrome and Edge share
+// the layout, so the isolated browser and the desktop-view
+// shell both resolve through this one helper. The
+// user-data-dir ROOT carries no Preferences file a browser
+// reads -- v0.54's theme seed and v0.69-test2's download
+// lock both wrote profile/Preferences, a dead file the
+// browser never opened, so on real machines the seed and
+// the lock silently did nothing (the theme's visible effect
+// was carried by the DWM caption layer instead) while the
+// tests, built on the same wrong layout, stayed green.
+func chromiumPrefsPath(profile string) string {
 	return filepath.Join(profile, "Default", "Preferences")
 }
 
-// ---------- Chrome: Preferences download lock ----------
+// ---------- Chromium: Preferences landing pin ----------
 
-// chromeDownloadPrefs pins download.default_directory inside a
-// decoded Preferences object. Pure: returns whether anything
-// changed, so tests pin the merge and the launch path can log
-// honestly.
-func chromeDownloadPrefs(prefs map[string]any, dir string) bool {
-	dl, _ := prefs["download"].(map[string]any)
+// chromiumLandingPrefs is THE landing pin: one merge that
+// closes every directory a Chromium browser picks on its
+// own, inside a decoded Preferences object:
+//   - download.default_directory = dir: automatic downloads.
+//   - savefile.default_directory = dir: the Save-As family
+//     (image / link save-as, Ctrl+S, print-to-PDF) -- a
+//     SEPARATE memory from the download directory, which is
+//     why test3's download-only pin still let save dialogs
+//     open on the host Downloads folder.
+//   - download.prompt_for_download = false: the containment
+//     posture -- a download lands in Data directly instead
+//     of popping a save dialog rooted in the old memory.
+//
+// Pure: returns whether anything changed, so tests pin the
+// merge and callers can log honestly. Unrelated keys, inside
+// the touched sections and elsewhere, are never disturbed.
+func chromiumLandingPrefs(prefs map[string]any, dir string) bool {
 	changed := false
+	dl, _ := prefs["download"].(map[string]any)
 	if dl == nil {
 		dl = map[string]any{}
 		prefs["download"] = dl
@@ -82,37 +125,52 @@ func chromeDownloadPrefs(prefs map[string]any, dir string) bool {
 		dl["default_directory"] = dir
 		changed = true
 	}
+	if cur, ok := dl["prompt_for_download"].(bool); !ok || cur {
+		dl["prompt_for_download"] = false
+		changed = true
+	}
+	sf, _ := prefs["savefile"].(map[string]any)
+	if sf == nil {
+		sf = map[string]any{}
+		prefs["savefile"] = sf
+		changed = true
+	}
+	if cur, _ := sf["default_directory"].(string); cur != dir {
+		sf["default_directory"] = dir
+		changed = true
+	}
 	return changed
 }
 
-// lockChromeDownloadDir writes the download lock into the
+// pinChromiumLanding writes the landing pin into the
 // profile's real Preferences (Default/Preferences -- see
-// chromePrefsPath) before launch (the same discipline as
-// seedChromeDarkTheme: a running browser owns its Preferences
-// and rewrites them at exit, so a live profile -- lockfile
-// present at the user-data-dir root -- is left untouched and
-// the lock already in it from the launch that started it
-// stands). A fresh profile has no Default directory yet: it
-// is created with a Preferences holding just the merged keys,
-// which Chrome adopts on first start. Returns a short status
-// word for the caller's self-check log line: "locked" (written
-// or already correct), "running" (profile live, not rewritten),
-// or "error".
-func lockChromeDownloadDir(profile, dir string) string {
+// chromiumPrefsPath). The discipline matches
+// seedChromeDarkTheme: a running browser owns its
+// Preferences and rewrites them at exit, so a live profile
+// -- lockfile present at the user-data-dir root -- is left
+// untouched and the pin already in it from the launch (or
+// the exit re-pin) that wrote it stands. A fresh profile
+// has no Default directory yet: it is created with a
+// Preferences holding just the merged keys, which the
+// browser adopts on first start. Returns a short status
+// word for the caller's self-check log line: "locked"
+// (written or already correct), "running" (profile live,
+// not rewritten), or "error".
+func pinChromiumLanding(profile, dir string) string {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "error"
 	}
 	if _, err := os.Stat(filepath.Join(profile, "lockfile")); err == nil {
 		return "running"
 	}
-	prefsPath := chromePrefsPath(profile)
+	prefsPath := chromiumPrefsPath(profile)
 	prefs := map[string]any{}
 	if b, err := os.ReadFile(prefsPath); err == nil && len(b) > 0 {
 		if err := json.Unmarshal(b, &prefs); err != nil {
 			return "error"
 		}
 	}
-	if !chromeDownloadPrefs(prefs, dir) {
+	if !chromiumLandingPrefs(prefs, dir) {
 		return "locked"
 	}
 	b, err := json.Marshal(prefs)
@@ -139,12 +197,120 @@ func lockChromeDownloadDir(profile, dir string) string {
 // user.js lines (seeded at every fresh launch by
 // seedFFProfile): folderList=2 means "the directory named by
 // browser.download.dir", useDownloadDir keeps Firefox from
-// asking per file. The path is JS-string-escaped.
+// asking per file. Round 2 (test4) adds the Save-As memory:
+// Firefox remembers the last save directory PER SITE by
+// default, and an old per-site record pointing at the host
+// Downloads folder would keep save dialogs opening there --
+// lastDir.savePerSite=false retires the per-site records
+// (they are simply no longer consulted; no database surgery)
+// and the one global lastDir is pinned to the same
+// directory, so a save dialog starts in Data too. The path
+// is JS-string-escaped.
 func ffDownloadPrefLines(dir string) string {
 	esc := strings.NewReplacer("\\", "\\\\", "\"", "\\\"").Replace(dir)
 	return "user_pref(\"browser.download.folderList\", 2);\n" +
 		"user_pref(\"browser.download.dir\", \"" + esc + "\");\n" +
-		"user_pref(\"browser.download.useDownloadDir\", true);\n"
+		"user_pref(\"browser.download.useDownloadDir\", true);\n" +
+		"user_pref(\"browser.download.lastDir.savePerSite\", false);\n" +
+		"user_pref(\"browser.download.lastDir\", \"" + esc + "\");\n"
+}
+
+// ---------- exit re-pin watchdog ----------
+
+// profileLockPresent reports whether a Chromium profile's
+// lockfile exists at the user-data-dir root -- the signal
+// both browsers raise for their whole lifetime.
+func profileLockPresent(profile string) bool {
+	_, err := os.Stat(filepath.Join(profile, "lockfile"))
+	return err == nil
+}
+
+// lockFellEdge is the watchdog's transition predicate, kept
+// pure for tests: a re-pin is owed exactly when the lockfile
+// WAS present at the previous observation and is gone now.
+// Rising edges (a launch) and steady states owe nothing --
+// launches run their own pins, and a steady "gone" must not
+// re-pin (and re-log) on every patrol tick.
+func lockFellEdge(wasPresent, present bool) bool {
+	return wasPresent && !present
+}
+
+// profileExitWatch carries one profile's last observed
+// lockfile state across patrol ticks. Only the patrol
+// goroutine touches the instances below, so no lock.
+type profileExitWatch struct {
+	lockSeen bool
+}
+
+// observe folds one lockfile observation into the watch and
+// reports whether this observation is the falling edge --
+// the browser has just fully exited.
+func (w *profileExitWatch) observe(present bool) bool {
+	fell := lockFellEdge(w.lockSeen, present)
+	w.lockSeen = present
+	return fell
+}
+
+var (
+	chromeExitWatch profileExitWatch
+	shellExitWatch  profileExitWatch
+)
+
+// watchBrowserProfileExits is the exit re-pin watchdog,
+// called once per patrol tick (winmgr.go patrolTick, 2s
+// cadence -- no loop of its own). Preferences can only be
+// written while a browser is fully exited; a launch that
+// found the profile live could only stand on whatever the
+// profile already held, which is exactly how a resident
+// instance kept the old host-Downloads values alive across
+// test3. So the moment a profile's lockfile disappears,
+// the profile owes a re-pin: the next launch then starts
+// from pinned values no matter how the previous session
+// ended. Both Chromium profiles are watched -- the
+// isolated browser (ChromeProfile) and the desktop view
+// (ShellProfile).
+func watchBrowserProfileExits() {
+	chromeProfile := filepath.Join(dataDir(), "ChromeProfile")
+	if chromeExitWatch.observe(profileLockPresent(chromeProfile)) {
+		repinAfterExit(chromeProfile, true)
+	}
+	shellProfile := filepath.Join(dataDir(), "ShellProfile")
+	if shellExitWatch.observe(profileLockPresent(shellProfile)) {
+		repinAfterExit(shellProfile, false)
+	}
+}
+
+// repinAfterExit re-applies a profile's pins right after its
+// browser fully exited. The isolated browser also gets its
+// dark-theme seed re-applied (same disease, same cure: the
+// seed is a Preferences write and obeys the same residency
+// rule). Race discipline, stated honestly: the watchdog
+// observes the lockfile gone, this function re-checks it is
+// STILL gone immediately before writing, and each writer
+// stats it once more on entry; if the browser relaunches
+// inside that sliver the writers see the lockfile and stand
+// down -- or, in the worst case, one launch starts unpinned
+// and the NEXT exit re-pins. The window is a fraction of a
+// patrol tick and the failure mode is one unpinned session,
+// never a corrupted Preferences.
+func repinAfterExit(profile string, browser bool) {
+	if profileLockPresent(profile) {
+		return // relaunched between the tick and now; its own launch pin stands
+	}
+	label := "桌面视图"
+	if browser {
+		label = "浏览器"
+		seedChromeDarkTheme(profile)
+	}
+	switch pinChromiumLanding(profile, downloadsDir()) {
+	case "locked":
+		logf("browser", "info", "%s已退出，已回钉下载与保存目录（%s）", label, downloadsDir())
+	case "running":
+		// Lost the race against a relaunch; the next exit
+		// re-pins. Not worth a console line.
+	default:
+		logf("browser", "warn", "%s退出回钉失败：写不进档案 Preferences，下载可能落到宿主的下载文件夹", label)
+	}
 }
 
 // ---------- PWA shortcut sweep ----------
