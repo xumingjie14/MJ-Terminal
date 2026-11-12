@@ -50,6 +50,20 @@ import (
 // downloadsDir is the one place browser downloads may land.
 func downloadsDir() string { return filepath.Join(dataDir(), "Downloads") }
 
+// chromePrefsPath is where Chrome actually keeps the default
+// profile's Preferences: <user-data-dir>/Default/Preferences.
+// The user-data-dir ROOT carries no Preferences file Chrome
+// reads -- v0.54's theme seed and v0.69-test2's download lock
+// both wrote profile/Preferences, a dead file Chrome never
+// opened, so on real machines the seed and the lock silently
+// did nothing (the theme's visible effect was carried by the
+// DWM caption layer instead) while the tests, built on the
+// same wrong layout, stayed green. Both writers go through
+// this one helper since v0.69-test3.
+func chromePrefsPath(profile string) string {
+	return filepath.Join(profile, "Default", "Preferences")
+}
+
 // ---------- Chrome: Preferences download lock ----------
 
 // chromeDownloadPrefs pins download.default_directory inside a
@@ -72,11 +86,15 @@ func chromeDownloadPrefs(prefs map[string]any, dir string) bool {
 }
 
 // lockChromeDownloadDir writes the download lock into the
-// profile's Preferences before launch (the same discipline as
+// profile's real Preferences (Default/Preferences -- see
+// chromePrefsPath) before launch (the same discipline as
 // seedChromeDarkTheme: a running browser owns its Preferences
 // and rewrites them at exit, so a live profile -- lockfile
-// present -- is left untouched and the lock already in it from
-// the launch that started it stands). Returns a short status
+// present at the user-data-dir root -- is left untouched and
+// the lock already in it from the launch that started it
+// stands). A fresh profile has no Default directory yet: it
+// is created with a Preferences holding just the merged keys,
+// which Chrome adopts on first start. Returns a short status
 // word for the caller's self-check log line: "locked" (written
 // or already correct), "running" (profile live, not rewritten),
 // or "error".
@@ -87,7 +105,7 @@ func lockChromeDownloadDir(profile, dir string) string {
 	if _, err := os.Stat(filepath.Join(profile, "lockfile")); err == nil {
 		return "running"
 	}
-	prefsPath := filepath.Join(profile, "Preferences")
+	prefsPath := chromePrefsPath(profile)
 	prefs := map[string]any{}
 	if b, err := os.ReadFile(prefsPath); err == nil && len(b) > 0 {
 		if err := json.Unmarshal(b, &prefs); err != nil {
@@ -99,6 +117,9 @@ func lockChromeDownloadDir(profile, dir string) string {
 	}
 	b, err := json.Marshal(prefs)
 	if err != nil {
+		return "error"
+	}
+	if err := os.MkdirAll(filepath.Dir(prefsPath), 0o755); err != nil {
 		return "error"
 	}
 	tmp := prefsPath + ".mjtmp"

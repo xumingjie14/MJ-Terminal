@@ -151,8 +151,11 @@ var webNotifyBridge = struct {
 // the extension almost certainly did not load (most often a
 // branded-Chrome build ignoring --load-extension, or a browser
 // session that was already running and never restarted). One
-// warn line in the console instead of a silent no-op.
-func webNotifyLaunchCheck(since time.Time) {
+// warn line in the console instead of a silent no-op; the line
+// names the browser executable that was launched (v0.69-test3)
+// so the next field round can tell at a glance WHICH browser
+// ignored the flag.
+func webNotifyLaunchCheck(since time.Time, browserName string) {
 	if !notifyAllowed(settingsGet(), notifySrcWeb) {
 		return // bridge intentionally off: silence is correct
 	}
@@ -162,7 +165,7 @@ func webNotifyLaunchCheck(since time.Time) {
 		last := webNotifyBridge.lastPing
 		webNotifyBridge.Unlock()
 		if last.Before(since) {
-			logf("notify", "warn", "网页通知桥未见连接：隔离浏览器可能没有加载桥扩展（已在运行的浏览器要完全退出再打开才加载；新版 Google Chrome 可能忽略 --load-extension，Edge / Chromium 不受影响）——网页通知暂时进不了通知中心")
+			logf("notify", "warn", "网页通知桥未见连接：隔离浏览器可能没有加载桥扩展（本次浏览器：%s；已在运行的浏览器要完全退出再打开才加载；新版 Google Chrome 可能忽略 --load-extension，Edge / Chromium 不受影响）——网页通知暂时进不了通知中心", browserName)
 		}
 	}()
 }

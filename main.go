@@ -1166,7 +1166,12 @@ func seedChromeDarkTheme(profile string) {
 		logf("browser", "info", "隔离 Chrome 深色主题播种跳过：浏览器正在运行，档案被占用（下次冷启动生效）")
 		return
 	}
-	prefPath := filepath.Join(profile, "Preferences")
+	// v0.69-test3: the Preferences Chrome reads live under the
+	// profile's Default/ subdir (chromePrefsPath) -- this seed
+	// wrote the user-data-dir root from v0.54 to test2, a file
+	// Chrome never opens; the DWM caption layer carried the
+	// visible effect, which is why nobody noticed.
+	prefPath := chromePrefsPath(profile)
 	prefs := map[string]any{}
 	if b, err := os.ReadFile(prefPath); err == nil && len(b) > 0 {
 		if err := json.Unmarshal(b, &prefs); err != nil {
@@ -1195,6 +1200,10 @@ func seedChromeDarkTheme(profile string) {
 	theme["color"] = want
 	b, err := json.Marshal(prefs)
 	if err != nil {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(prefPath), 0o755); err != nil {
+		logf("browser", "warn", "隔离 Chrome 深色主题播种失败：%v", err)
 		return
 	}
 	tmp := prefPath + ".mjtmp"
@@ -1289,7 +1298,7 @@ func launchIsolatedBrowser(proxy bool, target string, appMode bool) error {
 	// v0.68: if the bridge never pings after this launch, the
 	// console hears about it once (webnotify.go has the rules).
 	if extDir != "" {
-		webNotifyLaunchCheck(launchAt)
+		webNotifyLaunchCheck(launchAt, filepath.Base(browser))
 	}
 	noteSpawnedProcess(uint32(browserCmd.Process.Pid), "隔离浏览器")
 	// v0.69 block 3: sweep host Start Menu / Desktop shortcuts
