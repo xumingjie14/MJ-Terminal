@@ -1015,12 +1015,25 @@ func launchIsolatedBrowser(proxy bool, target string, appMode bool) error {
 	// Data (config.json stamped with this daemon's base URL) and
 	// loaded unpacked for this profile. A release failure only
 	// loses the bridge -- it never blocks the launch.
+	// v0.71: branded Chrome 137+ ignores --load-extension, so
+	// the load ALSO rides the DevTools pipe (cdpload.go): the
+	// two debugging flags below plus a pipe pair created just
+	// before the process starts. The flag stays for Edge /
+	// Chromium, where it still works on its own.
 	extDir := releaseWebNotifyExt()
 	args := []string{"--user-data-dir=" + profile, "--no-first-run", "--start-maximized"}
 	extNote := ""
+	var bridgePipe *cdpPipeTransport
+	var bridgeChildEnds []*os.File
 	if extDir != "" {
 		args = append(args, "--load-extension="+extDir)
+		args = append(args, "--enable-unsafe-extension-debugging", "--remote-debugging-pipe")
 		extNote = "，网页通知桥已加载"
+		if pt, ends, perr := newCDPPipeTransport(); perr == nil {
+			bridgePipe, bridgeChildEnds = pt, ends
+		} else {
+			logf("notify", "warn", "网页通知桥：调试管道创建失败（%v），本次只剩 --load-extension 一条加载路（浏览器：%s）", perr, filepath.Base(browser))
+		}
 	}
 	// Disk-cache cap (v0.30, 设置 -> 浏览器）: the profile's caches
 	// are what bloats the portable folder over time; the cap keeps
@@ -1044,8 +1057,27 @@ func launchIsolatedBrowser(proxy bool, target string, appMode bool) error {
 	before := platformSnapshotWindows(browser)
 	launchAt := time.Now()
 	browserCmd := exec.Command(browser, args...)
+	if bridgePipe != nil {
+		// The pipe ends become the child's fd 3 (commands in)
+		// and fd 4 (responses out) -- see cdpload.go.
+		browserCmd.ExtraFiles = bridgeChildEnds
+	}
 	if err := browserCmd.Start(); err != nil {
+		if bridgePipe != nil {
+			bridgePipe.Close()
+			for _, f := range bridgeChildEnds {
+				_ = f.Close()
+			}
+		}
 		return fmt.Errorf("浏览器打开失败: %w", err)
+	}
+	if bridgePipe != nil {
+		// The child owns its copies now; drop the parent's
+		// child ends, then load the bridge over the pipe.
+		for _, f := range bridgeChildEnds {
+			_ = f.Close()
+		}
+		go bridgeLoadViaCDP(bridgePipe, extDir, filepath.Base(browser))
 	}
 	// v0.68: if the bridge never pings after this launch, the
 	// console hears about it once (webnotify.go has the rules).
@@ -1130,6 +1162,12 @@ type webApp struct {
 	// is then always written (possibly empty) so the columns
 	// never shift.
 	Icon string `json:"icon,omitempty"`
+	// v0.71: 锁住后台 state (resident.go), decorated onto the
+	// copies webAppsHandler returns -- the durable fact is the
+	// settings lock set, so this field is NEVER persisted to
+	// the ledger file (loadWebApps never sets it, saveWebApps
+	// never writes it).
+	Locked bool `json:"locked,omitempty"`
 }
 
 var webWinModes = map[string]bool{"memory": true, "phone": true, "desktop": true, "fullscreen": true}
@@ -1151,21 +1189,21 @@ func webAppWinMode(rawURL string) string {
 // which is remembered in Data/apps-deleted.txt (tombstones), so a
 // deletion never comes back.
 var bundledWebApps = []webApp{
-	{"X", "https://x.com", "", ""},
-	{"YouTube", "https://www.youtube.com", "", ""},
-	{"铭杰工作站", "https://fed-liquidity-mingjieofficial-7844s-projects.vercel.app/#/macro", "", ""},
-	{"TradingView", "https://www.tradingview.com/chart/", "", ""},
-	{"ETF 资金流", "https://farside.co.uk/eth", "", ""},
-	{"Coinglass", "https://www.coinglass.com", "", ""},
-	{"Gmail", "https://mail.google.com", "", ""},
-	{"谷歌翻译", "https://translate.google.com", "", ""},
-	{"哔哩哔哩", "https://www.bilibili.com", "", ""},
-	{"GitHub", "https://github.com", "", ""},
-	{"Vercel", "https://vercel.com/dashboard", "", ""},
-	{"ChatGPT", "https://chatgpt.com", "", ""},
-	{"Gemini", "https://gemini.google.com", "", ""},
-	{"Muse", "https://claude.ai", "", ""},
-	{"TikTok", "https://www.tiktok.com", "", ""},
+	{Name: "X", URL: "https://x.com"},
+	{Name: "YouTube", URL: "https://www.youtube.com"},
+	{Name: "铭杰工作站", URL: "https://fed-liquidity-mingjieofficial-7844s-projects.vercel.app/#/macro"},
+	{Name: "TradingView", URL: "https://www.tradingview.com/chart/"},
+	{Name: "ETF 资金流", URL: "https://farside.co.uk/eth"},
+	{Name: "Coinglass", URL: "https://www.coinglass.com"},
+	{Name: "Gmail", URL: "https://mail.google.com"},
+	{Name: "谷歌翻译", URL: "https://translate.google.com"},
+	{Name: "哔哩哔哩", URL: "https://www.bilibili.com"},
+	{Name: "GitHub", URL: "https://github.com"},
+	{Name: "Vercel", URL: "https://vercel.com/dashboard"},
+	{Name: "ChatGPT", URL: "https://chatgpt.com"},
+	{Name: "Gemini", URL: "https://gemini.google.com"},
+	{Name: "Muse", URL: "https://claude.ai"},
+	{Name: "TikTok", URL: "https://www.tiktok.com"},
 }
 
 // webAppRenames migrates a bundled entry's display name when the user
@@ -1285,7 +1323,14 @@ func saveWebApps(list []webApp) {
 }
 
 func webAppsHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, webAppsResponse{Apps: loadWebApps()})
+	list := loadWebApps()
+	// v0.71: decorate the lock state （锁住后台） from the
+	// settings lock set; the ledger file never stores it.
+	locks := webAppLockSet()
+	for i := range list {
+		list[i].Locked = winURLLocked(locks, list[i].URL)
+	}
+	writeJSON(w, webAppsResponse{Apps: list})
 }
 
 func webAppSaveHandler(w http.ResponseWriter, r *http.Request) {
@@ -1544,6 +1589,12 @@ func startServicesOnce() {
 	servicesOnce.Do(func() {
 		monInit()
 		ocAutoStartInit()
+		// v0.71 blocks 2 + 5: the resident engine's boot
+		// stamp and the version-change record both start
+		// when services come up (at an unlocked boot, or
+		// right after the vault opens).
+		residentInit()
+		noteVersionAtStartup()
 		startExtPatrol()
 		startShellWatcher()
 		// v0.45: the immersion startup sweep runs before any
@@ -2002,6 +2053,8 @@ func runServer(portFlag int, isDaemon bool) {
 	mux.HandleFunc("/api/webapps/probe", webAppProbeHandler)
 	mux.HandleFunc("/api/webapps/pin", webAppPinHandler)
 	mux.HandleFunc("/api/webapps/icon", webAppIconHandler)
+	// v0.71 block 2: 锁住后台 lock flips (resident.go).
+	mux.HandleFunc("/api/webapps/lock", webAppLockHandler)
 	mux.HandleFunc("/api/taskmgr", taskMgrHandler)
 	mux.HandleFunc("/api/taskmgr/kill", taskMgrKillHandler)
 	mux.HandleFunc("/api/taskmgr/restart", taskMgrRestartHandler)
@@ -2053,6 +2106,12 @@ func runServer(portFlag int, isDaemon bool) {
 	mux.HandleFunc("/api/update/check", updateCheckHandler)
 	mux.HandleFunc("/api/update/download", updateDownloadHandler)
 	mux.HandleFunc("/api/update/apply", updateApplyHandler)
+	// v0.71 block 3: in-app changelog (changelog.go); block 5:
+	// post-update browser-restart hint (updaterestart.go).
+	mux.HandleFunc("/api/changelog", changelogHandler)
+	mux.HandleFunc("/api/update/restart-hint", restartHintHandler)
+	mux.HandleFunc("/api/update/restart-hint/dismiss", restartHintDismissHandler)
+	mux.HandleFunc("/api/update/restart-hint/restart", restartHintRestartHandler)
 	mux.HandleFunc("/api/accel", accelHandler)
 	mux.HandleFunc("/api/settings", settingsHandler)
 	mux.HandleFunc("/api/storage/usage", storageUsageHandler)

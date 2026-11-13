@@ -16,7 +16,7 @@ import { renderDesk } from './desktop';
    reports "fresh" (no settings file yet), the old local values are
    migrated up once and the local copies dropped. */
 export let SETTINGS=null;
-export const SETDEF={wallpaper:'tahoe',wallpaperFit:'fill',pdfZoom:'fit-width',imgZoom:'fit',uiScale:'100',stageManager:false,idleExitMinutes:30,phoneMode:true,phoneTriggerWidth:1200,phoneWidth:400,chromeCacheMB:200,stageAutoClaimBrowser:true,filesOnDesktop:true,remoteEnabled:false,winPlaceOnClaim:true,winHideOnMinimize:true,winCloseToTray:true,immersiveMode:false,desktopFullscreen:false,dockPosition:'bottom',dockAutoHide:false,dockIconSize:52,cc_show_immersive:true,cc_show_stage:true,cc_show_fullscreen:true,cc_show_dockhide:true,cc_show_remote:true,cc_show_wallpaper:true,notify_allow_sandbox:true,notify_allow_update:true,notify_allow_servermon:true,notify_allow_node:true,notify_allow_remote:true,notify_allow_files:true,notify_allow_web:true,notify_banner_sandbox:true,notify_banner_update:true,notify_banner_servermon:true,notify_banner_node:true,notify_banner_remote:true,notify_banner_files:true,notify_banner_web:true,nc_widgets:'[{"id":"calendar","show":true},{"id":"server","show":true},{"id":"node","show":true}]',exitClosesApps:true,updateBeta:false,nodeStartMode:'last',nodeSubAuto:true,nodeSubIntervalMin:360,nodeTestURL:'http://www.gstatic.com/generate_204',nodeTestTimeoutMs:5000,nodeClashAPI:true,summonHotkey:'F8',defaultOfficeSuite:'onlyoffice',stageDisplay:'preview',deskIconSize:54,deskSort:'manual',taskmgrBar:true,pwaSweep:true};
+export const SETDEF={wallpaper:'tahoe',wallpaperFit:'fill',pdfZoom:'fit-width',imgZoom:'fit',uiScale:'100',stageManager:false,idleExitMinutes:30,phoneMode:true,phoneTriggerWidth:1200,phoneWidth:400,chromeCacheMB:200,stageAutoClaimBrowser:true,filesOnDesktop:true,remoteEnabled:false,winPlaceOnClaim:true,winHideOnMinimize:true,winCloseToTray:true,immersiveMode:false,desktopFullscreen:false,dockPosition:'bottom',dockAutoHide:false,dockIconSize:52,cc_show_immersive:true,cc_show_stage:true,cc_show_fullscreen:true,cc_show_dockhide:true,cc_show_remote:true,cc_show_wallpaper:true,notify_allow_sandbox:true,notify_allow_update:true,notify_allow_servermon:true,notify_allow_node:true,notify_allow_remote:true,notify_allow_files:true,notify_allow_web:true,notify_banner_sandbox:true,notify_banner_update:true,notify_banner_servermon:true,notify_banner_node:true,notify_banner_remote:true,notify_banner_files:true,notify_banner_web:true,nc_widgets:'[{"id":"calendar","show":true},{"id":"server","show":true},{"id":"node","show":true}]',exitClosesApps:true,updateBeta:false,nodeStartMode:'last',nodeSubAuto:true,nodeSubIntervalMin:360,nodeTestURL:'http://www.gstatic.com/generate_204',nodeTestTimeoutMs:5000,nodeClashAPI:true,summonHotkey:'F8',defaultOfficeSuite:'onlyoffice',stageDisplay:'preview',deskIconSize:54,deskSort:'manual',taskmgrBar:true,pwaSweep:true,deskIconsHidden:false,deskDblClickHide:true};
 export function wallKey(){ if(SETTINGS) return SETTINGS.wallpaper||'tahoe'; return localStorage.getItem('mj-wall')||'tahoe' }
 /* v0.63: the custom wallpaper's fit mode (settings key
    wallpaperFit), normalized by the pure wpFitKey -- an unset
@@ -47,6 +47,13 @@ export function uiScalePct(){ return uiScaleKey(SETTINGS?SETTINGS.uiScale:null) 
    over daemon settings (same pattern as the wallpaper). */
 export function dockPos(){ const p=SETTINGS&&SETTINGS.dockPosition; return (p==='left'||p==='right')?p:'bottom' }
 export function dockAutoHideOn(){ return !!(SETTINGS&&SETTINGS.dockAutoHide) }
+/* v0.71 block 4: desktop icon visibility -- the persisted
+   hidden state and the double-click gesture's own switch
+   (settings keys deskIconsHidden / deskDblClickHide). The
+   render path (desktop.ts) and the gesture/menu path
+   (ctxmenu.ts) both read through these two helpers. */
+export function deskIconsHidden(){ return !!(SETTINGS&&SETTINGS.deskIconsHidden) }
+export function deskDblClickHide(){ return !SETTINGS||SETTINGS.deskDblClickHide!==false }
 export function saveSetting(patch){
  if(SETTINGS) Object.assign(SETTINGS,patch);
  return api('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(patch)})

@@ -161,6 +161,42 @@ type webAppProbeResponse struct {
 	URL    string `json:"url"`
 }
 
+// webAppLockResponse is POST /api/webapps/lock (v0.71 block
+// 2): the flipped app's new state plus the full sorted lock
+// set, so either surface (Stage menu, Settings) can re-render
+// without a second fetch.
+type webAppLockResponse struct {
+	OK     bool     `json:"ok"`
+	URL    string   `json:"url"`
+	Locked bool     `json:"locked"`
+	Locks  []string `json:"locks"`
+}
+
+// changelogEntry is one release's notes in the in-app
+// changelog (v0.71 block 3, changelog.go): user-facing lines
+// only -- the wording rules live in assets/changelog.json.
+type changelogEntry struct {
+	Version string   `json:"version"`
+	Date    string   `json:"date"`
+	Notes   []string `json:"notes"`
+}
+
+// changelogResponse is GET /api/changelog: the running
+// version plus every recorded entry, newest first.
+type changelogResponse struct {
+	Current string           `json:"current"`
+	Entries []changelogEntry `json:"entries"`
+}
+
+// restartHintResponse is GET /api/update/restart-hint
+// (v0.71 block 5, updaterestart.go): whether the desktop
+// should show this version's one-time "restart the browser"
+// hint right now.
+type restartHintResponse struct {
+	Show    bool   `json:"show"`
+	Version string `json:"version"`
+}
+
 // ---------- contract response types ----------
 
 // systemInfo is GET /api/system.
@@ -505,6 +541,9 @@ var apiContractTypes = []contractType{
 	{"ViewCommand", reflect.TypeOf(viewCommand{})},
 	{"TaskMgrResponse", reflect.TypeOf(taskMgrResponse{})},
 	{"WebAppProbeResponse", reflect.TypeOf(webAppProbeResponse{})},
+	{"WebAppLockResponse", reflect.TypeOf(webAppLockResponse{})},
+	{"ChangelogResponse", reflect.TypeOf(changelogResponse{})},
+	{"RestartHintResponse", reflect.TypeOf(restartHintResponse{})},
 }
 
 var rawMessageType = reflect.TypeOf(json.RawMessage{})

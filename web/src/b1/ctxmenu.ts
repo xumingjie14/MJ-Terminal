@@ -4,7 +4,7 @@
    script scope. */
 import { api, esc } from './core';
 import { glyph } from './glyphs';
-import { deskIconSize } from './settings';
+import { deskDblClickHide, deskIconSize, deskIconsHidden, saveSetting } from './settings';
 import { openApp } from './windows';
 import { FFSTATE } from './session';
 import { LAYOUT, WEBAPPS, deskSortMode, entryMeta, folderById, folderItems, recOpen, saveLayout, setDeskIconSize, setDeskSort, suppressClickUntil, __bind_WEBAPPS, __bind_suppressClickUntil } from './entries';
@@ -57,6 +57,7 @@ export function showCtx(x,y){
   {sep:true},
   {label:'图标大小',icon:'size',sub:sizes},
   {label:'排序方式',icon:'sort',sub:sorts},
+  {act:'deskicons',label:deskIconsHidden()?'显示桌面图标':'隐藏桌面图标',icon:deskIconsHidden()?'grid':'eyeoff'},
   {sep:true},
   {act:'rf',label:'刷新',icon:'refresh'},
   {act:'ps',label:'个性化',icon:'palette'},
@@ -64,11 +65,21 @@ export function showCtx(x,y){
   if(act==='nf') newFolder(x,y);
   else if(act==='addapp') openAddApp();
   else if(act==='imp') document.getElementById('deskimp').click();
+  else if(act==='deskicons') toggleDeskIcons();
   else if(act==='rf') location.reload();
   else if(act==='ps') openApp('sys');
   else if(act==='size') setDeskIconSize(+arg);
   else if(act==='sort') setDeskSort(arg);
  });
+}
+/* v0.71 block 4: flip desktop icon visibility (the state is
+   a daemon setting, so it survives restarts and every surface
+   -- this menu, the double-click gesture, 设置 → 桌面与 Dock
+   -- flips the same key). */
+export async function toggleDeskIcons(){
+ const r=await saveSetting({deskIconsHidden:!deskIconsHidden()});
+ if(r&&r.error){ toast('保存失败：'+r.error); return; }
+ renderDesk();
 }
 /* Per-item menu content by entry kind + state (item 5). Web
    apps: 打开 / 重命名…（test2 item 6: display name only, the
@@ -199,6 +210,23 @@ export function newFolder(x,y){
 document.addEventListener('contextmenu',ev=>{
  if(ev.target.closest('.win')||ev.target.closest('#dockwrap')||ev.target.closest('#menubar')||ev.target.closest('#folderpop')||ev.target.closest('#ctxmenu')||ev.target.closest('#launchpad')||ev.target.closest('#spotlight')||ev.target.closest('#mbdrop')||ev.target.closest('#extstrip')) return;
  ev.preventDefault(); showCtx(ev.clientX,ev.clientY);
+});
+/* v0.71 block 4: double-click on TRULY empty desktop toggles
+   icon visibility. Strict by construction: the settings
+   switch must be on, nothing interactive may be under the
+   pointer (icons open on double-click; windows, Dock, menu
+   bar, strip and every overlay are excluded), and the event
+   target must be the desktop root layer itself -- the
+   wallpaper layer, the icons container's empty area, or the
+   body. Both clicks of a dblclick share one target, so one
+   check covers the pair. */
+document.addEventListener('dblclick',ev=>{
+ if(!deskDblClickHide()) return;
+ const t: any=ev.target;
+ if(!t||typeof t.closest!=='function') return;
+ if(t.closest('.icon,.win,#dockwrap,#menubar,#extstrip,#folderpop,#ctxmenu,#launchpad,#spotlight,#mbdrop')) return;
+ if(!(t===document.body||t.id==='wall'||t.id==='icons')) return;
+ toggleDeskIcons();
 });
 document.addEventListener('dragstart',ev=>{
  if(ev.target.closest&&ev.target.closest('.icon,.fp-item')) ev.preventDefault();

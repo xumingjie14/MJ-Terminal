@@ -110,6 +110,8 @@ var featureRegistry = []feature{
 			lr("/api/apps"), lr("/api/apps/save"), lr("/api/appopen"),
 			// v0.69 block 2: MJ-native add-app flows (addapp.go)
 			lr("/api/webapps/probe"), lr("/api/webapps/pin"), lr("/api/webapps/icon"),
+			// v0.71 block 2: 锁住后台 lock flips (resident.go)
+			lr("/api/webapps/lock"),
 			lr("/api/browser"), lr("/api/wallpaper"),
 			lr("/api/wallpaper/fromfile"),
 			lr("/api/appicon/"), lr("/api/chrome/icon"),
@@ -122,6 +124,8 @@ var featureRegistry = []feature{
 			"dockPosition", "dockAutoHide", "dockIconSize",
 			"cc_show_wallpaper", "cc_show_dockhide", "nc_widgets",
 			"chromeCacheMB", "pwaSweep",
+			// v0.71 block 4: desktop icon visibility pair
+			"deskIconsHidden", "deskDblClickHide",
 		},
 	},
 	{
@@ -353,6 +357,13 @@ var featureRegistry = []feature{
 			lrr("POST", "/api/update/check"),
 			lrr("POST", "/api/update/download"),
 			lrr("POST", "/api/update/apply"),
+			// v0.71 block 3: the in-app changelog (changelog.go)
+			lr("/api/changelog"),
+			// v0.71 block 5: post-update browser-restart hint
+			// (updaterestart.go) -- local only.
+			lr("/api/update/restart-hint"),
+			lr("/api/update/restart-hint/dismiss"),
+			lr("/api/update/restart-hint/restart"),
 		},
 		Settings: []string{"updateBeta"},
 	},

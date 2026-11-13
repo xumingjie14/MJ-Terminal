@@ -165,7 +165,7 @@ func webNotifyLaunchCheck(since time.Time, browserName string) {
 		last := webNotifyBridge.lastPing
 		webNotifyBridge.Unlock()
 		if last.Before(since) {
-			logf("notify", "warn", "网页通知桥未见连接：隔离浏览器可能没有加载桥扩展（本次浏览器：%s；已在运行的浏览器要完全退出再打开才加载；新版 Google Chrome 可能忽略 --load-extension，Edge / Chromium 不受影响）——网页通知暂时进不了通知中心", browserName)
+			logf("notify", "warn", "网页通知桥未见连接：隔离浏览器没有加载桥扩展（本次浏览器：%s；已在运行的浏览器要完全退出再打开才加载；装入过程的成败与原因见上方桥加载日志）——网页通知暂时进不了通知中心", browserName)
 		}
 	}()
 }

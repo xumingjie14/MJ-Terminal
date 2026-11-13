@@ -3,7 +3,7 @@
    from -- the same names the pre-modular page shared through one
    script scope. */
 import { APPS, iconsEl } from './core';
-import { SETTINGS, deskPitch, deskRenderedOnce, __bind_deskRenderedOnce } from './settings';
+import { SETTINGS, deskIconsHidden, deskPitch, deskRenderedOnce, __bind_deskRenderedOnce } from './settings';
 import { appIcon, openApp } from './windows';
 import { LAYOUT, WEBAPPS, deskSortMode, folderIconHTML, folderItems, folderedKeys, mkDeskIcon, saveLayout, sortedDeskOrder, stampAdded, webIconHTML } from './entries';
 import { anyOverlapPos, cellPosFor, dragBaseCX, dragInsertIndex, dragState, effPosFor, orderFromPositions } from './drag';
@@ -161,6 +161,15 @@ export function deskAssertNoOverlap(tag){
  if(bad.length) console.error('[mj-desk] icon overlap self-check failed ('+tag+'): '+bad.join('; '));
 }
 export function renderDesk(){
+ /* v0.71 block 4: icons hidden （双击空白处 / 右键菜单 /
+    设置） -- paint nothing and, importantly, touch nothing:
+    DESKORDER and the layout survive verbatim so unhiding
+    restores the exact arrangement. */
+ if(deskIconsHidden()){
+  iconsEl.innerHTML='';
+  __bind_deskRenderedOnce.set(true);
+  return;
+ }
  /* v0.55: the paint chain degrades, never blanks. Per-entry build
     failures are already contained by safeDeskEntry; if collecting
     or reconciling still fails wholesale, log it and paint what we

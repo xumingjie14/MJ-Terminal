@@ -95,6 +95,11 @@ export function showExtCtx(x,y,hwnd){
     the suites pin and whose fallthrough is 'close'). */
  const card=extCards.get(hwnd);
  if(card&&card.win&&card.win.appwindow&&card.win.url) items.push({act:'pin',label:'固定为桌面应用',icon:'pin'});
+ /* v0.71 block 2: 锁住后台 -- the same app-window condition.
+    The label flips with the daemon-reported lock state; the
+    toggle posts the URL (the ledger identity) to
+    /api/webapps/lock, also handled outside extCtxEndpoint. */
+ if(card&&card.win&&card.win.appwindow&&card.win.url) items.push({act:'lockbg',label:card.win.locked?'取消锁住后台':'锁住后台',icon:'lock'});
  items.push({act:'close',label:'关闭窗口',icon:'closex',danger:true});
  ctxOpen(x,y,items,async act=>{
   if(act==='pin'){
@@ -102,6 +107,17 @@ export function showExtCtx(x,y,hwnd){
    if(r&&r.error){ toast(r.error); return; }
    await loadWebApps(); renderDesk();
    toast('已固定为桌面应用');
+   return;
+  }
+  if(act==='lockbg'){
+   const c2=extCards.get(hwnd);
+   const url=c2&&c2.win&&c2.win.url;
+   if(!url){ toast('这个窗口已经关掉了'); return; }
+   const on=!(c2.win.locked);
+   const r=await api('/api/webapps/lock',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url,on})}).catch(()=>null);
+   if(!r||r.error){ toast((r&&r.error)||'设置失败'); return; }
+   toast(on?'已锁住后台：会常驻一个浏览器窗口在后台运行，关掉窗口也会自动重新打开，通知不会断':'已取消锁住后台：之后关窗即真关');
+   setTimeout(refreshExtStrip,350);
    return;
   }
   await api('/api/extwin/'+extCtxEndpoint(act),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hwnd})}).catch(()=>null);

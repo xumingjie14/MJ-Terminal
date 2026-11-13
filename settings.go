@@ -257,6 +257,34 @@ type mjSettings struct {
 	// order on every render; any manual drag flips it back to
 	// "manual" (the sort never fights the user for an icon).
 	DeskSort string `json:"deskSort"`
+	// v0.71 block 4: desktop icon visibility. DeskIconsHidden
+	// is the persisted state (double-click on empty desktop,
+	// the desktop right-click menu and 设置 → 桌面与 Dock all
+	// flip the same key; a restart keeps the state).
+	// DeskDblClickHide is the gesture's own switch, default
+	// ON: off = double-clicking the empty desktop does
+	// nothing, the menu item still works.
+	DeskIconsHidden  bool `json:"deskIconsHidden"`
+	DeskDblClickHide bool `json:"deskDblClickHide"`
+	// v0.71 block 2: 锁住后台 (resident web apps) -- the set
+	// of WEBAPPS ledger URLs (the ledger's identity IS the
+	// URL) the user has locked into the background, stored as
+	// url -> true; absent/false = not locked. Written only
+	// through /api/webapps/lock (resident.go), never through
+	// the settings POST whitelist, and kept off the settings
+	// wire map (settingsMap deletes it; lock state rides
+	// /api/apps and /api/extwin instead).
+	WebAppLocks map[string]bool `json:"webAppLocks,omitempty" mjapi:"-"`
+	// v0.71 block 5: version marks for the post-update
+	// browser-restart hint (updaterestart.go). LastVersion is
+	// the AppVersion the previous daemon run recorded;
+	// UpdateNagVersion is the version whose restart hint the
+	// user has already seen and dismissed (or acted on) --
+	// the hint shows at most once per version. Both are
+	// daemon-internal: never in the POST whitelist, never on
+	// the settings wire map.
+	LastVersion      string `json:"lastVersion" mjapi:"-"`
+	UpdateNagVersion string `json:"updateNagVersion" mjapi:"-"`
 }
 
 func defaultSettings() mjSettings {
@@ -318,6 +346,7 @@ func defaultSettings() mjSettings {
 		StageDisplay:          "preview",
 		DeskIconSize:          54,
 		DeskSort:              "manual",
+		DeskDblClickHide:      true,
 	}
 }
 
@@ -429,6 +458,10 @@ func boolSettingPtr(s *mjSettings, key string) *bool {
 		return &s.PWASweep
 	case "taskmgrBar":
 		return &s.TaskmgrBar
+	case "deskIconsHidden":
+		return &s.DeskIconsHidden
+	case "deskDblClickHide":
+		return &s.DeskDblClickHide
 	}
 	return nil
 }
@@ -672,6 +705,10 @@ func sanitizeSettings(s mjSettings) mjSettings {
 	// arbitrary keys into the store). Valid entries pass through.
 	s.NotifyAllowApp = pruneNotifyAppMap(s.NotifyAllowApp)
 	s.NotifyBannerApp = pruneNotifyAppMap(s.NotifyBannerApp)
+	// v0.71 block 2: same pruning for the resident-app lock
+	// set -- only well-formed http(s) URLs with a true value
+	// survive (resident.go owns the rule).
+	s.WebAppLocks = pruneWebAppLocks(s.WebAppLocks)
 	return s
 }
 
@@ -747,6 +784,12 @@ func settingsMap() map[string]any {
 	// this map before the contract refactor either.
 	delete(out, "notify_allow_app")
 	delete(out, "notify_banner_app")
+	// v0.71: the resident lock set and the version marks are
+	// daemon-internal (see the field comments on mjSettings);
+	// lock state rides /api/apps and /api/extwin instead.
+	delete(out, "webAppLocks")
+	delete(out, "lastVersion")
+	delete(out, "updateNagVersion")
 	// v0.54: per-app notification switches are emitted flattened
 	// (notify_allow_app_<id>: bool) for the entries the user has
 	// explicitly set; an absent key reads as the default (on) on
@@ -1080,7 +1123,10 @@ func settingsHandler(w http.ResponseWriter, r *http.Request) {
 				// not persist; they ride the same branch now.
 				// Plus this version's own two switches.
 				"notify_allow_web", "notify_banner_web",
-				"pwaSweep", "taskmgrBar":
+				"pwaSweep", "taskmgrBar",
+				// v0.71 block 4: the desktop icon visibility
+				// pair (desktop feature).
+				"deskIconsHidden", "deskDblClickHide":
 				// v0.47 boolean families, resolved through the
 				// boolSettingPtr whitelist.
 				var v bool

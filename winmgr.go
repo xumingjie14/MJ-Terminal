@@ -72,6 +72,12 @@ type extWindow struct {
 	// (site geometry key) or a window whose launch URL is a
 	// WEBAPPS entry. Computed on the copy in extWinListHandler.
 	AppWindow bool `json:"appwindow,omitempty"`
+	// v0.71: Locked marks a window whose URL the user has
+	// locked into the background （锁住后台， resident.go):
+	// closing it relaunches it hidden instead of closing for
+	// real. Computed on the copy in extWinListHandler from the
+	// settings lock set.
+	Locked bool `json:"locked,omitempty"`
 
 	pid       uint32
 	lastTitle string // title at last AppID stamp; a change triggers a re-stamp
@@ -939,9 +945,13 @@ func extWinListHandler(w http.ResponseWriter, r *http.Request) {
 	// highlight follows the user as they move between the host and
 	// the terminal.
 	fgNow := platformForegroundHWND()
+	lockSet := webAppLockSet()
 	for _, cp := range list {
 		cp.Active = fgNow != 0 && cp.HWND == fgNow
 		cp.Minimized = platformWindowIconic(cp.HWND)
+		// v0.71: 锁住后台 state for the Stage card menu
+		// (resident.go owns the set; identity is the URL).
+		cp.Locked = winURLLocked(lockSet, cp.URL)
 		// v0.56: identity facts for the strip (see the field
 		// comments on extWindow).
 		cp.Browser = cp.browser
@@ -1258,6 +1268,12 @@ func patrolTick() {
 	// this cadence (two lockfile stats per tick, no loop of
 	// its own) -- see containment.go watchBrowserProfileExits.
 	watchBrowserProfileExits()
+	// v0.71 block 2: the 锁住后台 engine rides the same
+	// cadence (resident.go) -- it reads its own snapshot of
+	// the registry, so it runs before the prune below has
+	// settled this tick's view; its disappearance rule needs
+	// several ticks anyway, so the lag is immaterial.
+	residentTick()
 	// Prune + housekeeping first (same as the list handler does on
 	// poll): dead registrations disappear even when the desktop
 	// view is closed.

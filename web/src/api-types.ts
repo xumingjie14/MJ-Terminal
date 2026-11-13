@@ -24,6 +24,17 @@ export interface BusEvent {
   ts: number;
 }
 
+export interface ChangelogEntry {
+  version: string;
+  date: string;
+  notes: string[];
+}
+
+export interface ChangelogResponse {
+  current: string;
+  entries: ChangelogEntry[];
+}
+
 export interface CompStatusRow {
   id: string;
   name: string;
@@ -69,6 +80,7 @@ export interface ExtWindow {
   browser?: boolean;
   icon?: string;
   appwindow?: boolean;
+  locked?: boolean;
 }
 
 export interface FFStatusResponse {
@@ -234,6 +246,8 @@ export interface MjSettings {
   stageDisplay: string;
   deskIconSize: number;
   deskSort: string;
+  deskIconsHidden: boolean;
+  deskDblClickHide: boolean;
 }
 
 export interface NotifyEvent {
@@ -278,6 +292,11 @@ export interface NotifyWidgets {
 
 export interface OkResponse {
   ok: boolean;
+}
+
+export interface RestartHintResponse {
+  show: boolean;
+  version: string;
 }
 
 export interface SettingsResponse {
@@ -339,6 +358,8 @@ export interface SettingsResponse {
   stageDisplay: string;
   deskIconSize: number;
   deskSort: string;
+  deskIconsHidden: boolean;
+  deskDblClickHide: boolean;
   fresh: boolean;
 }
 
@@ -455,6 +476,14 @@ export interface WebApp {
   url: string;
   winmode?: string;
   icon?: string;
+  locked?: boolean;
+}
+
+export interface WebAppLockResponse {
+  ok: boolean;
+  url: string;
+  locked: boolean;
+  locks: string[];
 }
 
 export interface WebAppProbeResponse {
