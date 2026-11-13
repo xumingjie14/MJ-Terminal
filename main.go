@@ -1056,6 +1056,11 @@ func launchIsolatedBrowser(proxy bool, target string, appMode bool) error {
 	// instance, so the started process is not the window's owner).
 	before := platformSnapshotWindows(browser)
 	launchAt := time.Now()
+	// v0.71 review fix: whether this launch starts a fresh
+	// browser process or hands off to a running one decides
+	// how the bridge liveness check below may judge silence
+	// (webnotify.go webNotifyShouldWarn).
+	handoff := isolatedChromeRunning()
 	browserCmd := exec.Command(browser, args...)
 	if bridgePipe != nil {
 		// The pipe ends become the child's fd 3 (commands in)
@@ -1079,10 +1084,10 @@ func launchIsolatedBrowser(proxy bool, target string, appMode bool) error {
 		}
 		go bridgeLoadViaCDP(bridgePipe, extDir, filepath.Base(browser))
 	}
-	// v0.68: if the bridge never pings after this launch, the
+	// v0.68: if the bridge never reports after this launch, the
 	// console hears about it once (webnotify.go has the rules).
 	if extDir != "" {
-		webNotifyLaunchCheck(launchAt, filepath.Base(browser))
+		webNotifyLaunchCheck(launchAt, filepath.Base(browser), handoff)
 	}
 	noteSpawnedProcess(uint32(browserCmd.Process.Pid), "隔离浏览器")
 	// v0.69 block 3: sweep host Start Menu / Desktop shortcuts

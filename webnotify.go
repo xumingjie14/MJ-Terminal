@@ -54,8 +54,13 @@ package main
 //     recent versions (Google has been retiring the switch in
 //     favour of Chrome for Testing); Edge and Chromium still
 //     honour it. The ping below is the diagnostic: if a launch
-//     is not followed by a bridge ping, noteWebNotifyLaunchCheck
-//     says so in the console instead of failing silently.
+//     is not followed by bridge evidence, noteWebNotifyLaunchCheck
+//     says so in the console instead of failing silently. The
+//     evidence standard matches how the ping really fires --
+//     the service worker pings when it (re)starts, never on a
+//     timer -- so a handoff launch into an already-running
+//     browser is judged by whether the bridge reported during
+//     the current browser generation, not since the launch.
 
 import (
 	"embed"
@@ -146,16 +151,72 @@ var webNotifyBridge = struct {
 	lastPing time.Time
 }{}
 
+// webNotifyGen tracks the isolated browser's current process
+// generation as this daemon observes it (the ChromeProfile
+// lockfile, folded in once per patrol tick by the containment
+// watchdog): start is when the live generation was first seen
+// running. A daemon that boots under an already-running
+// browser stamps its first observation -- pings this daemon
+// has ever received are all younger than that anyway.
+var webNotifyGen = struct {
+	sync.Mutex
+	start time.Time
+	seen  bool
+}{}
+
+// webNotifyNoteBrowserPresence folds one lockfile observation
+// into the generation tracker (containment.go's tick calls
+// it with the same observation the exit watchdog consumes).
+func webNotifyNoteBrowserPresence(present bool) {
+	webNotifyGen.Lock()
+	defer webNotifyGen.Unlock()
+	if present {
+		if !webNotifyGen.seen {
+			webNotifyGen.seen = true
+			webNotifyGen.start = time.Now()
+		}
+	} else {
+		webNotifyGen.seen = false
+	}
+}
+
+func webNotifyGenerationStart() time.Time {
+	webNotifyGen.Lock()
+	defer webNotifyGen.Unlock()
+	return webNotifyGen.start
+}
+
+// webNotifyShouldWarn is the launch check's verdict, kept
+// pure. The bridge's ping fires when its service worker
+// (re)starts -- browser start, extension install, an MV3
+// restart -- never on a timer, and a launch that hands off
+// to an already-running browser restarts nothing at all. So
+// the two launch shapes are judged by different evidence:
+//   - cold launch (the browser was NOT running): the new
+//     process's bridge must report after the launch (lastPing
+//     at or past since); silence means the load failed.
+//   - handoff launch: a report from the CURRENT browser
+//     generation is proof the bridge lives in the running
+//     browser, whenever in that generation it arrived; only
+//     a generation with no report at all warns.
+func webNotifyShouldWarn(handoff bool, lastPing, genStart, since time.Time) bool {
+	if !handoff {
+		return lastPing.Before(since)
+	}
+	if genStart.IsZero() {
+		return lastPing.IsZero()
+	}
+	return lastPing.Before(genStart)
+}
+
 // webNotifyLaunchCheck runs after an isolated-Chrome launch:
-// if the bridge has not pinged since just before the launch,
-// the extension almost certainly did not load (most often a
-// branded-Chrome build ignoring --load-extension, or a browser
-// session that was already running and never restarted). One
-// warn line in the console instead of a silent no-op; the line
-// names the browser executable that was launched (v0.69-test3)
-// so the next field round can tell at a glance WHICH browser
-// ignored the flag.
-func webNotifyLaunchCheck(since time.Time, browserName string) {
+// if the bridge shows no sign of life under the standard
+// above, the console hears about it once, with a text that
+// matches the launch shape instead of always blaming the
+// load. The line names the browser executable that was
+// launched (v0.69-test3) so the next field round can tell at
+// a glance WHICH browser ignored the flag.
+func webNotifyLaunchCheck(since time.Time, browserName string, handoff bool) {
 	if !notifyAllowed(settingsGet(), notifySrcWeb) {
 		return // bridge intentionally off: silence is correct
 	}
@@ -164,8 +225,13 @@ func webNotifyLaunchCheck(since time.Time, browserName string) {
 		webNotifyBridge.Lock()
 		last := webNotifyBridge.lastPing
 		webNotifyBridge.Unlock()
-		if last.Before(since) {
-			logf("notify", "warn", "网页通知桥未见连接：隔离浏览器没有加载桥扩展（本次浏览器：%s；已在运行的浏览器要完全退出再打开才加载；装入过程的成败与原因见上方桥加载日志）——网页通知暂时进不了通知中心", browserName)
+		if !webNotifyShouldWarn(handoff, last, webNotifyGenerationStart(), since) {
+			return
+		}
+		if handoff {
+			logf("notify", "warn", "网页通知桥未见连接：浏览器在本次打开前已在运行，且桥在当前浏览器会话内从未报到（本次浏览器：%s）——桥可能没有加载，也可能浏览器会话早于本次终端机启动、桥还没向本次会话报到；完全退出浏览器再打开可让桥重新加载——网页通知暂时进不了通知中心", browserName)
+		} else {
+			logf("notify", "warn", "网页通知桥未见连接：浏览器启动后桥没有报到，桥扩展可能没有加载（本次浏览器：%s；装入过程的成败与原因见上方桥加载日志）——网页通知暂时进不了通知中心", browserName)
 		}
 	}()
 }

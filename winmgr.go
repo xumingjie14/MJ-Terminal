@@ -946,12 +946,24 @@ func extWinListHandler(w http.ResponseWriter, r *http.Request) {
 	// the terminal.
 	fgNow := platformForegroundHWND()
 	lockSet := webAppLockSet()
+	lockNames := residentNameIndex(lockSet)
 	for _, cp := range list {
 		cp.Active = fgNow != 0 && cp.HWND == fgNow
 		cp.Minimized = platformWindowIconic(cp.HWND)
 		// v0.71: 锁住后台 state for the Stage card menu
 		// (resident.go owns the set; identity is the URL).
-		cp.Locked = winURLLocked(lockSet, cp.URL)
+		// v0.71 review fix: a patrol-claimed window carries no
+		// URL (daemon restarted under a running browser) -- it
+		// aligns to its locked app through residentWindowLockURL
+		// and inherits the lock key as its URL on this copy, so
+		// the card shows the lock state and the menu's
+		// 取消锁住后台 entry can post the unlock.
+		if key := residentWindowLockURL(cp, lockSet, lockNames); key != "" {
+			cp.Locked = true
+			if cp.URL == "" {
+				cp.URL = key
+			}
+		}
 		// v0.56: identity facts for the strip (see the field
 		// comments on extWindow).
 		cp.Browser = cp.browser

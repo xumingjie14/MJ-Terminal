@@ -250,3 +250,71 @@ func TestWebNotifyRelease(t *testing.T) {
 		t.Fatalf("empty base must fail the release, got %q", got)
 	}
 }
+
+// v0.71 review fix （发现 2): the launch check's verdict must
+// match how the ping really fires -- the service worker pings
+// when it (re)starts, never on a timer, and a handoff launch
+// restarts nothing. The old "no ping since THIS launch"
+// standard warned on every handoff into a healthy browser.
+func TestWebNotifyShouldWarn(t *testing.T) {
+	t0 := time.Unix(1_700_000_000, 0)
+	gen := t0 // current browser generation first seen
+	launch := t0.Add(10 * time.Minute)
+	pingInGen := t0.Add(time.Minute)    // bridge reported inside this generation
+	pingBeforeGen := t0.Add(-time.Hour) // a previous generation's report
+	pingAfterLaunch := launch.Add(5 * time.Second)
+	zero := time.Time{}
+	cases := []struct {
+		name     string
+		handoff  bool
+		lastPing time.Time
+		genStart time.Time
+		since    time.Time
+		want     bool
+	}{
+		{"cold, bridge reported after launch", false, pingAfterLaunch, gen, launch, false},
+		{"cold, only an old generation's report", false, pingBeforeGen, gen, launch, true},
+		{"cold, never reported", false, zero, gen, launch, true},
+		{"handoff, bridge reported in this generation", true, pingInGen, gen, launch, false},
+		{"handoff, report only from a previous generation", true, pingBeforeGen, gen, launch, true},
+		{"handoff, never reported", true, zero, gen, launch, true},
+		{"handoff, generation unknown, reported once", true, pingInGen, zero, launch, false},
+		{"handoff, generation unknown, never reported", true, zero, zero, launch, true},
+	}
+	for _, c := range cases {
+		if got := webNotifyShouldWarn(c.handoff, c.lastPing, c.genStart, c.since); got != c.want {
+			t.Errorf("%s: webNotifyShouldWarn = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// The generation tracker stamps a generation's start on the
+// rising edge only: steady presence must not move it (every
+// launch in the generation is judged against the same start),
+// and a full exit ends the generation so the next rise
+// re-stamps.
+func TestWebNotifyGenerationTracker(t *testing.T) {
+	webNotifyGen.Lock()
+	webNotifyGen.start = time.Time{}
+	webNotifyGen.seen = false
+	webNotifyGen.Unlock()
+
+	webNotifyNoteBrowserPresence(false)
+	if got := webNotifyGenerationStart(); !got.IsZero() {
+		t.Fatalf("no browser observed: start = %v, want zero", got)
+	}
+	webNotifyNoteBrowserPresence(true)
+	first := webNotifyGenerationStart()
+	if first.IsZero() {
+		t.Fatal("rising edge must stamp the generation start")
+	}
+	webNotifyNoteBrowserPresence(true)
+	if got := webNotifyGenerationStart(); !got.Equal(first) {
+		t.Fatalf("steady presence moved the start: %v -> %v", first, got)
+	}
+	webNotifyNoteBrowserPresence(false)
+	webNotifyNoteBrowserPresence(true)
+	if got := webNotifyGenerationStart(); got.Before(first) {
+		t.Fatalf("new generation start %v must not precede the old %v", got, first)
+	}
+}

@@ -98,8 +98,13 @@ export function showExtCtx(x,y,hwnd){
  /* v0.71 block 2: 锁住后台 -- the same app-window condition.
     The label flips with the daemon-reported lock state; the
     toggle posts the URL (the ledger identity) to
-    /api/webapps/lock, also handled outside extCtxEndpoint. */
- if(card&&card.win&&card.win.appwindow&&card.win.url) items.push({act:'lockbg',label:card.win.locked?'取消锁住后台':'锁住后台',icon:'lock'});
+    /api/webapps/lock, also handled outside extCtxEndpoint.
+    v0.71 review fix: a patrol-claimed window (daemon restarted
+    under a running browser) has no site geometry key, so it
+    never passes the appwindow test -- but when the daemon has
+    aligned it to a locked app it reports locked=true with the
+    lock URL filled in, and 取消锁住后台 must be reachable. */
+ if(card&&card.win&&card.win.url&&(card.win.appwindow||card.win.locked)) items.push({act:'lockbg',label:card.win.locked?'取消锁住后台':'锁住后台',icon:'lock'});
  items.push({act:'close',label:'关闭窗口',icon:'closex',danger:true});
  ctxOpen(x,y,items,async act=>{
   if(act==='pin'){

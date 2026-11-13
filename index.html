@@ -4372,7 +4372,7 @@ function createEvHub(nowFn) {
     ];
     const card = extCards.get(hwnd);
     if (card && card.win && card.win.appwindow && card.win.url) items.push({ act: "pin", label: "固定为桌面应用", icon: "pin" });
-    if (card && card.win && card.win.appwindow && card.win.url) items.push({ act: "lockbg", label: card.win.locked ? "取消锁住后台" : "锁住后台", icon: "lock" });
+    if (card && card.win && card.win.url && (card.win.appwindow || card.win.locked)) items.push({ act: "lockbg", label: card.win.locked ? "取消锁住后台" : "锁住后台", icon: "lock" });
     items.push({ act: "close", label: "关闭窗口", icon: "closex", danger: true });
     ctxOpen(x, y, items, async (act) => {
       if (act === "pin") {

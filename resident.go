@@ -15,6 +15,15 @@ package main
 //     folder like everything else. It is written ONLY via
 //     POST /api/webapps/lock below (Stage card menu and the
 //     Settings page share it), never via the settings POST.
+//     A window stands for a locked app on one of two rungs
+//     (residentWindowLockURL): its launch URL when it was
+//     registered by a launch, or -- for a window the patrol
+//     claimed after a daemon restart, which carries no URL --
+//     its claim label, the page title the ledger itself
+//     captured as the app's name. Without the second rung a
+//     daemon restart (every in-app update) orphaned every
+//     still-open locked window and the engine relaunched a
+//     hidden duplicate beside it.
 //   - The patrol (winmgr.go patrolTick, 2 s) calls
 //     residentTick: a locked app with no live window is
 //     relaunched in app mode after a disappearance is
@@ -237,15 +246,71 @@ func residentNoteLocked(rawURL string) {
 	residentSt.Unlock()
 }
 
+// residentNameIndex maps each locked app's display name
+// (appNameForURL: the ledger name, else the host) to its lock
+// key. A name shared by two locked apps maps to "" -- the
+// name rung cannot tell those apps apart, so it aligns
+// nothing for them and the URL rung remains their only
+// identity. Computed once per tick / list call.
+func residentNameIndex(locks map[string]bool) map[string]string {
+	idx := make(map[string]string, len(locks))
+	for u := range locks {
+		n := appNameForURL(u)
+		if _, dup := idx[n]; dup {
+			idx[n] = ""
+		} else {
+			idx[n] = u
+		}
+	}
+	return idx
+}
+
+// residentWindowLockURL returns the lock-set key a window
+// stands for, or "" when it stands for no locked app. Two
+// rungs, in order:
+//   - the window's own launch URL, matched under the
+//     ledger's identity rule (launch-registered windows);
+//   - a patrol-claimed browser window carries no URL (the
+//     daemon restarted under a still-running browser), so it
+//     aligns by its claim label: claimLabel stored the page
+//     title with the browser's suffix stripped, and the
+//     ledger's name for the app is that same title captured
+//     at pin time (addapp.go cleanPageTitle). Only an
+//     unambiguous name aligns (see residentNameIndex), and
+//     the generic 浏览器 fallback label never does.
+func residentWindowLockURL(e *extWindow, locks map[string]bool, names map[string]string) string {
+	if e == nil || e.Shell {
+		return ""
+	}
+	if e.URL != "" {
+		for u := range locks {
+			if sameWebAppURL(e.URL, u) {
+				return u
+			}
+		}
+		return ""
+	}
+	if !e.browser || e.App == "" || e.App == "浏览器" {
+		return ""
+	}
+	return names[e.App]
+}
+
 // findResidentWindow picks the live window standing for a
-// locked URL: a registered, non-shell window whose launch
-// URL matches under the ledger's identity rule.
-func findResidentWindow(wins []*extWindow, rawURL string) *extWindow {
+// locked URL. A launch-registered window carrying the URL
+// itself always wins; patrol-claimed windows (no URL) align
+// through residentWindowLockURL's name rung.
+func findResidentWindow(wins []*extWindow, locks map[string]bool, names map[string]string, rawURL string) *extWindow {
 	for _, e := range wins {
 		if e.Shell || e.URL == "" {
 			continue
 		}
 		if sameWebAppURL(e.URL, rawURL) {
+			return e
+		}
+	}
+	for _, e := range wins {
+		if residentWindowLockURL(e, locks, names) == rawURL {
 			return e
 		}
 	}
@@ -284,6 +349,7 @@ func residentTick() {
 	extMu.Unlock()
 
 	now := time.Now()
+	names := residentNameIndex(locks)
 	var launches []string
 	residentSt.Lock()
 	for u := range locks {
@@ -292,7 +358,7 @@ func residentTick() {
 			st = &residentAppState{}
 			residentSt.apps[u] = st
 		}
-		win := findResidentWindow(wins, u)
+		win := findResidentWindow(wins, locks, names, u)
 		if win != nil {
 			st.MissingSince = time.Time{}
 			st.Attempts = 0
@@ -342,7 +408,28 @@ func residentTick() {
 	}
 	residentSt.Unlock()
 	for _, u := range launches {
-		residentLaunch(u)
+		if residentLaunch(u) {
+			continue
+		}
+		// The relaunch failed: no window is coming, so the
+		// hide it armed must not stay pending -- left armed,
+		// it would hide a window the user opens by hand later.
+		residentSt.Lock()
+		if st := residentSt.apps[u]; st != nil {
+			residentNoteLaunchResult(st, false)
+		}
+		residentSt.Unlock()
+		logf("browser", "warn", "锁住后台：%s 重拉失败，已撤销待隐藏标记——之后手动打开该应用不会被误藏", residentName(u))
+	}
+}
+
+// residentNoteLaunchResult folds a relaunch outcome into the
+// book. Success changes nothing (the armed hide is owed by a
+// window that is on its way); failure disarms HidePending,
+// because the hide was owed by a window that never came.
+func residentNoteLaunchResult(st *residentAppState, ok bool) {
+	if !ok {
+		st.HidePending = false
 	}
 }
 
@@ -353,17 +440,21 @@ func residentName(rawURL string) string { return appNameForURL(rawURL) }
 // residentLaunch relaunches one locked app in app mode,
 // through the node when in-app acceleration is on (the same
 // rule openWebAppHandler applies), direct as the fallback.
-func residentLaunch(rawURL string) {
+// It reports whether a launch actually went out: the caller
+// rolls the book back on false (see residentNoteLaunchResult).
+func residentLaunch(rawURL string) bool {
 	if accelEnabled() && len(nodes) > 0 {
 		if err := launchIsolatedBrowser(true, rawURL, true); err == nil {
-			return
+			return true
 		} else {
 			logf("browser", "warn", "锁住后台：%s 走节点重拉失败，降级直连：%v", residentName(rawURL), err)
 		}
 	}
 	if err := launchIsolatedBrowser(false, rawURL, true); err != nil {
 		logf("browser", "error", "锁住后台：%s 重拉失败：%v", residentName(rawURL), err)
+		return false
 	}
+	return true
 }
 
 // ---------- HTTP ----------

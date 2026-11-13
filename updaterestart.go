@@ -33,8 +33,10 @@ package main
 //     landing directories on the way in).
 
 import (
+	"fmt"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"time"
 )
@@ -131,6 +133,42 @@ func restartHintRestartHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, okResponse{OK: true})
 }
 
+// restartOutcome renders the restart's closing log line for
+// its two honest endings, kept pure so the wording is pinned
+// by tests. When the wait timed out, the fresh launch was
+// handed to the still-running session: the browser never
+// fully exited, so the new settings are NOT in effect yet --
+// the line must say so instead of claiming success (v0.71
+// review fix: the timeout branch previously logged the
+// success sentence unconditionally, contradicting its own
+// warn one line above).
+func restartOutcome(handoff bool) (level, msg string) {
+	if handoff {
+		return "warn", "浏览器重启：新进程已交给仍在运行的现有会话——浏览器没有完全退出，新版设置将在浏览器完全退出并重新打开后生效"
+	}
+	return "info", "浏览器重启：已重新打开隔离浏览器，新版设置即刻生效"
+}
+
+// restartWinLabel renders one window for the close log: the
+// app name and its live title, so a window that should not
+// have been asked to close can be identified from the
+// console alone (v0.71 review suggestion: the close path
+// previously logged only a count).
+func restartWinLabel(e *extWindow) string {
+	app := strings.TrimSpace(e.App)
+	title := strings.TrimSpace(e.Title)
+	switch {
+	case app != "" && title != "" && app != title:
+		return app + " · " + title
+	case title != "":
+		return title
+	case app != "":
+		return app
+	default:
+		return fmt.Sprintf("窗口 %d", e.HWND)
+	}
+}
+
 // restartIsolatedBrowser politely closes the isolated
 // Chrome's registered windows and relaunches the browser
 // through the normal launch path. Only windows whose owning
@@ -155,6 +193,7 @@ func restartIsolatedBrowser() {
 	for _, e := range wins {
 		if platformCloseWindow(e.HWND) {
 			closed++
+			logf("update", "info", "浏览器重启：已请求关闭窗口「%s」", restartWinLabel(e))
 		}
 	}
 	logf("update", "info", "浏览器重启：已向隔离浏览器的 %d 个窗口发出关闭请求，等它完全退出", closed)
@@ -166,7 +205,8 @@ func restartIsolatedBrowser() {
 	for isolatedChromeRunning() && time.Now().Before(deadline) {
 		time.Sleep(400 * time.Millisecond)
 	}
-	if isolatedChromeRunning() {
+	handoff := isolatedChromeRunning()
+	if handoff {
 		logf("update", "warn", "浏览器重启：等待超时，浏览器仍在运行——将直接重新打开（会交给现有会话）")
 	}
 	proxy := accelEnabled() && len(nodes) > 0
@@ -174,5 +214,6 @@ func restartIsolatedBrowser() {
 		logf("update", "error", "浏览器重启：重新打开失败：%v", err)
 		return
 	}
-	logf("update", "info", "浏览器重启：已重新打开隔离浏览器，新版设置即刻生效")
+	level, msg := restartOutcome(handoff)
+	logf("update", level, "%s", msg)
 }

@@ -271,7 +271,12 @@ var (
 // (ShellProfile).
 func watchBrowserProfileExits() {
 	chromeProfile := filepath.Join(dataDir(), "ChromeProfile")
-	if chromeExitWatch.observe(profileLockPresent(chromeProfile)) {
+	chromePresent := profileLockPresent(chromeProfile)
+	// v0.71 review fix: the same observation feeds the bridge
+	// liveness tracker (webnotify.go) -- it defines the
+	// browser generation a handoff launch is judged against.
+	webNotifyNoteBrowserPresence(chromePresent)
+	if chromeExitWatch.observe(chromePresent) {
 		repinAfterExit(chromeProfile, true)
 	}
 	shellProfile := filepath.Join(dataDir(), "ShellProfile")

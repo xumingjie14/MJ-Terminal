@@ -124,13 +124,127 @@ func TestFindResidentWindow(t *testing.T) {
 		{HWND: 2, URL: "https://a.com/"},
 		{HWND: 3, URL: ""},
 	}
-	if w := findResidentWindow(wins, "https://a.com"); w == nil || w.HWND != 2 {
+	locks := map[string]bool{"https://a.com": true}
+	names := map[string]string{"a.com": "https://a.com"}
+	if w := findResidentWindow(wins, locks, names, "https://a.com"); w == nil || w.HWND != 2 {
 		t.Fatalf("match = %v, want hwnd 2", w)
 	}
-	if w := findResidentWindow(wins, "https://shell.example"); w != nil {
+	if w := findResidentWindow(wins, locks, names, "https://shell.example"); w != nil {
 		t.Fatal("shell windows are never resident targets")
 	}
-	if w := findResidentWindow(wins, "https://nope.com"); w != nil {
+	if w := findResidentWindow(wins, locks, names, "https://nope.com"); w != nil {
 		t.Fatal("unknown URL must not match")
+	}
+}
+
+// v0.71 review fix （发现 1): a window the patrol claimed
+// after a daemon restart carries no URL -- the launch rung
+// is gone. It must still stand for its locked app through
+// the name rung, or the engine relaunches a hidden duplicate
+// beside it on every update.
+func TestFindResidentWindowClaimedByName(t *testing.T) {
+	boot := time.Unix(1_700_000_000, 0)
+	afterBoot := boot.Add(10 * time.Minute)
+	locks := map[string]bool{"https://a.com": true}
+	names := map[string]string{"a.com": "https://a.com"}
+	claimed := &extWindow{HWND: 7, App: "a.com", URL: "", browser: true, origin: "profile"}
+
+	w := findResidentWindow([]*extWindow{claimed}, locks, names, "https://a.com")
+	if w == nil || w.HWND != 7 {
+		t.Fatalf("claimed window must stand for its app, got %v", w)
+	}
+	// The composed verdict the review pinned: present, so the
+	// state machine must not judge the app missing / relaunch.
+	if got := residentDecide(residentAppState{}, w != nil, 0, afterBoot, boot); got == residentRelaunch {
+		t.Fatal("claimed window present: decide must not relaunch")
+	}
+
+	// A launch-registered window carrying the URL wins over a
+	// name-aligned claimed window.
+	launched := &extWindow{HWND: 9, App: "a.com", URL: "https://a.com", browser: true, origin: "launch"}
+	if w := findResidentWindow([]*extWindow{claimed, launched}, locks, names, "https://a.com"); w == nil || w.HWND != 9 {
+		t.Fatalf("URL rung must win, got %v", w)
+	}
+
+	// A different title aligns nothing.
+	other := &extWindow{HWND: 8, App: "other.example", URL: "", browser: true, origin: "profile"}
+	if w := findResidentWindow([]*extWindow{other}, locks, names, "https://a.com"); w != nil {
+		t.Fatal("unrelated claimed window must not stand for the app")
+	}
+
+	// A non-browser claimed window (a store app) never aligns,
+	// even with a matching label.
+	store := &extWindow{HWND: 10, App: "a.com", URL: "", browser: false, origin: "profile"}
+	if w := findResidentWindow([]*extWindow{store}, locks, names, "https://a.com"); w != nil {
+		t.Fatal("non-browser window must not align by name")
+	}
+
+	// The generic fallback label never aligns.
+	generic := &extWindow{HWND: 11, App: "浏览器", URL: "", browser: true, origin: "profile"}
+	locks2 := map[string]bool{"https://b.com": true}
+	names2 := map[string]string{"浏览器": "https://b.com"}
+	if w := findResidentWindow([]*extWindow{generic}, locks2, names2, "https://b.com"); w != nil {
+		t.Fatal("generic 浏览器 label must not align")
+	}
+}
+
+// v0.71 review fix （发现 1): two locked apps sharing one
+// display name cannot be told apart by the name rung -- it
+// aligns nothing for them rather than guessing.
+func TestResidentNameIndexAmbiguous(t *testing.T) {
+	locks := map[string]bool{"https://a.com": true, "https://a.com/app": true}
+	names := residentNameIndex(locks)
+	if names["a.com"] != "" {
+		t.Fatalf("shared name must map to no key, got %q", names["a.com"])
+	}
+	claimed := &extWindow{HWND: 7, App: "a.com", URL: "", browser: true, origin: "profile"}
+	if w := findResidentWindow([]*extWindow{claimed}, locks, names, "https://a.com"); w != nil {
+		t.Fatal("ambiguous name must not align")
+	}
+	if w := findResidentWindow([]*extWindow{claimed}, locks, names, "https://a.com/app"); w != nil {
+		t.Fatal("ambiguous name must not align")
+	}
+}
+
+func TestResidentWindowLockURL(t *testing.T) {
+	locks := map[string]bool{"https://a.com": true}
+	names := map[string]string{"a.com": "https://a.com"}
+	if got := residentWindowLockURL(&extWindow{URL: "https://a.com/"}, locks, names); got != "https://a.com" {
+		t.Errorf("URL rung = %q, want the lock key", got)
+	}
+	if got := residentWindowLockURL(&extWindow{URL: "https://nope.com"}, locks, names); got != "" {
+		t.Errorf("unlocked URL = %q, want \"\"", got)
+	}
+	if got := residentWindowLockURL(&extWindow{Shell: true, URL: "https://a.com"}, locks, names); got != "" {
+		t.Errorf("shell = %q, want \"\"", got)
+	}
+	if got := residentWindowLockURL(nil, locks, names); got != "" {
+		t.Errorf("nil = %q, want \"\"", got)
+	}
+}
+
+// v0.71 review fix （发现 3): a failed relaunch must disarm
+// HidePending -- otherwise the hide stays armed and swallows
+// a window the user later opens by hand.
+func TestResidentLaunchFailureDisarmsHide(t *testing.T) {
+	boot := time.Unix(1_700_000_000, 0)
+	afterBoot := boot.Add(10 * time.Minute)
+	st := residentAppState{Attempts: 1, HidePending: true}
+	residentNoteLaunchResult(&st, false)
+	if st.HidePending {
+		t.Fatal("failed relaunch must disarm HidePending")
+	}
+	if got := residentDecide(st, true, 0, afterBoot, boot); got != residentNone {
+		t.Fatalf("hand-opened window after a failed relaunch: decide = %v, want residentNone (never hidden)", got)
+	}
+	// A successful relaunch keeps the hide armed: its window
+	// is on its way and is hidden when it registers.
+	st2 := residentAppState{Attempts: 1, HidePending: true}
+	residentNoteLaunchResult(&st2, true)
+	if !st2.HidePending {
+		t.Fatal("successful relaunch keeps HidePending armed")
+	}
+	if got := residentDecide(st2, true, 0, afterBoot, boot); got != residentHide {
+		t.Fatalf("relaunched window registering: decide = %v, want residentHide", got)
 	}
 }
