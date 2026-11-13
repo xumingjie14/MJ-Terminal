@@ -1016,23 +1016,41 @@ func launchIsolatedBrowser(proxy bool, target string, appMode bool) error {
 	// loaded unpacked for this profile. A release failure only
 	// loses the bridge -- it never blocks the launch.
 	// v0.71: branded Chrome 137+ ignores --load-extension, so
-	// the load ALSO rides the DevTools pipe (cdpload.go): the
-	// two debugging flags below plus a pipe pair created just
-	// before the process starts. The flag stays for Edge /
-	// Chromium, where it still works on its own.
+	// the load ALSO rides a DevTools channel, picked per
+	// platform by bridgelaunch.go: a pipe pair everywhere
+	// except Windows, where Go cannot hand a child any extra
+	// files (ExtraFiles is unsupported -- v0.71-test1 attached
+	// them anyway and EVERY launch died in Start()). Windows
+	// gets a loopback debugging port allocated just below, and
+	// the load runs over a WebSocket AFTER the browser is up
+	// (cdpws.go). Either way the attempt is decoupled from the
+	// launch: it runs after a successful Start() and can only
+	// log. --load-extension stays for Edge / Chromium, where
+	// it still works on its own.
 	extDir := releaseWebNotifyExt()
 	args := []string{"--user-data-dir=" + profile, "--no-first-run", "--start-maximized"}
 	extNote := ""
 	var bridgePipe *cdpPipeTransport
 	var bridgeChildEnds []*os.File
+	bridgePlan := planBridgeLaunch(runtime.GOOS, extDir, 0)
+	if bridgePlan.route == bridgeRoutePort {
+		if port, perr := allocLoopbackPort(); perr == nil {
+			bridgePlan = planBridgeLaunch(runtime.GOOS, extDir, port)
+		} else {
+			logf("notify", "warn", "网页通知桥：调试端口分配失败（%v），本次未装入（浏览器：%s）", perr, filepath.Base(browser))
+			bridgePlan = planBridgeLaunch(runtime.GOOS, "", 0)
+		}
+	}
 	if extDir != "" {
 		args = append(args, "--load-extension="+extDir)
-		args = append(args, "--enable-unsafe-extension-debugging", "--remote-debugging-pipe")
+		args = append(args, bridgePlan.args...)
 		extNote = "，网页通知桥已加载"
-		if pt, ends, perr := newCDPPipeTransport(); perr == nil {
-			bridgePipe, bridgeChildEnds = pt, ends
-		} else {
-			logf("notify", "warn", "网页通知桥：调试管道创建失败（%v），本次只剩 --load-extension 一条加载路（浏览器：%s）", perr, filepath.Base(browser))
+		if bridgePlan.attachPipe {
+			if pt, ends, perr := newCDPPipeTransport(); perr == nil {
+				bridgePipe, bridgeChildEnds = pt, ends
+			} else {
+				logf("notify", "warn", "网页通知桥：调试管道创建失败（%v），本次只剩 --load-extension 一条加载路（浏览器：%s）", perr, filepath.Base(browser))
+			}
 		}
 	}
 	// Disk-cache cap (v0.30, 设置 -> 浏览器）: the profile's caches
@@ -1064,7 +1082,11 @@ func launchIsolatedBrowser(proxy bool, target string, appMode bool) error {
 	browserCmd := exec.Command(browser, args...)
 	if bridgePipe != nil {
 		// The pipe ends become the child's fd 3 (commands in)
-		// and fd 4 (responses out) -- see cdpload.go.
+		// and fd 4 (responses out) -- see cdpload.go. This is
+		// only reachable when the launch plan asked for pipe
+		// ends, which bridgelaunch.go never does on Windows:
+		// ExtraFiles is unsupported there and Start() fails
+		// before the process exists (the v0.71-test1 incident).
 		browserCmd.ExtraFiles = bridgeChildEnds
 	}
 	if err := browserCmd.Start(); err != nil {
@@ -1083,6 +1105,11 @@ func launchIsolatedBrowser(proxy bool, target string, appMode bool) error {
 			_ = f.Close()
 		}
 		go bridgeLoadViaCDP(bridgePipe, extDir, filepath.Base(browser))
+	} else if bridgePlan.route == bridgeRoutePort {
+		// Windows route: the browser is already up; load the
+		// bridge through its loopback debugging port in the
+		// background. Log-only by construction (cdpws.go).
+		go bridgeLoadViaPort(bridgePlan.debugPort, extDir, filepath.Base(browser))
 	}
 	// v0.68: if the bridge never reports after this launch, the
 	// console hears about it once (webnotify.go has the rules).

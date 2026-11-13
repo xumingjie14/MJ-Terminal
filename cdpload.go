@@ -9,32 +9,41 @@ package main
 // allowed in Google Chrome, ignoring."), so the v0.68 bridge
 // never loaded on the user's machine. The sanctioned
 // replacement is the CDP command Extensions.loadUnpacked,
-// gated by TWO conditions (Chromium's RFC thread "Removing
-// the --load-extension flag in branded Chrome builds",
-// chromium-extensions, 2025-04; the same mechanism web-ext
-// and Puppeteer ship):
+// gated by the --enable-unsafe-extension-debugging launch
+// flag. bridgelaunch.go picks the transport per platform:
 //
-//   - Chrome is launched with --enable-unsafe-extension-debugging;
-//   - the DevTools connection rides --remote-debugging-pipe,
-//     NOT --remote-debugging-port: over a WebSocket the
-//     command answers "Method not available."
+//   - non-Windows: --remote-debugging-pipe. The browser
+//     reads JSON commands from fd 3 of the child process
+//     and writes responses to fd 4; every message is one
+//     JSON object terminated by a NUL byte. The daemon
+//     hands the pipe ends to the child through
+//     exec.Cmd.ExtraFiles (see launchIsolatedBrowser), so
+//     no TCP port is opened at all.
 //
-// The pipe transport (content/browser/devtools/
-// devtools_pipe_handler.cc): the browser reads JSON commands
-// from fd 3 of the child process and writes responses to
-// fd 4; every message is one JSON object terminated by a NUL
-// byte. The daemon hands the pipe ends to the child through
-// exec.Cmd.ExtraFiles (see launchIsolatedBrowser), so no TCP
-// port is opened at all -- the debugging interface never
-// exists on any network interface, which is stronger than the
-// 127.0.0.1 binding a debugging port would have given.
+//   - Windows: exec.Cmd.ExtraFiles is NOT supported by
+//     Go's standard library there -- Cmd.Start() fails
+//     outright ("not supported by windows"). v0.71-test1
+//     attached the pipe ends unconditionally and every
+//     browser launch on the user's Windows machine died
+//     before Chrome even started. Windows therefore uses
+//     a loopback --remote-debugging-port and speaks CDP
+//     over a WebSocket instead (cdpws.go).
+//
+// The command conversation itself (one loadUnpacked call,
+// response matched by id, event frames skipped, protocol
+// errors final, timeouts resent) is transport-agnostic and
+// lives in cdpCallLoadUnpacked over the cdpMsgIO seam, so
+// both transports share it and the fake-transport tests pin
+// it once.
 //
 // --load-extension stays on the command line as well: Edge
 // and Chromium builds still honour it, and on branded Chrome
-// it is simply ignored -- the CDP load below is the path that
-// lands the bridge there. loadUnpacked registers the
+// it is simply ignored. loadUnpacked registers the
 // extension in the profile's Secure Preferences, so later
 // launches keep it even before this session runs.
+//
+// A bridge-load failure NEVER fails the browser launch:
+// both drivers below only log their outcome.
 
 import (
 	"encoding/json"
@@ -74,6 +83,8 @@ func (t *cdpPipeTransport) Close() error {
 // child's fd 3 (the browser READS commands from it), index 1
 // becomes fd 4 (the browser WRITES responses to it). The
 // caller closes the child ends once the process has started.
+// Only ever called when the launch plan asks for pipe ends,
+// which bridgelaunch.go guarantees never happens on Windows.
 func newCDPPipeTransport() (*cdpPipeTransport, []*os.File, error) {
 	cmdInR, cmdInW, err := os.Pipe()
 	if err != nil {
@@ -103,24 +114,31 @@ type cdpError struct {
 
 func (e *cdpError) Error() string { return fmt.Sprintf("CDP 错误 %d：%s", e.Code, e.Message) }
 
-// cdpFrame is one decoded pipe message. Frames with no ID are
-// protocol events (the loader skips them); a response carries
-// either Result or Error.
+// cdpFrame is one decoded DevTools message. Frames with no
+// ID are protocol events (the loader skips them); a response
+// carries either Result or Error.
 type cdpFrame struct {
 	ID     int             `json:"id"`
 	Result json.RawMessage `json:"result"`
 	Error  *cdpError       `json:"error"`
 }
 
-// cdpEncode renders one command message: the JSON object plus
-// the NUL terminator the pipe framing requires.
-func cdpEncode(id int, method string, params any) []byte {
+// cdpCommandJSON renders one command message as bare JSON.
+// Each transport frames it its own way: the pipe appends a
+// NUL terminator, a WebSocket message needs nothing more.
+func cdpCommandJSON(id int, method string, params any) []byte {
 	msg := map[string]any{"id": id, "method": method}
 	if params != nil {
 		msg["params"] = params
 	}
 	b, _ := json.Marshal(msg)
-	return append(b, 0)
+	return b
+}
+
+// cdpEncode renders one PIPE command message: the JSON
+// object plus the NUL terminator the pipe framing requires.
+func cdpEncode(id int, method string, params any) []byte {
+	return append(cdpCommandJSON(id, method, params), 0)
 }
 
 // cdpFrameReader splits the pipe's byte stream back into
@@ -169,18 +187,61 @@ func indexByte(b []byte, c byte) int {
 	return -1
 }
 
-// cdpLoadUnpacked issues Extensions.loadUnpacked for path on
-// an open transport and waits (up to timeout) for the
-// matching response. On success it returns the extension id
-// the browser assigned. Retries: a timeout resends the
-// command (the browser may still be bringing its DevTools
-// handler up), at most maxAttempts sends total; a protocol
-// error or a closed pipe is final.
-func cdpLoadUnpacked(t cdpTransport, path string, timeout time.Duration, maxAttempts int) (string, error) {
+// cdpMsgIO is one DevTools message channel, framing and
+// all: the seam both transports (pipe, WebSocket) plug
+// into, and the seam the tests script. send takes one bare
+// JSON command; recv returns the next decoded message. An
+// error from either means the channel is gone, and the
+// error value itself says which transport died (each
+// adapter wraps its own sentinel).
+type cdpMsgIO interface {
+	send(msg []byte) error
+	recv() (cdpFrame, error)
+	close() error
+}
+
+// pipeMsgIO adapts a cdpTransport (the DevTools pipe):
+// sends gain the NUL terminator, receives come from the
+// frame reader, and every failure collapses into
+// errCDPPipeClosed -- the semantics the pipe loader has
+// always reported.
+type pipeMsgIO struct {
+	t  cdpTransport
+	fr *cdpFrameReader
+}
+
+func newPipeMsgIO(t cdpTransport) *pipeMsgIO {
+	return &pipeMsgIO{t: t, fr: newCDPFrameReader(t)}
+}
+
+func (io *pipeMsgIO) send(msg []byte) error {
+	if _, err := io.t.Write(append(msg, 0)); err != nil {
+		return errCDPPipeClosed
+	}
+	return nil
+}
+
+func (io *pipeMsgIO) recv() (cdpFrame, error) {
+	f, err := io.fr.next()
+	if err != nil {
+		return cdpFrame{}, errCDPPipeClosed
+	}
+	return f, nil
+}
+
+func (io *pipeMsgIO) close() error { return io.t.Close() }
+
+// cdpCallLoadUnpacked issues Extensions.loadUnpacked for
+// path on an open message channel and waits (up to timeout
+// per attempt) for the matching response. On success it
+// returns the extension id the browser assigned. Retries: a
+// timeout resends the command (the browser may still be
+// bringing its DevTools handler up), at most maxAttempts
+// sends total; a protocol error or a dead channel is final.
+func cdpCallLoadUnpacked(mio cdpMsgIO, path string, timeout time.Duration, maxAttempts int) (string, error) {
 	if maxAttempts < 1 {
 		maxAttempts = 1
 	}
-	fr := newCDPFrameReader(t)
 	type readRes struct {
 		f   cdpFrame
 		err error
@@ -188,7 +249,7 @@ func cdpLoadUnpacked(t cdpTransport, path string, timeout time.Duration, maxAtte
 	frames := make(chan readRes, 1)
 	go func() {
 		for {
-			f, err := fr.next()
+			f, err := mio.recv()
 			frames <- readRes{f, err}
 			if err != nil {
 				return
@@ -196,15 +257,15 @@ func cdpLoadUnpacked(t cdpTransport, path string, timeout time.Duration, maxAtte
 		}
 	}()
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		if _, err := t.Write(cdpEncode(1, "Extensions.loadUnpacked", map[string]any{"path": path})); err != nil {
-			return "", errCDPPipeClosed
+		if err := mio.send(cdpCommandJSON(1, "Extensions.loadUnpacked", map[string]any{"path": path})); err != nil {
+			return "", err
 		}
 		deadline := time.NewTimer(timeout)
 		for {
 			select {
 			case rr := <-frames:
 				if rr.err != nil {
-					return "", errCDPPipeClosed
+					return "", rr.err
 				}
 				if rr.f.ID != 1 {
 					continue // an event or another command's frame: keep waiting
@@ -229,14 +290,22 @@ func cdpLoadUnpacked(t cdpTransport, path string, timeout time.Duration, maxAtte
 	return "", fmt.Errorf("CDP loadUnpacked 超时（%d 次尝试无应答）", maxAttempts)
 }
 
-// bridgeLoadViaCDP is the launch-path driver: it runs the
-// load over the pipe of a just-started browser and reports
-// the outcome to the console (module "notify", the bridge's
-// home). The transport is always closed when it returns. A
-// failure never reaches the browser launch itself -- it only
-// means this session has no bridge, which the launch check
-// (webNotifyLaunchCheck) then diagnoses as before, now with
-// this loader's precise reason already in the log above it.
+// cdpLoadUnpacked is the pipe transport's spelling of the
+// shared conversation (kept as the entry the pipe tests
+// exercise).
+func cdpLoadUnpacked(t cdpTransport, path string, timeout time.Duration, maxAttempts int) (string, error) {
+	return cdpCallLoadUnpacked(newPipeMsgIO(t), path, timeout, maxAttempts)
+}
+
+// bridgeLoadViaCDP is the pipe route's launch-path driver:
+// it runs the load over the pipe of a just-started browser
+// and reports the outcome to the console (module "notify",
+// the bridge's home). The transport is always closed when
+// it returns. A failure never reaches the browser launch
+// itself -- it only means this session has no bridge, which
+// the launch check (webNotifyLaunchCheck) then diagnoses as
+// before, now with this loader's precise reason already in
+// the log above it.
 func bridgeLoadViaCDP(t cdpTransport, extDir, browserName string) {
 	defer t.Close()
 	id, err := cdpLoadUnpacked(t, extDir, 6*time.Second, 3)
