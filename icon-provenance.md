@@ -21,6 +21,7 @@ base64 in `icons_data.go`, served by the daemon at
 | appstore  | 应用商店 | original storefront (awning + door)          |
 | sys       | 设置     | original 8-tooth gear on graphite            |
 | core      | 节点     | connected-nodes routing glyph on violet      |
+| taskmgr   | 任务管理器 | usage bars on steel blue (v0.71 test4)       |
 
 ## Third-party icons (kept as-is, real artwork)
 

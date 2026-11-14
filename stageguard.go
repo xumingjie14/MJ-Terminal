@@ -662,6 +662,50 @@ var (
 	overlayKinds = map[string]bool{}
 )
 
+// ---------- overlay classes (v0.71 test4) ----------
+//
+// The v0.62 guard policy -- "an overlay never changes a claimed
+// window's standing" -- was written for SMALL overlays (context
+// menus, Control / Notification Center, menubar menus, the
+// Spotlight card): the windows around them are supposed to stay
+// exactly where they were, so the guard lifts covered windows
+// back above the shell. A FULL-SCREEN overlay is the opposite
+// shape (field report 2026-11-14, diagnosis plan A): macOS
+// Launchpad covers the desktop and every window goes behind it.
+// So overlay kinds now split into two classes:
+//
+//   - pierce (ctx / cc / nc / menu / spotlight, and any kind
+//     this build does not know): the v0.62 policy, unchanged --
+//     the lift guard above.
+//   - cover (launchpad): while live, the lift guard STANDS
+//     DOWN and the shell watcher runs the mirror-image press
+//     pass instead (pressClaimedBelowShell) -- claimed windows
+//     go directly below the shell. When the last cover session
+//     closes, one lift pass restores the desktop.
+//
+// Both passes move Z-ORDER ONLY. Neither ever shows or hides a
+// window, so they cannot fight the set machine, the solo book,
+// the resident engine's daemon hides (test3) or the park sweep:
+// hidden and iconic windows are invisible/iconic facts the
+// passes skip, and the SetHidden fact stops both outright.
+type overlayClass int
+
+const (
+	overlayPierce overlayClass = iota // small overlays: windows keep their standing
+	overlayCover                      // full-screen overlays: windows go below the shell
+)
+
+// classifyOverlay is the whole classification contract: the
+// launchpad is the one full-screen overlay; every other kind --
+// including kinds a future view may invent -- keeps the v0.62
+// small-overlay policy.
+func classifyOverlay(kind string) overlayClass {
+	if kind == "launchpad" {
+		return overlayCover
+	}
+	return overlayPierce
+}
+
 func overlaySession(kind string, on bool) {
 	if kind == "" {
 		return
@@ -685,7 +729,11 @@ func overlaySession(kind string, on bool) {
 	overlayMu.Unlock()
 	if changed {
 		if on {
-			logf("winmgr", "info", "桌面浮层打开：%s（浮层不改变已认领窗口的可见性，z 序守护生效）", kind)
+			if classifyOverlay(kind) == overlayCover {
+				logf("winmgr", "info", "桌面浮层打开：%s（覆盖浮层：已认领窗口将压到桌面视图之下，提回守护停用；只动 z 序不动可见性）", kind)
+			} else {
+				logf("winmgr", "info", "桌面浮层打开：%s（浮层不改变已认领窗口的可见性，z 序守护生效）", kind)
+			}
 		} else {
 			logf("winmgr", "info", "桌面浮层关闭：%s", kind)
 		}
@@ -696,6 +744,19 @@ func overlayLive() bool {
 	overlayMu.Lock()
 	defer overlayMu.Unlock()
 	return len(overlayKinds) > 0
+}
+
+// overlayCoverLive reports whether a full-screen (cover-class)
+// overlay session is live.
+func overlayCoverLive() bool {
+	overlayMu.Lock()
+	defer overlayMu.Unlock()
+	for kind := range overlayKinds {
+		if classifyOverlay(kind) == overlayCover {
+			return true
+		}
+	}
+	return false
 }
 
 // overlayClearAll drops every overlay session (the desktop
@@ -730,6 +791,7 @@ func viewOverlayHandler(w http.ResponseWriter, r *http.Request) {
 
 type zGuardFacts struct {
 	OverlayLive       bool // a desktop-view overlay session is live
+	CoverLive         bool // a cover-class session is among them (v0.71 test4)
 	ForegroundIsShell bool // the shell view holds the foreground
 	ShellUsable       bool // shell exists, visible, not minimized
 	SetHidden         bool // the set machine has the set tucked away
@@ -738,9 +800,44 @@ type zGuardFacts struct {
 // decideZGuard: the guard acts only while an overlay is up and
 // the shell is foreground -- the exact shape of the ⑤ report.
 // While the set is group-hidden the claimed windows are SUPPOSED
-// to be down; the guard must never fight the set machine.
+// to be down; the guard must never fight the set machine. And
+// while a COVER overlay is live the lift policy itself is the
+// bug (test4): the press pass owns the z-order then.
 func decideZGuard(f zGuardFacts) bool {
-	return f.OverlayLive && f.ForegroundIsShell && f.ShellUsable && !f.SetHidden
+	return f.OverlayLive && !f.CoverLive && f.ForegroundIsShell && f.ShellUsable && !f.SetHidden
+}
+
+type zPressFacts struct {
+	CoverLive         bool // a full-screen (cover-class) overlay session is live
+	ForegroundIsShell bool // the shell view holds the foreground
+	ShellUsable       bool // shell exists, visible, not minimized
+	SetHidden         bool // the set machine has the set tucked away
+}
+
+// decideZPress is the cover-class mirror of decideZGuard: while
+// the Launchpad is up AND the shell is what the user is looking
+// at, claimed windows belong below the shell. The foreground
+// condition is the peace treaty with explicit stage actions: a
+// raise hands foreground to the claimed window, which stops the
+// press -- and the view closes the Launchpad before a raise is
+// even requested, so the two never wrestle.
+func decideZPress(f zPressFacts) bool {
+	return f.CoverLive && f.ForegroundIsShell && f.ShellUsable && !f.SetHidden
+}
+
+type zRestoreFacts struct {
+	ShellUsable bool // shell exists, visible, not minimized
+	SetHidden   bool // the set machine has the set tucked away
+}
+
+// decideZRestore governs the ONE lift pass owed when the last
+// cover session closes: the desktop returns to its pre-overlay
+// standing. It needs no overlay or foreground fact (the overlay
+// is gone by definition, and where the user is looking does not
+// change what "restore" means) -- but a tucked-away set is
+// still the set machine's business, never this pass's.
+func decideZRestore(f zRestoreFacts) bool {
+	return f.ShellUsable && !f.SetHidden
 }
 
 // liftClaimedAboveShell is the guard's arm (called from the
@@ -777,6 +874,58 @@ func liftClaimedAboveShell(shell uint64) {
 		}
 		if platformInsertAboveShell(wf.HWND, shell) {
 			logf("winmgr", "info", "台前调度：桌面浮层打开期间把被盖住的窗口提回桌面之上：%s（hwnd=%d，原因：浮层不改变窗口可见性）", app, wf.HWND)
+		}
+	}
+}
+
+// pressClaimedBelowShell is the lift's mirror image (v0.71
+// test4, diagnosis plan A): while a cover-class overlay (the
+// Launchpad) owns the desktop, every registered window that is
+// visible, not minimized and currently ABOVE the shell is
+// pressed to directly below it (platformInsertBelowShell, the
+// same SetWindowPos primitive with the direction reversed).
+// Z-ORDER ONLY, exactly like the lift: a window the user or
+// another book has hidden is invisible and never a candidate,
+// an iconic window is the park sweep's / its owner's business,
+// and focus is never touched -- when the Launchpad closes, the
+// shell watcher's restore pass (decideZRestore) lifts the set
+// back with liftClaimedAboveShell.
+//
+// Order: platformAllTopWindows walks top-first. Inserting each
+// candidate directly below the shell in that order would REVERSE
+// the candidates' relative order under the shell, so the pass
+// collects them in walk order and inserts bottom-most first --
+// the deepest window goes under the shell first and each next
+// one lands between it and the shell, preserving the stack.
+func pressClaimedBelowShell(shell uint64) {
+	extMu.Lock()
+	reg := make(map[uint64]string, len(extWins))
+	for h, e := range extWins {
+		if !e.Shell {
+			reg[h] = e.App
+		}
+	}
+	extMu.Unlock()
+	if len(reg) == 0 {
+		return
+	}
+	var cands []windowFact
+	for _, wf := range platformAllTopWindows() {
+		if _, ok := reg[wf.HWND]; !ok {
+			continue
+		}
+		if !platformWindowVisible(wf.HWND) || platformWindowIconic(wf.HWND) {
+			continue
+		}
+		if !platformWindowAbove(wf.HWND, shell) {
+			continue
+		}
+		cands = append(cands, wf)
+	}
+	for i := len(cands) - 1; i >= 0; i-- {
+		h := cands[i].HWND
+		if platformInsertBelowShell(h, shell) {
+			logf("winmgr", "info", "台前调度：覆盖浮层打开期间把窗口压到桌面视图之下：%s（hwnd=%d，原因：全屏浮层独占桌面）", reg[h], h)
 		}
 	}
 }

@@ -1194,6 +1194,15 @@ type webApp struct {
 	// is then always written (possibly empty) so the columns
 	// never shift.
 	Icon string `json:"icon,omitempty"`
+	// v0.71 test4: the site's theme color (#rrggbb), captured
+	// with the icon fetch (addapp.go) and persisted as an
+	// optional FIFTH field of the apps.txt line. The desktop
+	// letter tile wears it instead of the retired one-for-all
+	// blue gradient; entries without one derive a stable
+	// colour from their domain on the view side, so old files
+	// need no migration -- the backfill fills this in over
+	// time for entries whose sites publish a color.
+	ThemeColor string `json:"themecolor,omitempty"`
 	// v0.71: 锁住后台 state (resident.go), decorated onto the
 	// copies webAppsHandler returns -- the durable fact is the
 	// settings lock set, so this field is NEVER persisted to
@@ -1291,7 +1300,7 @@ func loadWebApps() []webApp {
 		if line == "" {
 			continue
 		}
-		parts := strings.SplitN(line, "\t", 4)
+		parts := strings.SplitN(line, "\t", 5)
 		if len(parts) < 2 {
 			continue
 		}
@@ -1305,9 +1314,14 @@ func loadWebApps() []webApp {
 				wa.WinMode = m
 			}
 		}
-		if len(parts) == 4 {
+		if len(parts) >= 4 {
 			if f := strings.TrimSpace(parts[3]); webIconFileRe.MatchString(f) {
 				wa.Icon = f
+			}
+		}
+		if len(parts) == 5 {
+			if c, ok := validThemeColor(parts[4]); ok {
+				wa.ThemeColor = c
 			}
 		}
 		out = append(out, wa)
@@ -1339,17 +1353,33 @@ func loadWebApps() []webApp {
 func saveWebApps(list []webApp) {
 	var sb strings.Builder
 	for _, a := range list {
-		line := a.Name + "\t" + a.URL
-		if a.WinMode != "" {
-			line += "\t" + a.WinMode
+		// Columns: name, url, [winmode], [icon], [themecolor].
+		// A line is only as wide as its deepest set field, and
+		// the columns before it are always written (possibly
+		// empty) so they never shift -- the exact discipline the
+		// winmode/icon fields already kept, extended one column.
+		depth := 2
+		if a.WinMode != "" || a.Icon != "" || a.ThemeColor != "" {
+			depth = 3
 		}
-		if a.Icon != "" {
-			if a.WinMode == "" {
-				line += "\t" // keep the icon in column four
-			}
-			line += "\t" + a.Icon
+		if a.Icon != "" || a.ThemeColor != "" {
+			depth = 4
 		}
-		sb.WriteString(line + "\n")
+		if a.ThemeColor != "" {
+			depth = 5
+		}
+		fields := make([]string, depth)
+		fields[0], fields[1] = a.Name, a.URL
+		if depth >= 3 {
+			fields[2] = a.WinMode
+		}
+		if depth >= 4 {
+			fields[3] = a.Icon
+		}
+		if depth >= 5 {
+			fields[4] = a.ThemeColor
+		}
+		sb.WriteString(strings.Join(fields, "\t") + "\n")
 	}
 	_ = dsSave("webapps", []byte(sb.String()))
 }
@@ -1629,6 +1659,12 @@ func startServicesOnce() {
 		noteVersionAtStartup()
 		startExtPatrol()
 		startShellWatcher()
+		// v0.71 test4: one throttled pass over the web-app
+		// ledger, backfilling high-resolution icons and theme
+		// colors for entries added before the scored fetch
+		// chain (addapp.go). It sleeps first and walks gently;
+		// the desktop never waits on it.
+		go backfillWebAppIcons()
 		// v0.45: the immersion startup sweep runs before any
 		// view can be (re)claimed by this incarnation: marks
 		// found now can only be a crashed daemon's leftovers.

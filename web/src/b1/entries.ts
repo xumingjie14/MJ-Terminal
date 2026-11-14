@@ -14,16 +14,42 @@ import { openDeskFile, openWebApp } from './viewers';
 /* ----- website apps pinned to the desktop (v0.10) ----- */
 export let WEBAPPS=[];
 export function webLetter(n){return (String(n||'?').trim()[0]||'?').toUpperCase()}
-export function faviconURL(u){try{return 'https://www.google.com/s2/favicons?domain='+new URL(u).hostname+'&sz=128'}catch(e){return ''}}
+/* v0.71 test4: the web-app tile colour, aligned to the
+   browser-start-page standard the user set. Priority: the
+   site's own theme color (fetched by the daemon with the icon
+   and carried on the entry); then a STABLE colour derived
+   from the domain (same domain, same colour, every machine);
+   then '' -- the CSS neutral slate takes over. The retired
+   behaviour was one hard-coded blue gradient for every
+   icon-less site in the world. */
+export function webTileColor(a: any){
+ if(a&&/^#[0-9a-fA-F]{6}$/.test(a.themecolor||'')) return a.themecolor;
+ let host='';
+ try{host=new URL(a.url).hostname}catch(e){}
+ if(!host) return '';
+ let h=0;
+ for(let i=0;i<host.length;i++) h=(h*31+host.charCodeAt(i))>>>0;
+ return `hsl(${h%360} 45% 42%)`;
+}
+export function webTileStyle(a: any){
+ const c=webTileColor(a);
+ return c?` style="background:linear-gradient(180deg, color-mix(in srgb, #ffffff 20%, ${c}), color-mix(in srgb, #000000 14%, ${c}))"`:'';
+}
 export function webIconHTML(a: any, mini?: any){
- /* v0.69: an entry with a locally fetched icon (Data/webicons,
-    served by the daemon) renders it directly -- no external
-    favicon service involved. Entries without one keep the
-    classic behaviour below, byte for byte. */
- if(a&&a.icon) return `<div class="appico webapp${mini?' mini':''}"><span class="icolet">${esc(webLetter(a.name))}</span><img src="/api/webapps/icon?f=${encodeURIComponent(a.icon)}" alt="" draggable="false" loading="lazy" onerror="this.remove()"></div>`;
- const f=faviconURL(a.url);
- const img=f?`<img src="${f}" alt="" draggable="false" loading="lazy" onerror="this.remove()">`:'';
- return `<div class="appico webapp${mini?' mini':''}"><span class="icolet">${esc(webLetter(a.name))}</span>${img}</div>`;
+ /* An entry with a locally fetched icon (Data/webicons,
+    served by the daemon, v0.69) renders it directly. The tile
+    underneath wears the site's own colour now, so a
+    transparent brand mark no longer floats on the old blue
+    (the "blue halo" of the field report). An icon whose real
+    size is under 48px marks itself .sm on load and presents
+    at natural size, centred, instead of being stretched
+    blurry across the tile (shell.html). Entries without a
+    local icon get the letter tile in the site's colour --
+    the Google favicon service path is retired (test4): the
+    daemon backfill is what old entries wait on now. */
+ const st=webTileStyle(a);
+ if(a&&a.icon) return `<div class="appico webapp${mini?' mini':''}"${st}><span class="icolet">${esc(webLetter(a.name))}</span><img src="/api/webapps/icon?f=${encodeURIComponent(a.icon)}" alt="" draggable="false" loading="lazy" onload="if(this.naturalWidth>0&&this.naturalWidth<48)this.classList.add('sm')" onerror="this.remove()"></div>`;
+ return `<div class="appico webapp${mini?' mini':''}"${st}><span class="icolet">${esc(webLetter(a.name))}</span></div>`;
 }
 /* ----- desktop layout: free icon positions + folders (v0.12) ----- */
 export let LAYOUT: any={pos:{},folders:[]};

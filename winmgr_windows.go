@@ -744,6 +744,30 @@ func platformInsertAboveShell(hwnd uint64, shell uint64) bool {
 	return r != 0
 }
 
+// platformInsertBelowShell presses hwnd to the slot directly
+// below the shell window in z-order, NOACTIVATE (v0.71 test4,
+// the cover-overlay press pass in stageguard.go). Same
+// primitive as platformInsertAboveShell with the direction
+// reversed: SetWindowPos's hWndInsertAfter names the window
+// that stays ABOVE the positioned one, so passing the shell
+// itself puts hwnd immediately under it. Z-order only --
+// visibility and focus are never touched.
+func platformInsertBelowShell(hwnd uint64, shell uint64) bool {
+	h, sh := uintptr(hwnd), uintptr(shell)
+	if r, _, _ := procIsWindow.Call(h); r == 0 {
+		return false
+	}
+	if r, _, _ := procIsWindow.Call(sh); r == 0 {
+		return false
+	}
+	const swpNoSize = 0x0001
+	const swpNoMove = 0x0002
+	const swpNoActivate = 0x0010
+	r, _, _ := procSetWindowPos.Call(h, sh, 0, 0, 0, 0,
+		uintptr(swpNoSize|swpNoMove|swpNoActivate))
+	return r != 0
+}
+
 // platformWindowAbove reports whether hwnd sits above other in
 // the z-order, by walking GW_HWNDPREV up from other. v0.54: the
 // birth-presentation verification (winset.go's presentSweep) uses

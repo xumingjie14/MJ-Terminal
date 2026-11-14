@@ -790,15 +790,66 @@ func shellWatchTick() {
 	// shell foreground. Explicit stage actions never open an
 	// overlay session, so when the shell comes front for one of
 	// those, it keeps the stage.
-	if overlayLive() && decideZGuard(zGuardFacts{
-		OverlayLive:       true,
-		ForegroundIsShell: classifyForeground(hwnd) == fgShell,
-		ShellUsable:       platformWindowExists(hwnd) && !iconic && platformWindowVisible(hwnd),
-		SetHidden:         vis != visShown,
-	}) {
-		liftClaimedAboveShell(hwnd)
+	//
+	// v0.71 test4 splits the policy by overlay class (diagnosis
+	// plan A): small (pierce) overlays keep the lift guard; the
+	// one full-screen (cover) overlay -- the Launchpad -- runs
+	// the mirror press pass instead, and its closing edge owes
+	// ONE restore lift so the desktop returns to its pre-overlay
+	// standing. Both passes are z-order only: they never show or
+	// hide a window, so the set machine, the solo book, the
+	// resident daemon-hide book (test3) and the park sweep are
+	// untouched -- the SetHidden fact stands both passes down
+	// while the set is tucked away, and hidden/iconic windows
+	// are never candidates.
+	shellUsable := platformWindowExists(hwnd) && !iconic && platformWindowVisible(hwnd)
+	fgShell := classifyForeground(hwnd) == fgShell
+	setHidden := vis != visShown
+	if overlayCoverLive() {
+		// Book this shell as press-owed: when the cover closes,
+		// the restore edge below is judged against the shell the
+		// Launchpad actually covered.
+		zPressShell = hwnd
+		if decideZPress(zPressFacts{
+			CoverLive:         true,
+			ForegroundIsShell: fgShell,
+			ShellUsable:       shellUsable,
+			SetHidden:         setHidden,
+		}) {
+			pressClaimedBelowShell(hwnd)
+		}
+	} else {
+		if zPressShell == hwnd {
+			// Falling edge: the last cover session just closed.
+			// Consume it either way -- a restore judged impossible
+			// now (set tucked away, shell unusable) is not owed
+			// later under a different desktop.
+			zPressShell = 0
+			if decideZRestore(zRestoreFacts{ShellUsable: shellUsable, SetHidden: setHidden}) {
+				liftClaimedAboveShell(hwnd)
+			}
+		}
+		if overlayLive() && decideZGuard(zGuardFacts{
+			OverlayLive:       true,
+			CoverLive:         false,
+			ForegroundIsShell: fgShell,
+			ShellUsable:       shellUsable,
+			SetHidden:         setHidden,
+		}) {
+			liftClaimedAboveShell(hwnd)
+		}
 	}
 }
+
+// zPressShell names the shell a cover-class overlay was live
+// over, as last seen by shellWatchTick: the watcher is a single
+// goroutine, so the book needs no lock. It is the falling-edge
+// memory for the restore pass -- a cover session that closes
+// while the tick is looking elsewhere (shell minimized, set
+// state changing) still gets its edge judged on a later tick,
+// and a shell that died in between never matches (its hwnd is
+// gone), so a stale edge can never fire under a new shell.
+var zPressShell uint64
 
 // ---------- birth settlement (placement + backdrop) ----------
 

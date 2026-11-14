@@ -251,10 +251,63 @@ func TestDecideZGuard(t *testing.T) {
 		{"前台是宿主程序→不守护", zGuardFacts{OverlayLive: true, ForegroundIsShell: false, ShellUsable: true}, false},
 		{"桌面最小化中→不守护", zGuardFacts{OverlayLive: true, ForegroundIsShell: true, ShellUsable: false}, false},
 		{"整套藏着→不守护（绝不和整套状态机打架）", zGuardFacts{OverlayLive: true, ForegroundIsShell: true, ShellUsable: true, SetHidden: true}, false},
+		{"覆盖浮层在场→不守护（压下 pass 接管，提回正是报修三的病根）", zGuardFacts{OverlayLive: true, CoverLive: true, ForegroundIsShell: true, ShellUsable: true}, false},
 	}
 	for _, c := range cases {
 		if got := decideZGuard(c.f); got != c.want {
 			t.Errorf("%s: decideZGuard(%+v) = %v, want %v", c.name, c.f, got, c.want)
+		}
+	}
+}
+
+// v0.71 test4: the overlay-class split (diagnosis plan A). The
+// classification is one name; everything else -- including
+// kinds this build has never heard of -- keeps the v0.62
+// small-overlay policy.
+func TestClassifyOverlay(t *testing.T) {
+	if got := classifyOverlay("launchpad"); got != overlayCover {
+		t.Errorf("classifyOverlay(launchpad) = %v, want cover", got)
+	}
+	for _, kind := range []string{"ctx", "cc", "nc", "menu", "spotlight", "missioncontrol", ""} {
+		if got := classifyOverlay(kind); got != overlayPierce {
+			t.Errorf("classifyOverlay(%q) = %v, want pierce", kind, got)
+		}
+	}
+}
+
+func TestDecideZPress(t *testing.T) {
+	on := zPressFacts{CoverLive: true, ForegroundIsShell: true, ShellUsable: true}
+	cases := []struct {
+		name string
+		f    zPressFacts
+		want bool
+	}{
+		{"启动台开+桌面在前台+桌面可用→压下", on, true},
+		{"没有覆盖浮层→不压（穿透浮层走提回守护）", zPressFacts{ForegroundIsShell: true, ShellUsable: true}, false},
+		{"前台是已认领窗口→不压（显式唤窗已接管舞台）", zPressFacts{CoverLive: true, ShellUsable: true}, false},
+		{"桌面最小化中→不压", zPressFacts{CoverLive: true, ForegroundIsShell: true, ShellUsable: false}, false},
+		{"整套藏着→不压（绝不和整套状态机打架）", zPressFacts{CoverLive: true, ForegroundIsShell: true, ShellUsable: true, SetHidden: true}, false},
+	}
+	for _, c := range cases {
+		if got := decideZPress(c.f); got != c.want {
+			t.Errorf("%s: decideZPress(%+v) = %v, want %v", c.name, c.f, got, c.want)
+		}
+	}
+}
+
+func TestDecideZRestore(t *testing.T) {
+	cases := []struct {
+		name string
+		f    zRestoreFacts
+		want bool
+	}{
+		{"桌面可用+整套在外→提回", zRestoreFacts{ShellUsable: true}, true},
+		{"桌面不可用→不提回", zRestoreFacts{}, false},
+		{"整套藏着→不提回（窗口归整套状态机）", zRestoreFacts{ShellUsable: true, SetHidden: true}, false},
+	}
+	for _, c := range cases {
+		if got := decideZRestore(c.f); got != c.want {
+			t.Errorf("%s: decideZRestore(%+v) = %v, want %v", c.name, c.f, got, c.want)
 		}
 	}
 }
@@ -449,6 +502,30 @@ func TestOverlaySessions(t *testing.T) {
 	if overlayLive() {
 		t.Fatal("empty overlay kind armed the guard")
 	}
+	// v0.71 test4: the cover class is tracked alongside: a pierce
+	// session alone never reads as cover, the Launchpad does,
+	// and a reset clears it like everything else.
+	if overlayCoverLive() {
+		t.Fatal("cover live with no sessions open")
+	}
+	overlaySession("spotlight", true)
+	if overlayCoverLive() {
+		t.Fatal("spotlight (pierce) read as cover")
+	}
+	overlaySession("launchpad", true)
+	if !overlayCoverLive() {
+		t.Fatal("launchpad session not cover-live")
+	}
+	overlaySession("launchpad", false)
+	if overlayCoverLive() {
+		t.Fatal("cover still live after launchpad closed")
+	}
+	overlaySession("launchpad", true)
+	overlaySession("*", false)
+	if overlayCoverLive() {
+		t.Fatal("cover still live after reset")
+	}
+	overlaySession("spotlight", false)
 }
 
 // v0.64 detail-fix ④: TWO Firefox processes of the SAME binary,

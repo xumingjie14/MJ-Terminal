@@ -478,6 +478,7 @@ export interface WebApp {
   url: string;
   winmode?: string;
   icon?: string;
+  themecolor?: string;
   locked?: boolean;
 }
 
