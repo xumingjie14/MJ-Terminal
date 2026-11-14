@@ -177,6 +177,7 @@ type residentAppState struct {
 	HidePending  bool      // a relaunch happened: hide its window when it registers
 	HiddenHWND   uint64    // the window we hid (0 = none / user is looking at it)
 	Warned       bool      // the deep-backoff warn already logged for this streak
+	Summoning    bool      // a user-summoned restore launch is in flight (v0.71 test3)
 }
 
 // residentBackoff is the delay before the NEXT relaunch
@@ -217,6 +218,132 @@ func residentDecide(st residentAppState, present bool, missingFor time.Duration,
 		return residentNone
 	}
 	return residentRelaunch
+}
+
+// ---------- Stage card state (v0.71 test3, layer 1) ----------
+
+// residentCardState is a locked app's Stage card state, one of
+// four -- the fourth exists so a crash-looping app never shows
+// a lying "restoring" forever (risk review §1).
+type residentCardState string
+
+const (
+	residentCardFront     residentCardState = "front"     // aligned window, on stage
+	residentCardBack      residentCardState = "back"      // aligned window, in the background
+	residentCardRestoring residentCardState = "restoring" // no window, engine bringing it back
+	residentCardUnstable  residentCardState = "unstable"  // no window, relaunches keep failing
+)
+
+// residentUnstableAttempts is the Attempts count at which a
+// windowless card stops saying 恢复中 and tells the truth --
+// the same threshold as the engine's deep-backoff warning.
+const residentUnstableAttempts = 4
+
+type residentCardFacts struct {
+	HasWindow     bool
+	WindowVisible bool // visible AND not minimized
+	Attempts      int
+}
+
+// decideResidentCardState is the card state rulebook, pure:
+// the Stage list handler derives every locked app's state from
+// ONE snapshot (lock set + registry + this book) through this
+// function -- no second source of truth may grow beside it
+// (L1-B1: two cadences would make cards flicker between
+// states, the same disjointedness this layer exists to kill).
+func decideResidentCardState(f residentCardFacts) residentCardState {
+	if f.HasWindow {
+		if f.WindowVisible {
+			return residentCardFront
+		}
+		return residentCardBack
+	}
+	if f.Attempts >= residentUnstableAttempts {
+		return residentCardUnstable
+	}
+	return residentCardRestoring
+}
+
+// residentRemapHiddenBook folds the hidden-window book across
+// an alignment change (L1-I2): the aligned window is picked by
+// identity and CAN change under the book (the window we hid
+// died; a sibling window of the same app took over the
+// alignment). A hide debt naming any other window is void --
+// it must never be pinned on a window we cannot prove we hid.
+func residentRemapHiddenBook(hiddenHWND, alignedHWND uint64) uint64 {
+	if hiddenHWND == alignedHWND {
+		return hiddenHWND
+	}
+	return 0
+}
+
+// residentBookSnapshot copies the runtime book for readers
+// that must not hold the lock while sampling the OS (the Stage
+// list handler).
+func residentBookSnapshot() map[string]residentAppState {
+	residentSt.Lock()
+	defer residentSt.Unlock()
+	out := make(map[string]residentAppState, len(residentSt.apps))
+	for u, st := range residentSt.apps {
+		out[u] = *st
+	}
+	return out
+}
+
+// residentHiddenSet returns the windows the engine currently
+// books as daemon-hidden (presentSweep's DaemonHidden fact).
+func residentHiddenSet() map[uint64]bool {
+	residentSt.Lock()
+	defer residentSt.Unlock()
+	out := map[uint64]bool{}
+	for _, st := range residentSt.apps {
+		if st.HiddenHWND != 0 {
+			out[st.HiddenHWND] = true
+		}
+	}
+	return out
+}
+
+// daemonHideWindow is THE daemon-intentional hide of a locked
+// app's window, shared by every trigger: the patrol's relaunch
+// hide, the close interception (× / Alt+F4) and the Stage
+// menu's translated close. L2-B1/HS-13: a deliberate hide is a
+// first-class fact for the presentation bookkeeping -- the
+// birth-presentation marks are cleared, the anti-re-cover
+// sweep stood down and the solo book dropped IN THE SAME
+// BREATH, so no other mechanism can "helpfully" re-raise or
+// resurrect a window the daemon just tucked away. via names
+// the trigger for the console line.
+func daemonHideWindow(hwnd uint64, lockURL, via string) bool {
+	extMu.Lock()
+	e, ok := extWins[hwnd]
+	if ok {
+		e.presentPending = false
+		e.presentExpect = false
+	}
+	extMu.Unlock()
+	if !ok {
+		return false
+	}
+	raiseSweepCancel(hwnd)
+	soloForget(hwnd)
+	if !platformHideWindow(hwnd) {
+		logf("browser", "warn", "锁住后台：%s 的窗口隐藏失败（%s），将在下个巡逻周期重试", residentName(lockURL), via)
+		return false
+	}
+	extMu.Lock()
+	if e, ok := extWins[hwnd]; ok {
+		e.hiddenClaim = true
+	}
+	extMu.Unlock()
+	residentSt.Lock()
+	if st := residentSt.apps[lockURL]; st != nil {
+		st.HiddenHWND = hwnd
+		st.HidePending = false
+	}
+	residentSt.Unlock()
+	logf("browser", "info", "锁住后台：%s 已转入后台运行（%s）", residentName(lockURL), via)
+	return true
 }
 
 // ---------- engine ----------
@@ -351,6 +478,10 @@ func residentTick() {
 	now := time.Now()
 	names := residentNameIndex(locks)
 	var launches []string
+	var hides []struct {
+		hwnd uint64
+		url  string
+	}
 	residentSt.Lock()
 	for u := range locks {
 		st := residentSt.apps[u]
@@ -364,6 +495,11 @@ func residentTick() {
 			st.Attempts = 0
 			st.Warned = false
 			st.NextTry = time.Time{}
+			st.Summoning = false // a summoned window has landed
+			// L1-I2: the alignment may have moved to a sibling
+			// window under the book -- a hide debt naming any
+			// other window is void, never pinned on this one.
+			st.HiddenHWND = residentRemapHiddenBook(st.HiddenHWND, win.HWND)
 			if st.HiddenHWND == win.HWND && platformWindowVisible(win.HWND) {
 				// The user raised it (Stage card click shows
 				// as part of the raise): residency steps back.
@@ -372,18 +508,10 @@ func residentTick() {
 			}
 			if residentDecide(*st, true, 0, now, bootedAt) == residentHide {
 				st.HidePending = false
-				if platformHideWindow(win.HWND) {
-					st.HiddenHWND = win.HWND
-					extMu.Lock()
-					if e, ok := extWins[win.HWND]; ok {
-						e.hiddenClaim = true
-					}
-					extMu.Unlock()
-					logf("browser", "info", "锁住后台：%s 已转入后台运行", residentName(u))
-				} else {
-					logf("browser", "warn", "锁住后台：%s 的窗口隐藏失败，将在下个巡逻周期重试", residentName(u))
-					st.HidePending = true
-				}
+				hides = append(hides, struct {
+					hwnd uint64
+					url  string
+				}{win.HWND, u})
 			}
 			continue
 		}
@@ -392,6 +520,13 @@ func residentTick() {
 		}
 		if st.MissingSince.IsZero() {
 			st.MissingSince = now
+		}
+		if st.Summoning {
+			// A user-summoned restore launch is in flight: its
+			// window is on its way and must be PRESENTED when
+			// it lands, so the engine neither launches a
+			// second copy nor arms a hide for it.
+			continue
 		}
 		if residentDecide(*st, false, now.Sub(st.MissingSince), now, bootedAt) == residentRelaunch {
 			st.Attempts++
@@ -407,6 +542,21 @@ func residentTick() {
 		}
 	}
 	residentSt.Unlock()
+	// Hides run outside the book lock through the one shared
+	// hide path (daemonHideWindow), so a patrol hide carries
+	// the same presentation bookkeeping as an intercepted
+	// close. A failed hide re-arms HidePending for the next
+	// tick, as before.
+	for _, hd := range hides {
+		if daemonHideWindow(hd.hwnd, hd.url, "常驻引擎") {
+			continue
+		}
+		residentSt.Lock()
+		if st := residentSt.apps[hd.url]; st != nil {
+			st.HidePending = true
+		}
+		residentSt.Unlock()
+	}
 	for _, u := range launches {
 		if residentLaunch(u) {
 			continue
@@ -457,6 +607,108 @@ func residentLaunch(rawURL string) bool {
 	return true
 }
 
+// ---------- immediate restore (v0.71 test3, HS-4) ----------
+
+// residentRestore performs the windowless card's click: an
+// immediate, user-summoned bring-up of a locked app whose
+// window is gone. It clears the backoff gate and any armed
+// HidePending (an in-flight patrol relaunch then simply lands
+// PRESENTED instead of hidden -- the v0.71 F3 lesson: a stale
+// hide must never eat a window the user asked for), resets the
+// failure streak (a human retry is a fresh start), and
+// launches at most one window per URL at a time.
+func residentRestore(rawURL string) {
+	residentSt.Lock()
+	st := residentSt.apps[rawURL]
+	if st == nil {
+		st = &residentAppState{}
+		residentSt.apps[rawURL] = st
+	}
+	if st.Summoning {
+		residentSt.Unlock()
+		return // a summon is already in flight for this app
+	}
+	if st.HidePending {
+		// A patrol relaunch is already on its way: the whole
+		// job is disarming its hide.
+		st.HidePending = false
+		st.NextTry = time.Time{}
+		residentSt.Unlock()
+		logf("browser", "info", "锁住后台：%s 正在恢复的窗口已改为直接显示（撤销待隐藏）", residentName(rawURL))
+		return
+	}
+	st.Attempts = 0
+	st.Warned = false
+	st.NextTry = time.Time{}
+	st.MissingSince = time.Now().Add(-residentConfirm - time.Second)
+	st.Summoning = true
+	residentSt.Unlock()
+	go func() {
+		ok := residentLaunch(rawURL)
+		residentSt.Lock()
+		if st := residentSt.apps[rawURL]; st != nil {
+			st.Summoning = false
+			if !ok {
+				// Restart the disappearance clock: the patrol
+				// retries by the book instead of spinning.
+				st.MissingSince = time.Now()
+			}
+		}
+		residentSt.Unlock()
+		if !ok {
+			logf("browser", "warn", "锁住后台：%s 立即恢复启动失败，常驻引擎将按退避重试", residentName(rawURL))
+		}
+	}()
+	logf("browser", "info", "锁住后台：%s 已从台前调度立即恢复", residentName(rawURL))
+}
+
+// ---------- unlock closing invariant (v0.71 test3, HS-6) ----------
+
+// residentUnlockShow performs the unlock closing invariant
+// (L1-I5): BEFORE the lock is dropped, the app's aligned
+// window must end up visible or owned by a window-set ledger
+// (the group set book / the solo book) -- never an unbooked
+// invisible orphan. That hole exists in test2 today: patrol
+// hides a window, the user unlocks, the book is deleted, and
+// the hidden window belongs to nobody. Called with the lock
+// still in place (alignment needs it); the Stage menu and the
+// Settings page share this one closing path through
+// webAppLockHandler.
+func residentUnlockShow(rawURL string) {
+	locks := webAppLockSet()
+	names := residentNameIndex(locks)
+	extMu.Lock()
+	wins := make([]*extWindow, 0, len(extWins))
+	for _, e := range extWins {
+		cp := *e
+		wins = append(wins, &cp)
+	}
+	extMu.Unlock()
+	win := findResidentWindow(wins, locks, names, rawURL)
+	if win == nil {
+		return
+	}
+	if platformWindowVisible(win.HWND) {
+		return // already on the desktop (minimized counts: WS_VISIBLE stands)
+	}
+	if grpOwnsHidden(win.HWND) || soloOwns(win.HWND) {
+		return // a set ledger owns it; its restore paths surface it
+	}
+	if platformShowBackWindow(win.HWND) {
+		extMu.Lock()
+		if e, ok := extWins[win.HWND]; ok {
+			e.hiddenClaim = false
+		}
+		extMu.Unlock()
+		residentSt.Lock()
+		if st := residentSt.apps[rawURL]; st != nil && st.HiddenHWND == win.HWND {
+			st.HiddenHWND = 0
+		}
+		residentSt.Unlock()
+		logf("browser", "info", "锁住后台：解除锁住时，%s 的窗口已从后台显示回来", residentName(rawURL))
+	}
+}
+
 // ---------- HTTP ----------
 
 // webAppLockHandler serves /api/webapps/lock:
@@ -468,15 +720,25 @@ func residentLaunch(rawURL string) bool {
 //	GET -- the current lock set (the Settings list renders
 //	  names from the ledger and falls back to the host for
 //	  a locked URL that is not a ledger entry).
+//
+// lockResponse builds the lock endpoints' shared answer: the
+// sorted lock set plus the close-becomes-hide layer's live
+// state, so the Settings list can show "关窗变藏未生效"
+// honestly when the hook install failed (v0.71 test3, HS-14).
+func lockResponse() webAppLockResponse {
+	set := webAppLockSet()
+	locks := make([]string, 0, len(set))
+	for k := range set {
+		locks = append(locks, k)
+	}
+	sort.Strings(locks)
+	active, degraded := interceptCloseHideState()
+	return webAppLockResponse{OK: true, Locks: locks, CloseHide: active, CloseHideDegraded: degraded}
+}
+
 func webAppLockHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
-		set := webAppLockSet()
-		locks := make([]string, 0, len(set))
-		for k := range set {
-			locks = append(locks, k)
-		}
-		sort.Strings(locks)
-		writeJSON(w, webAppLockResponse{OK: true, Locks: locks})
+		writeJSON(w, lockResponse())
 		return
 	}
 	if r.Method != http.MethodPost {
@@ -495,6 +757,13 @@ func webAppLockHandler(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		apiErrBadRequest(w, errCodeBadRequest, "网址不对")
 		return
+	}
+	if !body.On {
+		// HS-6 closing invariant: while the lock still stands
+		// (alignment needs it), bring the app's window back to
+		// visibility or confirm a set ledger owns it -- the
+		// unlock must never strand an invisible orphan window.
+		residentUnlockShow(u)
 	}
 	if err := settingsSetWebAppLock(u, body.On); err != nil {
 		logf("browser", "error", "锁住后台：保存失败（%s）：%v", u, err)
@@ -515,11 +784,56 @@ func webAppLockHandler(w http.ResponseWriter, r *http.Request) {
 		residentSt.Unlock()
 		logf("browser", "info", "锁住后台：已解除 %s（%s）的锁住——之后关窗即真关", name, u)
 	}
-	set := webAppLockSet()
-	locks := make([]string, 0, len(set))
-	for k := range set {
-		locks = append(locks, k)
+	resp := lockResponse()
+	resp.URL = u
+	resp.Locked = body.On
+	writeJSON(w, resp)
+}
+
+// webAppRestoreHandler serves POST /api/webapps/restore
+// {url}: the windowless Stage card's click (v0.71 test3,
+// HS-4) -- an immediate, user-summoned bring-up of a locked
+// app whose window is gone. Registered on the LOCAL mux only:
+// the remote-assist surface must never gain the power to raise
+// browser windows on this machine (the same rule the thumb
+// endpoint follows).
+func webAppRestoreHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeAPIError(w, http.StatusMethodNotAllowed, errCodeMethod, "只接受 POST")
+		return
 	}
-	sort.Strings(locks)
-	writeJSON(w, webAppLockResponse{OK: true, URL: u, Locked: body.On, Locks: locks})
+	var body struct {
+		URL string `json:"url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		apiErrBadRequest(w, errCodeBadJSON, "请求格式不对")
+		return
+	}
+	u, ok := normalizeWebURL(body.URL)
+	if !ok {
+		apiErrBadRequest(w, errCodeBadRequest, "网址不对")
+		return
+	}
+	locks := webAppLockSet()
+	if !winURLLocked(locks, u) {
+		apiErrBadRequest(w, errCodeBadRequest, "这个应用没有锁住后台")
+		return
+	}
+	// A window may have landed a beat after the card painted:
+	// then there is nothing to summon, and the strip re-derives
+	// the card as a window card on its next poll.
+	names := residentNameIndex(locks)
+	extMu.Lock()
+	wins := make([]*extWindow, 0, len(extWins))
+	for _, e := range extWins {
+		cp := *e
+		wins = append(wins, &cp)
+	}
+	extMu.Unlock()
+	if findResidentWindow(wins, locks, names, u) != nil {
+		writeJSON(w, webAppRestoreResponse{OK: true, Present: true})
+		return
+	}
+	residentRestore(u)
+	writeJSON(w, webAppRestoreResponse{OK: true})
 }

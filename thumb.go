@@ -122,7 +122,46 @@ var (
 	// (reason, window) per daemon run is signal; the strip
 	// polls every few seconds and would drown the console.
 	thumbLogSeen = map[string]bool{}
+	// thumbBornAt stamps each window's first thumbKick (its
+	// claim/registration moment) for the newborn grace below.
+	thumbBornAt = map[uint64]time.Time{}
 )
+
+// Test seams (the raiseSweepSchedule idiom): the handler's
+// capture, support and visibility reads go through these so
+// the protocol tests can drive a supported, visible, failing
+// platform on any OS.
+var (
+	thumbCaptureFn    = platformCaptureWindowFrame
+	thumbVisibleFn    = platformWindowVisible
+	thumbSupportedDyn = thumbSupported
+)
+
+// thumbGrace is the newborn window's capture grace (v0.71
+// test3, T-I2): failures inside this window after registration
+// race the landing/settle dance, so they are counted but can
+// never condemn the window.
+const thumbGrace = 2 * time.Second
+
+// thumbFailStep folds one failed capture into the failure
+// book: the count is capped at the dead threshold (the book
+// stays honest no matter how often a dead window is poked),
+// and died reports the alive -> dead TRANSITION -- the only
+// moment the "switching to the identity card" line may be
+// logged. v0.71 test3 (T-B1): the per-window log budget --
+// first failure, one line; transition, one line; then silence
+// -- is an invariant of this function, not a courtesy the
+// request paths have to remember.
+func thumbFailStep(fails int, dead bool) (int, bool, bool) {
+	if dead {
+		return fails, true, false
+	}
+	fails++
+	if fails >= thumbMaxFails {
+		return thumbMaxFails, true, true
+	}
+	return fails, false, false
+}
 
 // thumbLogOnce logs a preview refusal/failure reason in the
 // [thumb] module, once per reason+key per daemon run.
@@ -159,7 +198,12 @@ func thumbEntryFor(hwnd uint64) *thumbEntry {
 // recordCapture folds one capture attempt's outcome into the
 // cache: success installs the frame and resets the failure
 // count; failure counts toward the dead threshold and logs the
-// reason (once) in the [thumb] module.
+// reason (once) in the [thumb] module. v0.71 test3: the dead
+// line fires on the alive -> dead TRANSITION only (T-B1 --
+// before, the bare logf below re-fired on every later failure
+// and a hidden window produced 50+ identical console lines),
+// the count is capped, and a failure inside the newborn grace
+// is counted but never condemns (T-I2).
 func recordCapture(hwnd uint64, frame []byte, err error) {
 	thumbMu.Lock()
 	ent := thumbEntryFor(hwnd)
@@ -168,10 +212,15 @@ func recordCapture(hwnd uint64, frame []byte, err error) {
 		thumbMu.Unlock()
 		return
 	}
-	ent.fails++
+	var died bool
+	if born, ok := thumbBornAt[hwnd]; ok && time.Since(born) < thumbGrace {
+		if ent.fails < thumbMaxFails {
+			ent.fails++
+		}
+	} else {
+		ent.fails, ent.dead, died = thumbFailStep(ent.fails, ent.dead)
+	}
 	ent.at = time.Now()
-	dead := ent.fails >= thumbMaxFails
-	ent.dead = dead
 	thumbMu.Unlock()
 	extMu.Lock()
 	label := ""
@@ -184,7 +233,7 @@ func recordCapture(hwnd uint64, frame []byte, err error) {
 		return
 	}
 	thumbLogOnce("capture-failed", fmt.Sprint(hwnd), "台前调度预览：窗口抓图失败（%s，hwnd %d）：%v", label, hwnd, err)
-	if dead {
+	if died {
 		logf("thumb", "warn", "台前调度预览：窗口 %d（%s）连续抓图失败 %d 次，本会话改用标识卡片", hwnd, label, thumbMaxFails)
 	}
 }
@@ -214,63 +263,100 @@ func extWinThumbHandler(w http.ResponseWriter, r *http.Request) {
 			"台前调度预览：hwnd %d 不在台前调度的在册窗口里，不给抓图", hwnd)
 		return
 	}
+	visible := thumbVisibleFn(hwnd)
+	iconic := platformWindowIconic(hwnd)
+	thumbMu.Lock()
+	ent := thumbEntryFor(hwnd)
+	dead := ent.dead
+	frame, ver := ent.frame, ent.ver
+	thumbMu.Unlock()
+	// v0.71 test3 (T-B2): dead is dead -- the verdict precedes
+	// the fresh branch (a fresh=1 request used to recapture a
+	// condemned window, fail, fall through and capture a SECOND
+	// time on the first-frame path: two recordCaptures per
+	// request, one log line per second, forever).
+	if dead {
+		thumbRefuse(w, http.StatusNotFound, "capture-failed", fmt.Sprint(hwnd),
+			"台前调度预览：窗口 %d（%s）抓图已多次失败，跳过", hwnd, label)
+		return
+	}
+	attempted := false
 	// fresh=1 (the strip just opened): recapture synchronously
 	// even when a frame is cached, so the strip's first paint is
 	// current. A failed attempt falls through to the cached
-	// frame below rather than refusing.
-	if fresh && thumbSupported && !platformWindowIconic(hwnd) {
-		frame, capErr := platformCaptureWindowFrame(hwnd, thumbMaxWidth)
-		recordCapture(hwnd, frame, capErr)
-		if capErr == nil && len(frame) > 0 {
-			serveThumbFrame(w, r, frame, frameVersion(frame))
+	// frame below rather than refusing -- but never to a second
+	// attempt: one request, at most one capture (T-B2).
+	if fresh && thumbSupportedDyn && visible && !iconic {
+		attempted = true
+		fr, capErr := thumbCaptureFn(hwnd, thumbMaxWidth)
+		recordCapture(hwnd, fr, capErr)
+		if capErr == nil && len(fr) > 0 {
+			serveThumbFrame(w, r, fr, frameVersion(fr))
 			return
 		}
+		thumbMu.Lock()
+		ent = thumbEntryFor(hwnd)
+		frame, ver = ent.frame, ent.ver
+		thumbMu.Unlock()
 	}
-	thumbMu.Lock()
-	ent := thumbEntryFor(hwnd)
-	if ent.frame != nil {
+	if frame != nil {
 		// A cached frame is served even on a platform that
 		// cannot capture new ones (and, on Windows, while a
-		// refresh runs in the background).
+		// refresh runs in the background). The async refresh is
+		// dispatched only for a live capture target: not dead
+		// (T-B3), not hidden (T-I1 -- a hidden window keeps its
+		// last frame and costs no attempts).
+		thumbMu.Lock()
+		ent = thumbEntryFor(hwnd)
 		ttl := thumbTTL
 		if live {
 			ttl = thumbLiveTTL
 		}
 		stale := time.Since(ent.at) > ttl
-		if stale && !ent.capturing && thumbSupported {
+		if stale && !ent.capturing && !ent.dead && thumbSupportedDyn && visible {
 			ent.capturing = true
 			go captureThumb(hwnd)
 		}
-		frame, ver := ent.frame, ent.ver
 		thumbMu.Unlock()
 		serveThumbFrame(w, r, frame, ver)
 		return
 	}
-	if ent.dead {
-		thumbMu.Unlock()
-		thumbRefuse(w, http.StatusNotFound, "capture-failed", fmt.Sprint(hwnd),
-			"台前调度预览：窗口 %d（%s）抓图已多次失败，跳过", hwnd, label)
-		return
-	}
-	thumbMu.Unlock()
-	if !thumbSupported {
+	if !thumbSupportedDyn {
 		thumbRefuse(w, http.StatusNotFound, "unsupported", "platform",
 			"台前调度预览：当前平台不支持窗口抓图")
+		return
+	}
+	// v0.71 test3 (T-I1): a HIDDEN window sits on the minimized
+	// rung -- a transient no-capture state, never a failure and
+	// never counted. PrintWindow cannot read a SW_HIDE window
+	// (the resident engine's hidden apps are structurally
+	// uncapturable); before this check the handler knew only
+	// iconic and burned a failure per poll on every hidden app.
+	if !visible {
+		w.Header().Set("X-Thumb-Reason", "hidden")
+		http.Error(w, "thumb: hidden", http.StatusNotFound)
 		return
 	}
 	// No frame yet. A minimized window has nothing to capture;
 	// that is a normal, retryable state -- NOT a failure, and
 	// the view must not ban the window for it.
-	if platformWindowIconic(hwnd) {
+	if iconic {
 		w.Header().Set("X-Thumb-Reason", "minimized")
 		http.Error(w, "thumb: minimized", http.StatusNotFound)
+		return
+	}
+	if attempted {
+		// The one attempt this request was allowed already
+		// failed and there is no cached frame to fall back to.
+		thumbRefuse(w, http.StatusNotFound, "capture-failed", fmt.Sprint(hwnd),
+			"台前调度预览：窗口 %d（%s）抓图失败", hwnd, label)
 		return
 	}
 	// First frame: capture synchronously (test1's async-first-
 	// 404 is what killed every preview). PrintWindow on a
 	// strip-sized window is fast; the strip's first paint waits
 	// a few hundred ms per NEW window at worst.
-	frame, capErr := platformCaptureWindowFrame(hwnd, thumbMaxWidth)
+	frame, capErr := thumbCaptureFn(hwnd, thumbMaxWidth)
 	recordCapture(hwnd, frame, capErr)
 	if capErr != nil || len(frame) == 0 {
 		reason := "capture-failed"
@@ -301,8 +387,9 @@ func serveThumbFrame(w http.ResponseWriter, r *http.Request, frame []byte, ver s
 }
 
 // captureThumb is the async refresher for windows that already
-// have a frame (stale-while-revalidate). A minimized window
-// keeps its last good frame silently.
+// have a frame (stale-while-revalidate). A minimized or hidden
+// window keeps its last good frame silently; a dead entry is
+// never retried from here (v0.71 test3, T-B3/T-I1).
 func captureThumb(hwnd uint64) {
 	defer func() {
 		thumbMu.Lock()
@@ -311,26 +398,42 @@ func captureThumb(hwnd uint64) {
 		}
 		thumbMu.Unlock()
 	}()
-	if platformWindowIconic(hwnd) {
+	thumbMu.Lock()
+	if ent := thumbCache[hwnd]; ent != nil && ent.dead {
+		thumbMu.Unlock()
+		return
+	}
+	thumbMu.Unlock()
+	if platformWindowIconic(hwnd) || !thumbVisibleFn(hwnd) {
 		thumbMu.Lock()
 		if ent := thumbCache[hwnd]; ent != nil {
-			ent.at = time.Now() // do not retry every poll while minimized
+			ent.at = time.Now() // do not retry every poll while minimized/hidden
 		}
 		thumbMu.Unlock()
 		return
 	}
-	frame, err := platformCaptureWindowFrame(hwnd, thumbMaxWidth)
+	frame, err := thumbCaptureFn(hwnd, thumbMaxWidth)
 	recordCapture(hwnd, frame, err)
 }
 
 // thumbKick marks a window's frame stale so the next request
 // recaptures: called when a window is newly claimed or raised
 // (winmgr), so a window the user just brought forward never
-// greets them with its pre-raise picture.
+// greets them with its pre-raise picture. v0.71 test3: the
+// first kick also stamps the newborn-grace clock, and a kick
+// REVIVES a dead entry (revival port 2 of 3 -- re-registration
+// and a successful capture are the others): a window the user
+// personally summoned gets one honest retry instead of a
+// session-long ban.
 func thumbKick(hwnd uint64) {
 	thumbMu.Lock()
+	if _, ok := thumbBornAt[hwnd]; !ok {
+		thumbBornAt[hwnd] = time.Now()
+	}
 	if ent := thumbCache[hwnd]; ent != nil {
 		ent.at = time.Time{}
+		ent.dead = false
+		ent.fails = 0
 	}
 	thumbMu.Unlock()
 }
@@ -379,9 +482,19 @@ func thumbLiveSweeper() {
 
 // thumbForget drops a window's cached frame (called when the
 // window leaves the registry, so a recycled HWND can never
-// show the previous window's picture).
+// show the previous window's picture). v0.71 test3 (T-S1): the
+// recycled handle also sheds this window's log-once
+// suppressions and grace stamp -- a new window must not
+// inherit an old one's silence.
 func thumbForget(hwnd uint64) {
 	thumbMu.Lock()
 	delete(thumbCache, hwnd)
+	delete(thumbBornAt, hwnd)
+	suffix := "|" + fmt.Sprint(hwnd)
+	for k := range thumbLogSeen {
+		if strings.HasSuffix(k, suffix) {
+			delete(thumbLogSeen, k)
+		}
+	}
 	thumbMu.Unlock()
 }

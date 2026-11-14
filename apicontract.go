@@ -170,6 +170,18 @@ type webAppLockResponse struct {
 	URL    string   `json:"url"`
 	Locked bool     `json:"locked"`
 	Locks  []string `json:"locks"`
+	// v0.71 test3: the close-becomes-hide layer's live state,
+	// so 设置 → 通知 can say honestly when it is not in force.
+	CloseHide         bool `json:"closeHide"`
+	CloseHideDegraded bool `json:"closeHideDegraded,omitempty"`
+}
+
+// webAppRestoreResponse is POST /api/webapps/restore (v0.71
+// test3): Present=true means a window had already landed by
+// the time the click arrived -- nothing was summoned.
+type webAppRestoreResponse struct {
+	OK      bool `json:"ok"`
+	Present bool `json:"present,omitempty"`
 }
 
 // changelogEntry is one release's notes in the in-app
@@ -542,6 +554,7 @@ var apiContractTypes = []contractType{
 	{"TaskMgrResponse", reflect.TypeOf(taskMgrResponse{})},
 	{"WebAppProbeResponse", reflect.TypeOf(webAppProbeResponse{})},
 	{"WebAppLockResponse", reflect.TypeOf(webAppLockResponse{})},
+	{"WebAppRestoreResponse", reflect.TypeOf(webAppRestoreResponse{})},
 	{"ChangelogResponse", reflect.TypeOf(changelogResponse{})},
 	{"RestartHintResponse", reflect.TypeOf(restartHintResponse{})},
 }

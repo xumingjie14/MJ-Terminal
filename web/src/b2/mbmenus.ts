@@ -134,7 +134,7 @@ export async function buildWinMenu(){
   return w&&!w.classList.contains('hidden');
  });
  let ext=[];
- try{ const r=await api('/api/extwin'); ext=(r.windows||[]).filter(x=>!x.shell); }catch(e){}
+ try{ const r=await api('/api/extwin'); ext=(r.windows||[]).filter(x=>!x.shell&&x.hwnd>0); }catch(e){} /* v0.71 test3: no menu entry for windowless (lock-pinned) apps -- there is no window to focus */
  if(inSys.length||ext.length) items.push(mbSep());
  inSys.forEach(a=>{
   const front=stageOn()?frontApp===a.id:(aw&&aw.id==='win-'+a.id);

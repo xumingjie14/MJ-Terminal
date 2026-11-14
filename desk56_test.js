@@ -207,7 +207,7 @@ function baseData() {
     out.ctxNoIcon = !ctxItemHTML({act:'x', label:'打开'}).includes('ctxic');
     const win1 = {hwnd: 111, title: 'Chat — X', app: 'Chrome', ikind: 'chrome', url: 'https://x.com'};
     out.prevCard = extCardHTML(win1, true);
-    thumbBad.add(222);
+    thumbBad.add('h:222'); /* v0.71 test3: thumbBad keys are card keys now */
     out.badCard = extCardHTML({hwnd: 222, title: 'T', app: 'A', ikind: ''}, true);
     WEBAPPS = [{name: '旧名', url: 'https://x.com'}];
     showItemCtx(10, 10, 'web:https://x.com');
@@ -297,6 +297,75 @@ function baseData() {
   assert(probe3.postsJoined.includes('/api/extwin/focus {"hwnd":101}'), 'clicking card 101 posts its own hwnd to /api/extwin/focus');
   assert(probe3.postsJoined.includes('/api/view/overlay') && probe3.postsJoined.includes('"kind":"ctx"') && probe3.postsJoined.includes('"on":true'), 'opening the card menu reports the ctx overlay session (⑤)');
   assert(probe3.postsJoined.includes('"on":false'), 'hideCtx reports the ctx overlay close (⑤)');
+
+  /* ----- v0.71 test3 additions (layer 1, L1-B2 / L2-I4) -----
+     * A locked app's Stage card outlives its window: when the
+     * window dies, the daemon lists the app windowless and the
+     * SAME DOM node crosses to the 'u:' key showing 恢复中；
+     * when the window is reborn under a new handle the same
+     * node crosses back. A windowless card's click posts to
+     * /api/webapps/restore instead of focusing a dead handle,
+     * its menu offers 立即恢复 / 取消锁住后台 only, and a locked
+     * window's own menu says 隐藏到后台， never 关闭窗口. */
+  const probe4 = await vm.runInContext(`(async function(){
+    const out = { posts: [] };
+    const origFetch = fetch;
+    const U = 'https://tg.example.com/';
+    let stage = 0;
+    const frames = [
+      { windows: [ { hwnd: 201, title: 'TG', app: 'Telegram', ikind: 'site', url: U, locked: true, lockurl: U, resident: 'front' } ] },
+      { windows: [ { hwnd: 0, title: '', app: 'Telegram', url: U, locked: true, lockurl: U, resident: 'restoring' } ] },
+      { windows: [ { hwnd: 202, title: 'TG', app: 'Telegram', ikind: 'site', url: U, locked: true, lockurl: U, resident: 'front' } ] },
+    ];
+    fetch = async (url, opts) => {
+      const p = String(url).split('?')[0];
+      if (p === '/api/extwin' && !(opts && opts.method === 'POST')) {
+        const t = JSON.stringify(frames[stage]);
+        return { ok: true, status: 200, text: async () => t, json: async () => JSON.parse(t) };
+      }
+      if (opts && opts.method === 'POST') { out.posts.push(p + ' ' + (opts.body || '')); return { ok: true, status: 200, text: async () => '{}', json: async () => ({}) }; }
+      return origFetch(url, opts);
+    };
+    hideCtx();
+    SETTINGS.stageManager = true;
+    SETTINGS.stageDisplay = 'identity';
+    await refreshExtStrip();
+    const strip = document.getElementById('extstrip');
+    out.children1 = strip.children.length;
+    const before = strip.children.find(c => String(c.dataset.hwnd) === '201');
+    out.key1 = before && before.dataset.key;
+    if (before) { before.oncontextmenu({ preventDefault(){}, stopPropagation(){}, clientX: 10, clientY: 10 }); out.lockedMenu = ctxEl.innerHTML; hideCtx(); }
+    stage = 1;
+    await refreshExtStrip();
+    out.children2 = strip.children.length;
+    const ghost = strip.children.find(c => c.dataset.key === 'u:' + U);
+    out.sameNodeGhost = !!ghost && ghost === before;
+    out.ghostHwnd = ghost && ghost.dataset.hwnd;
+    out.ghostText = ghost && ghost.innerHTML; /* the fake DOM's textContent is a plain '' property; innerHTML is the readable surface */
+    if (ghost) { ghost.oncontextmenu({ preventDefault(){}, stopPropagation(){}, clientX: 10, clientY: 10 }); out.ghostMenu = ctxEl.innerHTML; hideCtx(); await ghost.onclick(); }
+    stage = 2;
+    await refreshExtStrip();
+    const back = strip.children.find(c => String(c.dataset.hwnd) === '202');
+    out.sameNodeBack = !!back && back === before;
+    out.keyBack = back && back.dataset.key;
+    fetch = origFetch;
+    SETTINGS.stageManager = false;
+    await refreshExtStrip();
+    out.postsJoined = out.posts.join('|');
+    return out;
+  })()`, sandbox);
+
+  assert.strictEqual(probe4.children1, 2, 'one locked window renders a label + one card');
+  assert.strictEqual(probe4.key1, 'h:201', 'a windowed card is keyed by its handle');
+  assert(probe4.lockedMenu && probe4.lockedMenu.includes('隐藏到后台') && !probe4.lockedMenu.includes('关闭窗口'), 'a locked window menu offers 隐藏到后台 and never 关闭窗口 (L2-I4)');
+  assert.strictEqual(probe4.children2, 2, 'the windowless app keeps exactly one card (no vanish, no duplicate)');
+  assert(probe4.sameNodeGhost, 'the SAME DOM node becomes the windowless card when the window dies (L1-B2)');
+  assert(probe4.ghostText && probe4.ghostText.includes('恢复中'), 'the windowless card shows 恢复中');
+  assert.strictEqual(probe4.ghostHwnd, undefined, 'the windowless card carries no stale handle');
+  assert(probe4.ghostMenu && probe4.ghostMenu.includes('立即恢复') && probe4.ghostMenu.includes('取消锁住后台'), 'the windowless menu offers 立即恢复 / 取消锁住后台 only');
+  assert(probe4.postsJoined.includes('/api/webapps/restore'), 'clicking the windowless card posts to /api/webapps/restore');
+  assert(probe4.sameNodeBack, 'the SAME DOM node becomes the window card again when the window is reborn (L1-B2)');
+  assert.strictEqual(probe4.keyBack, 'h:202', 'the reborn card is keyed by the new handle');
 
   console.log('desk56_test: all assertions passed');
   process.exit(0);

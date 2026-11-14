@@ -260,6 +260,16 @@ func grpIsHidden() bool {
 	return grpVis != visShown
 }
 
+// grpOwnsHidden reports whether the group set book currently
+// owns this window's hidden state (v0.71 test3: the unlock
+// invariant consults it -- a window the set machine hid is
+// accounted for, not an orphan).
+func grpOwnsHidden(hwnd uint64) bool {
+	grpMu.Lock()
+	defer grpMu.Unlock()
+	return grpHidden[hwnd]
+}
+
 // grpIsBossHidden reports whether the set is currently tucked
 // away by the boss key specifically (v0.52).
 func grpIsBossHidden() bool {
@@ -919,6 +929,14 @@ type presentFacts struct {
 	Foreground    bool // the window IS the foreground window now
 	AboveShell    bool // ... AND sits above the desktop view in z-order
 	Iconic        bool // minimized: cannot count as on stage
+	// DaemonHidden (v0.71 test3, L2-B1): the daemon itself hid
+	// this window on purpose (锁住后台's daemonHideWindow) --
+	// presentation is not owed to a window we tucked away, and
+	// the sweep must never "helpfully" raise it back. The hide
+	// path also clears the pending marks synchronously; this
+	// fact is the belt for windows whose marks were (re)armed
+	// by a settle that raced the hide.
+	DaemonHidden bool
 	// Immersed is carried deliberately as a NON-input (v0.54):
 	// immersion (v0.45) restyles the window, but presentation is
 	// owed exactly the same with it on or off -- the field
@@ -959,6 +977,9 @@ func decidePresentRetry(f presentFacts) presentAction {
 	if f.SetHidden || f.BossHidden {
 		return presentWait
 	}
+	if f.DaemonHidden {
+		return presentDone
+	}
 	if f.Foreground && f.AboveShell && !f.Iconic {
 		return presentDone
 	}
@@ -977,6 +998,7 @@ func presentSweep() {
 	shell := shellHWND()
 	hidden := grpIsHidden()
 	boss := grpIsBossHidden()
+	daemonHidden := residentHiddenSet()
 	type cand struct {
 		hwnd uint64
 		app  string
@@ -1002,14 +1024,20 @@ func presentSweep() {
 			Foreground:    fg != 0 && fg == h,
 			AboveShell:    above,
 			Iconic:        platformWindowIconic(h),
+			// v0.71 test3: daemon-hidden = booked by the
+			// resident engine, or a born-hidden claim that is
+			// still invisible.
+			DaemonHidden: daemonHidden[h] || (e.hiddenClaim && !platformWindowVisible(h)),
 		}
 		switch decidePresentRetry(facts) {
 		case presentDone:
 			e.presentPending = false
-			if facts.ExpectPresent && !hidden && !(facts.Foreground && facts.AboveShell && !facts.Iconic) {
+			if facts.ExpectPresent && !hidden && !facts.DaemonHidden && !(facts.Foreground && facts.AboveShell && !facts.Iconic) {
 				// Budget spent and STILL not on stage: say so
 				// once (the pending flag clears here, so this
-				// line fires exactly once per window).
+				// line fires exactly once per window). A
+				// daemon-hidden window is NOT a give-up: its
+				// absence from the stage is the design.
 				gaveUp = append(gaveUp, e.App)
 			}
 		case presentRetry:

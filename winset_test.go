@@ -189,3 +189,31 @@ func TestComputeKillSet(t *testing.T) {
 		}
 	}
 }
+
+// v0.71 test3 (L2-B1): the DaemonHidden truth-table rows. A
+// window the daemon itself hid on purpose （锁住后台） is owed
+// no presentation, however young its birth marks are --
+// without these rows the sweep re-raises a just-hidden locked
+// window within a couple of patrol ticks and the user's close
+// appears to "not take".
+func TestDecidePresentRetryDaemonHidden(t *testing.T) {
+	cases := []struct {
+		name  string
+		facts presentFacts
+		want  presentAction
+	}{
+		{"守护进程有意隐藏→直接收工（哪怕刚出生、从未露面）",
+			presentFacts{Pending: true, ExpectPresent: true, Foreground: false, AboveShell: false, DaemonHidden: true}, presentDone},
+		{"有意隐藏且预算未用→仍收工（不许补提）",
+			presentFacts{Pending: true, ExpectPresent: true, Foreground: false, AboveShell: true, RetriesUsed: 0, DaemonHidden: true}, presentDone},
+		{"整套隐藏优先于有意隐藏→等整套恢复",
+			presentFacts{Pending: true, ExpectPresent: true, SetHidden: true, DaemonHidden: true}, presentWait},
+		{"对照：同样的事实没有 DaemonHidden→照旧补提",
+			presentFacts{Pending: true, ExpectPresent: true, Foreground: false, AboveShell: true}, presentRetry},
+	}
+	for _, c := range cases {
+		if got := decidePresentRetry(c.facts); got != c.want {
+			t.Errorf("%s: decidePresentRetry = %v, want %v", c.name, got, c.want)
+		}
+	}
+}

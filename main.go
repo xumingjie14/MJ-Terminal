@@ -1729,6 +1729,10 @@ func requestDaemonExit(kind exitKind) {
 	// drop the registration at process death anyway; doing it
 	// first shrinks the race window to near zero.
 	hotkeyStop()
+	// v0.71 test3: the interception hooks come down in the
+	// same first breath (intercept.go) -- an update-handover
+	// successor must never start against a double hook.
+	interceptStop()
 	// v0.37 safety line, first on every path (winset.go):
 	// restore every group-hidden / immersed window.
 	prepareWindowsForDaemonExit()
@@ -2087,6 +2091,9 @@ func runServer(portFlag int, isDaemon bool) {
 	mux.HandleFunc("/api/webapps/icon", webAppIconHandler)
 	// v0.71 block 2: 锁住后台 lock flips (resident.go).
 	mux.HandleFunc("/api/webapps/lock", webAppLockHandler)
+	// v0.71 test3: windowless Stage card restore -- LOCAL mux
+	// only, never the remote-assist surface (resident.go).
+	mux.HandleFunc("/api/webapps/restore", webAppRestoreHandler)
 	mux.HandleFunc("/api/taskmgr", taskMgrHandler)
 	mux.HandleFunc("/api/taskmgr/kill", taskMgrKillHandler)
 	mux.HandleFunc("/api/taskmgr/restart", taskMgrRestartHandler)

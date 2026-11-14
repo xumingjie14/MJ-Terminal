@@ -78,6 +78,16 @@ type extWindow struct {
 	// real. Computed on the copy in extWinListHandler from the
 	// settings lock set.
 	Locked bool `json:"locked,omitempty"`
+	// v0.71 test3, layer 1: Resident is the locked app's Stage
+	// card state ("front" / "back" / "restoring" / "unstable",
+	// decideResidentCardState in resident.go), and LockURL the
+	// lock-set key this entry stands for. Both are derived on
+	// the copy in extWinListHandler from the ONE snapshot. A
+	// WINDOWLESS entry (HWND == 0, Locked, LockURL + Resident
+	// set) represents a locked app whose window is gone: its
+	// card is pinned by the lock, not by the window's life.
+	Resident string `json:"resident,omitempty"`
+	LockURL  string `json:"lockurl,omitempty"`
 
 	pid       uint32
 	lastTitle string // title at last AppID stamp; a change triggers a re-stamp
@@ -90,6 +100,11 @@ type extWindow struct {
 	// got landed inside the desktop mid-install. Its landing
 	// belongs to the reveal path (claimWindowByPIDs' settle).
 	hiddenClaim bool
+	// parkConverted (v0.71 test3 rider): WE converted this
+	// window's parked minimize into a hide (immerse.go
+	// parkSweep); the booking exists so the conversion is
+	// handed back if immersion lifts while the window is down.
+	parkConverted bool
 	// v0.38: birth-presentation verification (winset.go). A window
 	// whose birth context said it should be on stage is marked
 	// pending; the patrol verifies a beat later that it really is
@@ -960,6 +975,7 @@ func extWinListHandler(w http.ResponseWriter, r *http.Request) {
 		// 取消锁住后台 entry can post the unlock.
 		if key := residentWindowLockURL(cp, lockSet, lockNames); key != "" {
 			cp.Locked = true
+			cp.LockURL = key
 			if cp.URL == "" {
 				cp.URL = key
 			}
@@ -978,6 +994,34 @@ func extWinListHandler(w http.ResponseWriter, r *http.Request) {
 			cp.IconKind = "chrome"
 		case "firefox.exe":
 			cp.IconKind = "firefox"
+		}
+	}
+	// v0.71 test3, layer 1 (L1-B1): every locked app's card
+	// state is derived HERE, from this one snapshot (lock set
+	// + registry copies + a copy of the resident book) --
+	// never maintained separately by the patrol, whose 2 s
+	// cadence would fight this handler's poll and flicker the
+	// cards between states. A lock with an aligned window
+	// stamps its state onto that window's entry; a lock with
+	// none gains a windowless entry (hwnd 0) that joins the
+	// sort below by app name, so the card stays exactly where
+	// it was when its window died.
+	if len(lockSet) > 0 {
+		book := residentBookSnapshot()
+		for u := range lockSet {
+			facts := residentCardFacts{Attempts: book[u].Attempts}
+			if win := findResidentWindow(list, lockSet, lockNames, u); win != nil {
+				facts.HasWindow = true
+				facts.WindowVisible = platformWindowVisible(win.HWND) && !platformWindowIconic(win.HWND)
+				win.Resident = string(decideResidentCardState(facts))
+				continue
+			}
+			name := residentName(u)
+			list = append(list, &extWindow{
+				HWND: 0, App: name, Title: name, URL: u,
+				Locked: true, LockURL: u,
+				Resident: string(decideResidentCardState(facts)),
+			})
 		}
 	}
 	geomFlushGone()
@@ -1104,12 +1148,61 @@ func extWinMinimizeHandler(w http.ResponseWriter, r *http.Request) {
 	extWinPost(w, r, platformMinimizeWindow, "最小化")
 }
 
-// extWinCloseHandler serves POST /api/extwin/close: the plain
-// WM_CLOSE path (the window's own X-button request -- the app
-// may still prompt or refuse, exactly as when its user clicks
-// the X).
+// extWinCloseHandler serves POST /api/extwin/close. For an
+// UNLOCKED window this is the plain WM_CLOSE path (the
+// window's own X-button request -- the app may still prompt
+// or refuse, exactly as when its user clicks the X). For a
+// LOCKED window the close is translated server-side into
+// hide-to-background (v0.71 test3, L2-I4/HS-12): the API is
+// the contract, so every caller -- the Stage menu today, the
+// v0.72 title-bar menu tomorrow -- gets the same answer. A
+// locked app has no gesture that kills it; unlocking first
+// is the only way back to a real close.
 func extWinCloseHandler(w http.ResponseWriter, r *http.Request) {
-	extWinPost(w, r, platformCloseWindow, "关闭")
+	var body struct {
+		HWND uint64 `json:"hwnd"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.HWND == 0 {
+		apiErrBadRequest(w, errCodeBadRequest, "参数不对")
+		return
+	}
+	extMu.Lock()
+	var cp *extWindow
+	label := ""
+	if e, ok := extWins[body.HWND]; ok {
+		c := *e
+		cp = &c
+		label = e.App
+	}
+	extMu.Unlock()
+	if _, alive := platformWindowTitle(body.HWND); !alive {
+		// Same rule as extWinPost: no action path strikes a
+		// registration; the patrol prune owns removal.
+		logf("winmgr", "warn", "台前调度卡片菜单：目标窗口已不存在，保留登记待巡逻修剪（hwnd=%d，动作：关闭，%s）", body.HWND, label)
+		writeAPIError(w, http.StatusNotFound, errCodeNotFound, "这个窗口已经关了")
+		return
+	}
+	if cp != nil {
+		lockSet := webAppLockSet()
+		if key := residentWindowLockURL(cp, lockSet, residentNameIndex(lockSet)); key != "" {
+			if !daemonHideWindow(body.HWND, key, "台前调度菜单") {
+				writeAPIError(w, http.StatusInternalServerError, errCodeInternal, "隐藏到后台失败")
+				return
+			}
+			logf("winmgr", "info", "台前调度卡片菜单：已锁应用的关闭已转为隐藏到后台（hwnd=%d，%s）", body.HWND, label)
+			busWindows(body.HWND)
+			writeJSON(w, okResponse{OK: true})
+			return
+		}
+	}
+	if !platformCloseWindow(body.HWND) {
+		logf("winmgr", "warn", "台前调度卡片菜单：关闭失败（hwnd=%d，%s）", body.HWND, label)
+		writeAPIError(w, http.StatusInternalServerError, errCodeInternal, "关闭失败")
+		return
+	}
+	logf("winmgr", "info", "台前调度卡片菜单：关闭窗口（hwnd=%d，%s）", body.HWND, label)
+	busWindows(body.HWND)
+	writeJSON(w, okResponse{OK: true})
 }
 
 // extWinNote is a tiny helper for log lines in platform files; as of
@@ -1273,6 +1366,10 @@ func startExtPatrol() {
 }
 
 func patrolTick() {
+	// v0.71 test3, layer 2: the interception layer reconciles
+	// on this cadence and must run BEFORE the vault gate --
+	// locking the vault stands the hooks down too.
+	interceptPatrol()
 	if !servicesActive() {
 		return // v0.48: vault locked (or sealing) -- hands off
 	}
@@ -1477,6 +1574,12 @@ func patrolTick() {
 	// said it should be on stage but that still is not foreground
 	// gets exactly one retry through the shared raise (winset.go).
 	presentSweep()
+
+	// v0.71 test3 rider: convert parked minimized windows
+	// (immersion took their taskbar buttons, so a minimize
+	// parks a blank title bar at the screen's bottom-left)
+	// into clean hides -- see parkSweep in immerse.go.
+	parkSweep()
 
 	// v0.37: while the set is tucked away, keep it tucked (a
 	// window claimed a beat before the hide, or re-shown by its

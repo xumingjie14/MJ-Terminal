@@ -6,6 +6,9 @@ package main
 // engine follows is pinned here instead.
 
 import (
+	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -246,5 +249,74 @@ func TestResidentLaunchFailureDisarmsHide(t *testing.T) {
 	}
 	if got := residentDecide(st2, true, 0, afterBoot, boot); got != residentHide {
 		t.Fatalf("relaunched window registering: decide = %v, want residentHide", got)
+	}
+}
+
+// ---------- v0.71 test3, layer 1 ----------
+
+func TestDecideResidentCardState(t *testing.T) {
+	cases := []struct {
+		name  string
+		facts residentCardFacts
+		want  residentCardState
+	}{
+		{"有窗且可见→台前", residentCardFacts{HasWindow: true, WindowVisible: true}, residentCardFront},
+		{"有窗不可见→后台", residentCardFacts{HasWindow: true, WindowVisible: false}, residentCardBack},
+		{"有窗不可见但多次失败→仍后台（窗在就是窗在）", residentCardFacts{HasWindow: true, WindowVisible: false, Attempts: 9}, residentCardBack},
+		{"无窗→恢复中", residentCardFacts{}, residentCardRestoring},
+		{"无窗失败 3 次→仍恢复中", residentCardFacts{Attempts: 3}, residentCardRestoring},
+		{"无窗失败 4 次→重拉未稳（不许假装恢复中）", residentCardFacts{Attempts: 4}, residentCardUnstable},
+		{"无窗失败 9 次→重拉未稳", residentCardFacts{Attempts: 9}, residentCardUnstable},
+	}
+	for _, c := range cases {
+		if got := decideResidentCardState(c.facts); got != c.want {
+			t.Errorf("%s: decideResidentCardState(%+v) = %q, want %q", c.name, c.facts, got, c.want)
+		}
+	}
+}
+
+// L1-I2: the hidden-window book survives only while the
+// aligned window is the window it names.
+func TestResidentRemapHiddenBook(t *testing.T) {
+	if got := residentRemapHiddenBook(55, 55); got != 55 {
+		t.Errorf("same window: got %d, want 55 (book stands)", got)
+	}
+	if got := residentRemapHiddenBook(55, 77); got != 0 {
+		t.Errorf("alignment moved to a sibling: got %d, want 0 (old hide debt is void)", got)
+	}
+	if got := residentRemapHiddenBook(0, 77); got != 0 {
+		t.Errorf("no book: got %d, want 0", got)
+	}
+}
+
+// HS-4: the restore route exists on the local mux only -- the
+// remote-assist surface must never gain "raise a browser
+// window on this machine" (mirrors TestThumbRouteRegisteredLocalOnly).
+func TestRestoreRouteRegisteredLocalOnly(t *testing.T) {
+	b, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `mux.HandleFunc("/api/webapps/restore", webAppRestoreHandler)`) {
+		t.Fatal("/api/webapps/restore is not registered on the local mux")
+	}
+	rb, err := os.ReadFile("remote.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(rb), "webapps/restore") {
+		t.Fatal("/api/webapps/restore leaked into the remote-assist mux")
+	}
+}
+
+// The restore handler refuses an app that is not locked: a
+// windowless card can only exist for a lock, so anything else
+// is a caller bug and must not launch browsers.
+func TestRestoreHandlerRejectsUnlocked(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/api/webapps/restore", strings.NewReader(`{"url":"https://example.com/"}`))
+	webAppRestoreHandler(rec, req)
+	if rec.Code != 400 {
+		t.Fatalf("unlocked url: got status %d, want 400", rec.Code)
 	}
 }

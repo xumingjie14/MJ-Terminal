@@ -6,8 +6,8 @@ export function verQ(u){ return u+(u.indexOf('?')>=0?'&':'?')+'v='+APPVER; }
    before the strip section below executes -- the v0.54 TDZ
    lesson (the same reason FFSTATE is hoisted further down).
    The strip logic itself lives in the extwin section. */
-export const thumbBad=new Set();
-export const extCards=new Map(); /* hwnd -> Stage card record */
+export const thumbBad=new Set(); /* card keys ('h:<hwnd>') whose previews are session-banned */
+export const extCards=new Map(); /* card key -> Stage card record; 'h:<hwnd>' for a window card, 'u:<lockURL>' for a lock-pinned windowless card (v0.71 test3) */
 export let extLabelEl=null, extLive=false;
 export const APPS=[
  {id:'home',e:'',g:'g-home',glyph:'⌂',n:'工作站',art:1},

@@ -392,6 +392,21 @@ func raiseSweepClaim(gen int, hwnd uint64) (string, bool) {
 	return raiseSweepState.label, true
 }
 
+// raiseSweepCancel stands the sweep down for one window
+// (v0.71 test3, L2-B1): a daemon-intentional hide must not be
+// followed by a sweep tick re-lifting the hidden window --
+// nor by its "put back on stage" log line, which would be a
+// lie about a window the user cannot see.
+func raiseSweepCancel(hwnd uint64) {
+	raiseSweepState.Lock()
+	if raiseSweepState.hwnd == hwnd {
+		raiseSweepState.gen++
+		raiseSweepState.hwnd = 0
+		raiseSweepState.label = ""
+	}
+	raiseSweepState.Unlock()
+}
+
 // raiseSweepFire is one sweep tick coming due. Every stand-
 // down is silent by design: a superseded tick, a vanished
 // shell, a pruned window are all ordinary endings, and the
@@ -493,6 +508,15 @@ func soloForget(hwnd uint64) bool {
 		soloAnchor = 0
 	}
 	return true
+}
+
+// soloOwns reports whether the solo book currently owns this
+// window's hidden state (v0.71 test3: the unlock invariant
+// consults it, next to grpOwnsHidden).
+func soloOwns(hwnd uint64) bool {
+	soloMu.Lock()
+	defer soloMu.Unlock()
+	return soloHidden[hwnd]
 }
 
 // soloTakeAll drains the book (group-hide fold, daemon exit).

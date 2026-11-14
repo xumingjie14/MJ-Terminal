@@ -3,6 +3,7 @@ package main
 import (
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -171,3 +172,227 @@ func TestThumbRouteRegisteredLocalOnly(t *testing.T) {
 		t.Fatal("/api/extwin/thumb leaked into the remote-assist mux -- window pictures must never leave via the assistance channel")
 	}
 }
+
+// ---------- v0.71 test3: the thumb noise rules ----------
+//
+// Field evidence (2026-11-14 22:49): one hidden Telegram
+// window produced 50+ identical failure lines at ~1 Hz. The
+// rules pinned below are the review's §3: a per-window log
+// budget (first failure + the alive->dead transition, then
+// silence), dead checked before fresh with at most one
+// capture attempt per request, hidden windows as a transient
+// no-capture state, and exactly three revival ports.
+
+func thumbTestSetup(t *testing.T, hwnd uint64, capture func(uint64, int) ([]byte, error), visible bool) func() {
+	t.Helper()
+	oldCap, oldVis, oldSup := thumbCaptureFn, thumbVisibleFn, thumbSupportedDyn
+	thumbCaptureFn = capture
+	thumbVisibleFn = func(uint64) bool { return visible }
+	thumbSupportedDyn = true
+	extMu.Lock()
+	extWins[hwnd] = &extWindow{HWND: hwnd, App: "测试窗口"}
+	extMu.Unlock()
+	return func() {
+		thumbCaptureFn, thumbVisibleFn, thumbSupportedDyn = oldCap, oldVis, oldSup
+		extMu.Lock()
+		delete(extWins, hwnd)
+		extMu.Unlock()
+		thumbForget(hwnd)
+	}
+}
+
+func thumbGet(hwnd uint64, fresh bool) (int, string) {
+	rec := httptest.NewRecorder()
+	q := "/api/extwin/thumb?hwnd=" + strconv.FormatUint(hwnd, 10)
+	if fresh {
+		q += "&fresh=1"
+	}
+	req := httptest.NewRequest("GET", q, nil)
+	extWinThumbHandler(rec, req)
+	return rec.Code, rec.Header().Get("X-Thumb-Reason")
+}
+
+func TestThumbFailStepTruthTable(t *testing.T) {
+	fails, dead, diedCount := 0, false, 0
+	for i := 0; i < 10; i++ {
+		var died bool
+		fails, dead, died = thumbFailStep(fails, dead)
+		if died {
+			diedCount++
+		}
+	}
+	if !dead {
+		t.Fatal("10 consecutive failures must end dead")
+	}
+	if fails != thumbMaxFails {
+		t.Fatalf("fails = %d, want capped at %d", fails, thumbMaxFails)
+	}
+	if diedCount != 1 {
+		t.Fatalf("died transition fired %d times over 10 failures, want exactly 1 (the log budget)", diedCount)
+	}
+	// A success-shaped reset is recordCapture's job, not the
+	// step's; the step on a dead book is a pure no-op.
+	f2, d2, died2 := thumbFailStep(thumbMaxFails, true)
+	if f2 != thumbMaxFails || !d2 || died2 {
+		t.Fatalf("dead book step = (%d, %v, %v), want (%d, true, false)", f2, d2, died2, thumbMaxFails)
+	}
+}
+
+// The spam regression, handler level: ten fresh=1 requests
+// against an always-failing target must produce at most
+// thumbMaxFails capture attempts in total (before the fix,
+// EACH request attempted twice and the window never stayed
+// dead under fresh).
+func TestThumbHandlerFreshBurstCapsAttempts(t *testing.T) {
+	const hwnd = 777101
+	attempts := 0
+	restore := thumbTestSetup(t, hwnd, func(uint64, int) ([]byte, error) {
+		attempts++
+		return nil, errTestCapture
+	}, true)
+	defer restore()
+	for i := 0; i < 10; i++ {
+		code, reason := thumbGet(hwnd, true)
+		if code != 404 || reason != "capture-failed" {
+			t.Fatalf("request %d: got %d / %q, want 404 / capture-failed", i, code, reason)
+		}
+		if i == 0 && attempts != 1 {
+			t.Fatalf("first request attempted %d captures, want exactly 1 (T-B2: one request, one attempt)", attempts)
+		}
+	}
+	if attempts != thumbMaxFails {
+		t.Fatalf("10 fresh requests attempted %d captures, want %d (the dead threshold, then refusals)", attempts, thumbMaxFails)
+	}
+	thumbMu.Lock()
+	ent := thumbCache[hwnd]
+	thumbMu.Unlock()
+	if ent == nil || !ent.dead || ent.fails != thumbMaxFails {
+		t.Fatalf("entry after burst = %+v, want dead with fails capped at %d", ent, thumbMaxFails)
+	}
+}
+
+// A dead entry refuses fresh BEFORE any capture: the verdict
+// precedes the fresh branch.
+func TestThumbHandlerDeadRefusesBeforeFresh(t *testing.T) {
+	const hwnd = 777102
+	attempts := 0
+	restore := thumbTestSetup(t, hwnd, func(uint64, int) ([]byte, error) {
+		attempts++
+		return nil, errTestCapture
+	}, true)
+	defer restore()
+	for i := 0; i < thumbMaxFails; i++ {
+		recordCapture(hwnd, nil, errTestCapture)
+	}
+	for i := 0; i < 5; i++ {
+		thumbGet(hwnd, true)
+	}
+	if attempts != 0 {
+		t.Fatalf("dead entry: %d capture attempts across 5 fresh requests, want 0", attempts)
+	}
+}
+
+// T-I1: a hidden window is a transient no-capture state --
+// zero attempts, zero fails, reason "hidden"; with a cached
+// frame the frame is served instead.
+func TestThumbHandlerHiddenWindow(t *testing.T) {
+	const hwnd = 777103
+	attempts := 0
+	restore := thumbTestSetup(t, hwnd, func(uint64, int) ([]byte, error) {
+		attempts++
+		return nil, errTestCapture
+	}, false)
+	defer restore()
+	code, reason := thumbGet(hwnd, true)
+	if code != 404 || reason != "hidden" {
+		t.Fatalf("hidden, no frame: got %d / %q, want 404 / hidden", code, reason)
+	}
+	thumbGet(hwnd, false)
+	if attempts != 0 {
+		t.Fatalf("hidden window: %d capture attempts, want 0", attempts)
+	}
+	thumbMu.Lock()
+	ent := thumbCache[hwnd]
+	thumbMu.Unlock()
+	if ent != nil && ent.fails != 0 {
+		t.Fatalf("hidden window accumulated %d fails, want 0", ent.fails)
+	}
+	recordCapture(hwnd, []byte("\x89PNG-hidden-frame"), nil)
+	code, _ = thumbGet(hwnd, false)
+	if code != 200 {
+		t.Fatalf("hidden with a cached frame: got %d, want 200 (last frame served)", code)
+	}
+	if attempts != 0 {
+		t.Fatalf("hidden window with frame: %d capture attempts, want 0", attempts)
+	}
+}
+
+// Revival port 2: thumbKick (the user's own summon gesture)
+// clears the dead book and the next request may try again.
+func TestThumbKickRevivesDead(t *testing.T) {
+	const hwnd = 777104
+	attempts := 0
+	failMode := true
+	restore := thumbTestSetup(t, hwnd, func(uint64, int) ([]byte, error) {
+		attempts++
+		if failMode {
+			return nil, errTestCapture
+		}
+		return []byte("\xff\xd8\xff-revived"), nil
+	}, true)
+	defer restore()
+	for i := 0; i < thumbMaxFails; i++ {
+		recordCapture(hwnd, nil, errTestCapture)
+	}
+	thumbKick(hwnd)
+	failMode = false
+	code, _ := thumbGet(hwnd, true)
+	if code != 200 {
+		t.Fatalf("after kick: got %d, want 200 (revived capture served)", code)
+	}
+	if attempts != 1 {
+		t.Fatalf("after kick: %d attempts, want 1", attempts)
+	}
+	thumbMu.Lock()
+	ent := thumbCache[hwnd]
+	thumbMu.Unlock()
+	if ent == nil || ent.dead || ent.fails != 0 {
+		t.Fatalf("entry after successful revival = %+v, want alive with a clean book", ent)
+	}
+}
+
+// T-I2: failures inside the newborn grace are counted but
+// never condemn; the first failure after the grace can.
+func TestThumbNewbornGrace(t *testing.T) {
+	const hwnd = 777105
+	restore := thumbTestSetup(t, hwnd, func(uint64, int) ([]byte, error) {
+		return nil, errTestCapture
+	}, true)
+	defer restore()
+	thumbKick(hwnd) // stamps the grace clock, as a claim does
+	for i := 0; i < thumbMaxFails+2; i++ {
+		recordCapture(hwnd, nil, errTestCapture)
+	}
+	thumbMu.Lock()
+	ent := thumbCache[hwnd]
+	thumbMu.Unlock()
+	if ent == nil || ent.dead {
+		t.Fatalf("inside grace: entry = %+v, want counted but NOT dead", ent)
+	}
+	thumbMu.Lock()
+	thumbBornAt[hwnd] = time.Now().Add(-time.Minute)
+	thumbMu.Unlock()
+	recordCapture(hwnd, nil, errTestCapture)
+	thumbMu.Lock()
+	ent = thumbCache[hwnd]
+	thumbMu.Unlock()
+	if ent == nil || !ent.dead {
+		t.Fatalf("after grace: entry = %+v, want dead", ent)
+	}
+}
+
+var errTestCapture = errorString("test capture failure")
+
+type errorString string
+
+func (e errorString) Error() string { return string(e) }

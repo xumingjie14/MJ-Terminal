@@ -71,7 +71,7 @@ export async function focusWebNotify(route){
  if(id) api('/api/webnotify/click',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})}).catch(()=>{});
  try{
   const r=await api('/api/extwin');
-  const ws=((r&&r.windows)||[]).filter(w=>!w.shell);
+  const ws=((r&&r.windows)||[]).filter(w=>!w.shell&&w.hwnd>0); /* v0.71 test3: windowless (lock-pinned) entries have no handle to focus */
   const hostOf=u=>{ try{ return new URL(u).host; }catch(e){ return ''; } };
   const pick=ws.find(w=>w.url&&hostOf(w.url)===host)||ws.find(w=>w.browser);
   if(pick){ await api('/api/extwin/focus',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hwnd:pick.hwnd})}); return; }

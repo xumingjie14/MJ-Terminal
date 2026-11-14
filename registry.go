@@ -112,6 +112,9 @@ var featureRegistry = []feature{
 			lr("/api/webapps/probe"), lr("/api/webapps/pin"), lr("/api/webapps/icon"),
 			// v0.71 block 2: 锁住后台 lock flips (resident.go)
 			lr("/api/webapps/lock"),
+			// v0.71 test3: windowless Stage card restore
+			// (local-only by registration, like the thumb route)
+			lr("/api/webapps/restore"),
 			lr("/api/browser"), lr("/api/wallpaper"),
 			lr("/api/wallpaper/fromfile"),
 			lr("/api/appicon/"), lr("/api/chrome/icon"),

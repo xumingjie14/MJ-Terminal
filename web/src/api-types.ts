@@ -81,6 +81,8 @@ export interface ExtWindow {
   icon?: string;
   appwindow?: boolean;
   locked?: boolean;
+  resident?: string;
+  lockurl?: string;
 }
 
 export interface FFStatusResponse {
@@ -484,6 +486,8 @@ export interface WebAppLockResponse {
   url: string;
   locked: boolean;
   locks: string[];
+  closeHide: boolean;
+  closeHideDegraded?: boolean;
 }
 
 export interface WebAppProbeResponse {
@@ -491,6 +495,11 @@ export interface WebAppProbeResponse {
   exists: boolean;
   name: string;
   url: string;
+}
+
+export interface WebAppRestoreResponse {
+  ok: boolean;
+  present?: boolean;
 }
 
 export interface WebAppSaveResponse {

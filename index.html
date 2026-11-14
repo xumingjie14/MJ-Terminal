@@ -105,7 +105,7 @@ body{font-family:-apple-system,"SF Pro Display","PingFang SC","Microsoft YaHei",
 .spot-gh{font-size:11.5px;letter-spacing:.05em;opacity:.55;padding:10px 10px 3px}
 .spot-it{display:flex;align-items:center;gap:11px;padding:6px 10px;border-radius:9px;cursor:pointer;font-size:14.5px;color:#fff}
 .spot-it.sel{background:rgba(10,132,255,.85)}
-.spot-it .appico{width:30px;height:30px;border-radius:8px;font-size:16px;flex:none}
+.spot-it .appico{width:30px;height:30px;border-radius:8px;font-size:16px;flex:none;margin:0}
 .spot-it .sic{width:30px;height:30px;border-radius:8px;flex:none;display:flex;align-items:center;justify-content:center;font-size:16px;background:rgba(255,255,255,.14)}
 .spot-it .snm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .spot-it .sub{margin-left:auto;font-size:12px;opacity:.55;white-space:nowrap;padding-left:10px}
@@ -590,6 +590,7 @@ table.gridtab td,table.gridtab th{white-space:nowrap;max-width:280px;overflow:hi
 .extcard .ecap{display:flex;align-items:center;gap:6px;min-width:0;height:24px;flex:none;padding:0 2px 2px}
 .extcard .ecap b{font-size:11.5px;font-weight:600;line-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.92}
 .extcard .ecap .appico{width:20px;height:20px;border-radius:5px;font-size:11px;margin:0;flex:none}
+.extcard .ecap .estat{font-size:10.5px;opacity:.6;white-space:nowrap;flex:none}
 .extcard .extRealIcon{width:26px;height:26px;border-radius:6px;flex:none;object-fit:cover}
 /* context-menu submenus (items 5 + 7) */
 .ctxitem.hasSub{position:relative;padding-right:22px}
@@ -4344,16 +4345,33 @@ function createEvHub(nowFn) {
   function extPreviewOn() {
     return !SETTINGS || SETTINGS.stageDisplay !== "identity";
   }
+  function extCardKey(x) {
+    return x.hwnd > 0 ? "h:" + x.hwnd : "u:" + (x.lockurl || x.url || "");
+  }
+  function extStateLabel(x) {
+    switch (x.resident) {
+      case "back":
+        return "后台运行中";
+      case "restoring":
+        return "恢复中";
+      case "unstable":
+        return "多次恢复未成功";
+      default:
+        return "";
+    }
+  }
   function extCardClass(x, prev) {
     return "extcard" + (prev ? " prev" : "") + (x.active ? " active" : "") + (x.minimized ? " mini" : "");
   }
   function extCardInnerHTML(x, prev) {
     const title = cleanWinTitle(x.title) || x.app || "应用";
-    if (prev) return `<img class="ethumb" alt=""><span class="ecap">${extIconHTML(x)}<b>${esc(title)}</b></span>`;
-    return `<span class="actdot"></span>${extIconHTML(x)}<span class="et"><b>${esc(title)}</b><span>${esc(x.app || "")}</span></span>`;
+    const state = extStateLabel(x);
+    if (prev) return `<img class="ethumb" alt=""><span class="ecap">${extIconHTML(x)}<b>${esc(title)}</b>${state ? `<span class="estat">${esc(state)}</span>` : ""}</span>`;
+    const sub = state ? (x.app ? x.app + " · " : "") + state : x.app || "";
+    return `<span class="actdot"></span>${extIconHTML(x)}<span class="et"><b>${esc(title)}</b><span>${esc(sub)}</span></span>`;
   }
   function extCardHTML(x, preview) {
-    const prev = preview && !thumbBad.has(x.hwnd);
+    const prev = preview && x.hwnd > 0 && !thumbBad.has(extCardKey(x));
     return `<button class="${extCardClass(x, prev)}" data-hwnd="${x.hwnd}">${extCardInnerHTML(x, prev)}</button>`;
   }
   function extIconHTML(x) {
@@ -4364,16 +4382,48 @@ function createEvHub(nowFn) {
   function extCtxEndpoint(act) {
     return act === "focus" ? "focus" : act === "focusonly" ? "focusonly" : act === "min" ? "minimize" : "close";
   }
-  function showExtCtx(x, y, hwnd) {
+  function showExtCtx(x, y, key) {
+    const card = extCards.get(key);
+    if (!card || !card.win) return;
+    const w = card.win;
+    if (card.hwnd === 0) {
+      const items2 = [
+        { act: "restore", label: "立即恢复", icon: "switch" },
+        { act: "lockbg", label: "取消锁住后台", icon: "lock" }
+      ];
+      ctxOpen(x, y, items2, async (act) => {
+        if (act === "restore") {
+          const r = await api("/api/webapps/restore", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: w.url }) }).catch(() => null);
+          if (r && r.error) {
+            toast(r.error);
+            return;
+          }
+          toast("正在恢复「" + (w.app || "应用") + "」");
+          setTimeout(refreshExtStrip, 350);
+          return;
+        }
+        if (act === "lockbg") {
+          const r = await api("/api/webapps/lock", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: w.url, on: false }) }).catch(() => null);
+          if (!r || r.error) {
+            toast(r && r.error || "设置失败");
+            return;
+          }
+          toast("已取消锁住后台");
+          setTimeout(refreshExtStrip, 350);
+        }
+      });
+      return;
+    }
+    const hwnd = card.hwnd;
     const items = [
       { act: "focus", label: "切换到该窗口", icon: "switch" },
       { act: "focusonly", label: "隐藏其他窗口", icon: "eyeoff" },
       { act: "min", label: "最小化", icon: "minimize" }
     ];
-    const card = extCards.get(hwnd);
-    if (card && card.win && card.win.appwindow && card.win.url) items.push({ act: "pin", label: "固定为桌面应用", icon: "pin" });
-    if (card && card.win && card.win.url && (card.win.appwindow || card.win.locked)) items.push({ act: "lockbg", label: card.win.locked ? "取消锁住后台" : "锁住后台", icon: "lock" });
-    items.push({ act: "close", label: "关闭窗口", icon: "closex", danger: true });
+    if (w.appwindow && w.url) items.push({ act: "pin", label: "固定为桌面应用", icon: "pin" });
+    if (w.url && (w.appwindow || w.locked)) items.push({ act: "lockbg", label: w.locked ? "取消锁住后台" : "锁住后台", icon: "lock" });
+    if (w.locked) items.push({ act: "close", label: "隐藏到后台", icon: "eyeoff" });
+    else items.push({ act: "close", label: "关闭窗口", icon: "closex", danger: true });
     ctxOpen(x, y, items, async (act) => {
       if (act === "pin") {
         const r = await api("/api/webapps/pin", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hwnd }) }).catch(() => null);
@@ -4387,7 +4437,7 @@ function createEvHub(nowFn) {
         return;
       }
       if (act === "lockbg") {
-        const c2 = extCards.get(hwnd);
+        const c2 = extCards.get(key);
         const url = c2 && c2.win && c2.win.url;
         if (!url) {
           toast("这个窗口已经关掉了");
@@ -4399,7 +4449,7 @@ function createEvHub(nowFn) {
           toast(r && r.error || "设置失败");
           return;
         }
-        toast(on ? "已锁住后台：会常驻一个浏览器窗口在后台运行，关掉窗口也会自动重新打开，通知不会断" : "已取消锁住后台：之后关窗即真关");
+        toast(on ? "已锁住后台：关掉窗口会转入后台继续运行，点台前调度的卡片即可回来，通知不会断" : "已取消锁住后台：之后关窗即真关");
         setTimeout(refreshExtStrip, 350);
         return;
       }
@@ -4427,7 +4477,7 @@ function createEvHub(nowFn) {
     });
   }
   async function pumpThumb(card) {
-    if (card.busy) return;
+    if (card.busy || card.hwnd === 0) return;
     card.busy = true;
     try {
       const headers = {};
@@ -4461,10 +4511,10 @@ function createEvHub(nowFn) {
         } else URL.revokeObjectURL(u);
       } else {
         const reason = r.headers && r.headers.get("X-Thumb-Reason") || "";
-        if (reason === "minimized") {
+        if (reason === "minimized" || reason === "hidden") {
           card.minWait = true;
         } else if (reason) {
-          thumbBad.add(card.hwnd);
+          thumbBad.add(card.key);
         }
       }
     } catch (e) {
@@ -4474,10 +4524,12 @@ function createEvHub(nowFn) {
   function paintExtCard(card, x, prev) {
     card.win = x;
     const iconKey = (x.ikind || "") + "|" + (x.app || "") + "|" + (x.url || "");
-    if (card.prev !== prev || card.iconKey !== iconKey) {
+    const state = extStateLabel(x);
+    if (card.prev !== prev || card.iconKey !== iconKey || card.stateTxt !== state) {
       card.el.innerHTML = extCardInnerHTML(x, prev);
       card.prev = prev;
       card.iconKey = iconKey;
+      card.stateTxt = state;
       card.img = card.el.querySelector("img.ethumb");
       card.capB = card.el.querySelector(".ecap b") || card.el.querySelector(".et b");
       card.subB = card.el.querySelector(".et span");
@@ -4495,23 +4547,33 @@ function createEvHub(nowFn) {
       card.capB.textContent = title;
       card.title = title;
     }
-    if (card.subB && card.sub !== x.app) {
-      card.subB.textContent = x.app || "";
-      card.sub = x.app || "";
+    const sub = state ? (x.app ? x.app + " · " : "") + state : x.app || "";
+    if (card.subB && card.sub !== sub) {
+      card.subB.textContent = sub;
+      card.sub = sub;
     }
   }
   function newExtCard(x, prev) {
     const el = document.createElement("button");
-    el.dataset.hwnd = x.hwnd;
-    const card = { hwnd: x.hwnd, el, prev: null, iconKey: "", img: null, capB: null, subB: null, cls: "", title: null, sub: null, ver: "", blob: "", busy: false, minWait: false, needFresh: true };
+    const key = extCardKey(x);
+    el.dataset.key = key;
+    if (x.hwnd > 0) el.dataset.hwnd = x.hwnd;
+    const card = { key, hwnd: x.hwnd, lockURL: x.lockurl || "", win: null, el, prev: null, iconKey: "", stateTxt: null, img: null, capB: null, subB: null, cls: "", title: null, sub: null, ver: "", blob: "", busy: false, minWait: false, needFresh: x.hwnd > 0 };
     el.onclick = async () => {
-      const r = await api("/api/extwin/focus", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hwnd: card.hwnd }) }).catch(() => null);
-      if (!r || r.error) refreshExtStrip();
+      if (card.hwnd > 0) {
+        const r2 = await api("/api/extwin/focus", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hwnd: card.hwnd }) }).catch(() => null);
+        if (!r2 || r2.error) refreshExtStrip();
+        return;
+      }
+      const url = card.win && card.win.url || card.lockURL;
+      const r = await api("/api/webapps/restore", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) }).catch(() => null);
+      if (r && r.error) toast(r.error);
+      setTimeout(refreshExtStrip, 350);
     };
     el.oncontextmenu = (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
-      showExtCtx(ev.clientX, ev.clientY, card.hwnd);
+      showExtCtx(ev.clientX, ev.clientY, card.key);
     };
     paintExtCard(card, x, prev);
     return card;
@@ -4554,31 +4616,75 @@ function createEvHub(nowFn) {
     if (box.children[0] !== extLabelEl) box.insertBefore(extLabelEl, box.children[0] || null);
     box.classList.remove("hidden");
     const seen = /* @__PURE__ */ new Set();
+    const listHwnds = new Set(list.filter((v) => v.hwnd > 0).map((v) => v.hwnd));
     list.forEach((x, i) => {
-      seen.add(x.hwnd);
-      let card = extCards.get(x.hwnd);
-      const wantPrev = preview && !thumbBad.has(x.hwnd);
+      const key = extCardKey(x);
+      seen.add(key);
+      let card = extCards.get(key);
+      if (!card && (x.lockurl || x.url)) {
+        if (x.hwnd > 0) {
+          const ghost = extCards.get("u:" + (x.lockurl || x.url));
+          if (ghost) {
+            extCards.delete(ghost.key);
+            card = ghost;
+            migrateExtCard(card, x);
+            extCards.set(key, card);
+          }
+        } else {
+          const url = x.lockurl || x.url;
+          for (const c of Array.from(extCards.values())) {
+            if (c.hwnd > 0 && !listHwnds.has(c.hwnd) && (c.lockURL === url || c.win && (c.win.lockurl || c.win.url) === url)) {
+              extCards.delete(c.key);
+              card = c;
+              migrateExtCard(card, x);
+              extCards.set(key, card);
+              break;
+            }
+          }
+        }
+      }
+      const wantPrev = preview && x.hwnd > 0 && !thumbBad.has(key);
       if (!card) {
         card = newExtCard(x, wantPrev);
-        extCards.set(x.hwnd, card);
+        extCards.set(key, card);
       }
+      card.hwnd = x.hwnd;
+      if (x.lockurl) card.lockURL = x.lockurl;
       paintExtCard(card, x, wantPrev && !card.minWait);
       const ref = box.children[i + 1] || null;
       if (ref !== card.el) box.insertBefore(card.el, ref);
       if (wantPrev) pumpThumb(card);
     });
-    Array.from(extCards).forEach(([hwnd, card]) => {
-      if (seen.has(hwnd)) return;
+    Array.from(extCards).forEach(([key, card]) => {
+      if (seen.has(key)) return;
       if (card.blob) URL.revokeObjectURL(card.blob);
       if (card.el.parentNode) card.el.parentNode.removeChild(card.el);
       else if (box.contains(card.el)) box.removeChild(card.el);
-      extCards.delete(hwnd);
+      extCards.delete(key);
     });
     const liveNow = !document.hidden;
     if (liveNow && !extLive) extCards.forEach((c) => {
-      c.needFresh = true;
+      if (c.hwnd > 0) c.needFresh = true;
     });
     __bind_extLive.set(liveNow);
+  }
+  function migrateExtCard(card, x) {
+    card.key = extCardKey(x);
+    card.hwnd = x.hwnd;
+    card.lockURL = x.lockurl || card.lockURL || "";
+    card.el.dataset.key = card.key;
+    if (x.hwnd > 0) card.el.dataset.hwnd = x.hwnd;
+    else delete card.el.dataset.hwnd;
+    if (card.blob) {
+      URL.revokeObjectURL(card.blob);
+      card.blob = "";
+    }
+    card.ver = "";
+    card.minWait = false;
+    card.needFresh = x.hwnd > 0;
+    card.prev = null;
+    card.iconKey = "";
+    card.stateTxt = null;
   }
   (function extLoop() {
     setTimeout(async () => {
@@ -5707,7 +5813,7 @@ ${pr.textContent}> ${cmd}\r
         const s = SETTINGS || SETDEF;
         const SRCS = [["sandbox", "应用隔离"], ["update", "软件更新"], ["servermon", "服务器监控"], ["node", "节点"], ["remote", "远程协助"], ["files", "文件"], ["web", "网页通知"]];
         const rowHTML = (idAttr, keyBase, name) => `<div class="sm-row"><span>${esc(name)}</span><span class="row"><span style="font-size:12px;opacity:.65">允许通知</span><label class="sm-sw"><input type="checkbox" id="nt-allow-${idAttr}" ${s["notify_allow_" + keyBase] !== false ? "checked" : ""}><i></i></label><span style="font-size:12px;opacity:.65">横幅</span><label class="sm-sw"><input type="checkbox" id="nt-banner-${idAttr}" ${s["notify_banner_" + keyBase] !== false ? "checked" : ""}><i></i></label></span></div>`;
-        G("set-main").innerHTML = `<div class="set-page"><div class="set-sec">系统通知</div><div class="set-desc">通知中心（点菜单栏右边的日期时间打开）里有两类东西：状态型的（隔离安装待登记、更新可用、服务器告警——状态在就一直在）和事件型的（装完了、断开了这类刚发生的事，留下来等你处理）。这里按来源逐个管：关掉「允许通知」，这个来源的事件不再记录、状态型也不再出现在通知中心（功能本身在各自页面照常）；关掉「横幅」只是不弹横幅，通知照样进通知中心。</div><div class="sm-card">${SRCS.map(([id2, n]) => rowHTML(id2, id2, n)).join("")}</div><p class="set-note">横幅是新事件发生时在桌面右上角滑入的小卡片，约 6 秒后自动消失，鼠标停在上面会等你。沉浸模式不拦横幅——它不是专注模式。</p><div class="set-sec">应用通知</div><div class="set-desc">你装的应用由终端机产生的事件（目前是安装完成）。默认都开；关掉某个应用，它的事就不再进通知中心。网页通知（v0.68）：隔离 Chrome 里网页发的通知会通过随附的桥扩展进通知中心，按站点归到应用通知里，来源一眼能看出是哪个域名；总开关是上面系统通知里的「网页通知」，点通知能把对应的 Chrome 窗口带到前台。如实说明：宿主自己的浏览器和 Firefox 里网页的通知仍走 Windows 通知中心，管不到；网页 Service Worker 的后台推送也还拦不到，本版只接页面活着时发出的通知。</div><div class="sm-card" id="nt-apps"><div class="sm-row"><span>读取中…</span></div></div><div class="set-sec">锁住后台</div><div class="set-desc">锁住后台的网页应用会常驻一个隔离浏览器的窗口在后台运行：关掉它的窗口，几秒后会自动在后台重新打开，登录状态和通知都不中断。代价是每个锁住的应用都会多占一个浏览器窗口的内存。锁住的入口在台前调度卡片的右键菜单里；这里是已锁住的清单，可以逐个解除——解除后，那个应用关窗即真关。</div><div class="sm-card" id="nt-locks"><div class="sm-row"><span>读取中…</span></div></div></div>`;
+        G("set-main").innerHTML = `<div class="set-page"><div class="set-sec">系统通知</div><div class="set-desc">通知中心（点菜单栏右边的日期时间打开）里有两类东西：状态型的（隔离安装待登记、更新可用、服务器告警——状态在就一直在）和事件型的（装完了、断开了这类刚发生的事，留下来等你处理）。这里按来源逐个管：关掉「允许通知」，这个来源的事件不再记录、状态型也不再出现在通知中心（功能本身在各自页面照常）；关掉「横幅」只是不弹横幅，通知照样进通知中心。</div><div class="sm-card">${SRCS.map(([id2, n]) => rowHTML(id2, id2, n)).join("")}</div><p class="set-note">横幅是新事件发生时在桌面右上角滑入的小卡片，约 6 秒后自动消失，鼠标停在上面会等你。沉浸模式不拦横幅——它不是专注模式。</p><div class="set-sec">应用通知</div><div class="set-desc">你装的应用由终端机产生的事件（目前是安装完成）。默认都开；关掉某个应用，它的事就不再进通知中心。网页通知（v0.68）：隔离 Chrome 里网页发的通知会通过随附的桥扩展进通知中心，按站点归到应用通知里，来源一眼能看出是哪个域名；总开关是上面系统通知里的「网页通知」，点通知能把对应的 Chrome 窗口带到前台。如实说明：宿主自己的浏览器和 Firefox 里网页的通知仍走 Windows 通知中心，管不到；网页 Service Worker 的后台推送也还拦不到，本版只接页面活着时发出的通知。</div><div class="sm-card" id="nt-apps"><div class="sm-row"><span>读取中…</span></div></div><div class="set-sec">锁住后台</div><div class="set-desc">锁住后台后，关闭这个应用的窗口不再是退出，而是转入后台继续运行：页面和登录状态都在，通知不会断，台前调度的卡片也保持原位，点一下就能回来。窗口不在台前时，靠轮询刷新的页面更新会慢一些；正在播放的视频画面会暂停，声音通常仍可继续。已隐藏的窗口只出现在台前调度里，桌面和任务栏中都看不到。解除锁住后台时，窗口会回到台前，之后关窗即真关。每个锁住的应用都会持续占用一个浏览器窗口的内存。锁住的入口在台前调度卡片的右键菜单里；这里是已锁住的清单，可以逐个解除。</div><div class="set-desc" id="nt-closehide-note" style="display:none"></div><div class="sm-card" id="nt-locks"><div class="sm-row"><span>读取中…</span></div></div></div>`;
         const bindN = (elid, key) => {
           const el = G(elid);
           if (el) el.onchange = async (e) => {
@@ -5762,16 +5868,36 @@ ${pr.textContent}> ${cmd}\r
         const locksCard = G("nt-locks");
         if (locksCard) {
           const paintLocks = async () => {
-            let locks = [];
+            let locks = [], lockResp = null;
             try {
               const r = await api("/api/webapps/lock");
+              lockResp = r;
               locks = r && r.locks || [];
             } catch (e) {
+            }
+            const note = G("nt-closehide-note");
+            if (note) {
+              if (locks.length && lockResp && lockResp.closeHideDegraded) {
+                note.style.display = "";
+                note.textContent = "提示：当前「关闭窗口转入后台」未生效——关闭锁住的应用窗口后，它会在后台重新打开（行为与上一版相同）。其余锁住后台功能不受影响。";
+              } else {
+                note.style.display = "none";
+                note.textContent = "";
+              }
             }
             if (!locks.length) {
               locksCard.innerHTML = '<div class="sm-row"><span>暂无锁住后台的应用</span></div>';
               return;
             }
+            let states = {};
+            try {
+              const ew = await api("/api/extwin");
+              (ew && ew.windows || []).forEach((w2) => {
+                if (w2.lockurl) states[w2.lockurl] = w2.resident || "";
+              });
+            } catch (e) {
+            }
+            const stateTxt = (s2) => ({ front: "在台前", back: "在后台运行", restoring: "正在恢复", unstable: "多次恢复未成功" })[s2] || "";
             const nameOf = (u) => {
               const a = (typeof WEBAPPS !== "undefined" ? WEBAPPS : []).find((w) => w.url === u || w.url === u + "/");
               if (a) return a.name;
@@ -5781,7 +5907,10 @@ ${pr.textContent}> ${cmd}\r
                 return u;
               }
             };
-            locksCard.innerHTML = locks.map((u) => `<div class="sm-row"><span>${esc(nameOf(u))}<span style="opacity:.55;font-size:12px;margin-left:8px">${esc(u)}</span></span><button class="btn gray" data-unlock="${esc(u)}">解除</button></div>`).join("");
+            locksCard.innerHTML = locks.map((u) => {
+              const st = stateTxt(states[u]);
+              return `<div class="sm-row"><span>${esc(nameOf(u))}<span style="opacity:.55;font-size:12px;margin-left:8px">${esc(u)}</span>${st ? `<span style="opacity:.55;font-size:12px;margin-left:8px">${esc(st)}</span>` : ""}</span><button class="btn gray" data-unlock="${esc(u)}">解除</button></div>`;
+            }).join("");
             locksCard.querySelectorAll("[data-unlock]").forEach((b) => b.onclick = async () => {
               const u = b.getAttribute("data-unlock");
               const r = await api("/api/webapps/lock", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url: u, on: false }) }).catch(() => null);
@@ -8613,7 +8742,7 @@ ${pr.textContent}> ${cmd}\r
     });
     try {
       const r = await api("/api/extwin");
-      const ws = (r && r.windows || []).filter((w) => !w.shell);
+      const ws = (r && r.windows || []).filter((w) => !w.shell && w.hwnd > 0);
       const hostOf = (u) => {
         try {
           return new URL(u).host;
@@ -10065,7 +10194,7 @@ function uiScaleKey(v) {
     let ext = [];
     try {
       const r = await api("/api/extwin");
-      ext = (r.windows || []).filter((x) => !x.shell);
+      ext = (r.windows || []).filter((x) => !x.shell && x.hwnd > 0);
     } catch (e) {
     }
     if (inSys.length || ext.length) items.push(mbSep());

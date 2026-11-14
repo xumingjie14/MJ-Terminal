@@ -165,3 +165,26 @@ func TestFsStateRoundTrip(t *testing.T) {
 func shellFsStateMatches(s fsState, hwnd uint64, style int32, rect [4]int32, zoomed bool) bool {
 	return s.HWND == hwnd && s.Style == style && s.Rect == rect && s.Zoomed == zoomed
 }
+
+// v0.71 test3 rider: the parked-minimized conversion table.
+func TestDecidePark(t *testing.T) {
+	cases := []struct {
+		name  string
+		facts parkFacts
+		want  parkAction
+	}{
+		{"沉浸+最小化+可见（停泊中）→收纳", parkFacts{Immersed: true, Iconic: true, Visible: true}, parkConvert},
+		{"已收纳又被别路径显示成停泊→再收纳", parkFacts{Immersed: true, Iconic: true, Visible: true, Converted: true}, parkConvert},
+		{"未沉浸的最小化→不碰（任务栏管）", parkFacts{Iconic: true, Visible: true}, parkNone},
+		{"沉浸但没最小化→不碰", parkFacts{Immersed: true, Visible: true}, parkNone},
+		{"沉浸+最小化+已隐藏（已收纳）→不动", parkFacts{Immersed: true, Iconic: true}, parkNone},
+		{"收纳后沉浸解除且仍隐藏最小化→交还任务栏", parkFacts{Iconic: true, Converted: true}, parkRelease},
+		{"收纳后被用户调回台前→清账", parkFacts{Immersed: true, Visible: true, Converted: true}, parkForget},
+		{"普通窗口→不动", parkFacts{Visible: true}, parkNone},
+	}
+	for _, c := range cases {
+		if got := decidePark(c.facts); got != c.want {
+			t.Errorf("%s: decidePark(%+v) = %v, want %v", c.name, c.facts, got, c.want)
+		}
+	}
+}

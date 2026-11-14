@@ -127,6 +127,123 @@ func isOrphanMark(marked, registered bool) bool {
 	return marked && !registered
 }
 
+// ---------- v0.71 test3 rider: parked-minimized conversion ----------
+//
+// Field report (2026-11-14 23:12, five screenshots): blank
+// white bars parked at the screen's bottom-left, over the MJ
+// desktop and over the host desktop alike; clicking one
+// restored a web page the terminal had opened. The mechanism,
+// verified in code: immersion restyles claimed windows as
+// tool windows (WS_EX_TOOLWINDOW, no taskbar button -- the
+// whole point of 沉浸）, and a tool window that gets MINIMIZED
+// has no taskbar button to land in, so Windows parks its
+// minimized title bar at the bottom-left of the screen -- the
+// pre-taskbar behaviour, retained exactly for buttonless
+// windows. The parked bar's client area never paints (the
+// window is iconic; Chrome's own frame renders blank), hence
+// solid white. EVERY daemon hide path already uses SW_HIDE
+// (platformHideWindow) -- the resident engine included -- so
+// the bars are never the daemon's hides; they are minimizes:
+// the user's own caption-button / system gestures, and the
+// Stage card menu's 最小化. The fix therefore keys on the
+// RESULTING state, not the trigger: on the patrol cadence, a
+// claimed window that is immersed + iconic + visible (parked
+// windows still read as visible) is converted to a clean
+// SW_HIDE and booked (extWindow.parkConverted); the Stage
+// card keeps its minimized reading (WS_MINIMIZE survives
+// SW_HIDE) and the focus dance restores it (SW_RESTORE first)
+// exactly as it restores any minimized window. If immersion
+// lifts while a converted window is down, the window is
+// handed back to the taskbar in its minimized state.
+// Non-immersed windows are never touched: they minimize into
+// their taskbar buttons, as they should.
+
+type parkAction int
+
+const (
+	parkNone parkAction = iota
+	parkConvert
+	parkRelease
+	parkForget
+)
+
+type parkFacts struct {
+	Immersed  bool // carries the immersion mark: no taskbar button to minimize into
+	Iconic    bool // minimized
+	Visible   bool // WS_VISIBLE stands (a parked minimized window still reads visible)
+	Converted bool // parkSweep already converted this window once
+}
+
+// decidePark is the conversion rulebook, pure: convert any
+// parked window (converted or not -- a re-shown parked window
+// is taken down again); hand a converted window back when
+// immersion lifts while it is down; forget the book when the
+// window is back on stage under its own power.
+func decidePark(f parkFacts) parkAction {
+	if f.Immersed && f.Iconic && f.Visible {
+		return parkConvert
+	}
+	if f.Converted && !f.Immersed && !f.Visible && f.Iconic {
+		return parkRelease
+	}
+	if f.Converted && f.Visible && !f.Iconic {
+		return parkForget
+	}
+	return parkNone
+}
+
+// parkSweep runs on the patrol cadence (winmgr.go patrolTick).
+func parkSweep() {
+	extMu.Lock()
+	type cand struct {
+		hwnd      uint64
+		label     string
+		converted bool
+	}
+	cands := make([]cand, 0, len(extWins))
+	for h, e := range extWins {
+		if e.Shell {
+			continue
+		}
+		cands = append(cands, cand{h, e.App, e.parkConverted})
+	}
+	extMu.Unlock()
+	for _, c := range cands {
+		act := decidePark(parkFacts{
+			Immersed:  platformWindowHasImmerseMark(c.hwnd),
+			Iconic:    platformWindowIconic(c.hwnd),
+			Visible:   platformWindowVisible(c.hwnd),
+			Converted: c.converted,
+		})
+		switch act {
+		case parkConvert:
+			if platformHideWindow(c.hwnd) {
+				extMu.Lock()
+				if e, ok := extWins[c.hwnd]; ok {
+					e.parkConverted = true
+				}
+				extMu.Unlock()
+				logf("winmgr", "info", "沉浸：窗口最小化后没有任务栏按钮可落座，已改为隐藏收纳（点台前调度卡片即可调出）：%s", c.label)
+			}
+		case parkRelease:
+			if platformShowBackWindow(c.hwnd) {
+				extMu.Lock()
+				if e, ok := extWins[c.hwnd]; ok {
+					e.parkConverted = false
+				}
+				extMu.Unlock()
+				logf("winmgr", "info", "沉浸：窗口已回到任务栏管理，交还其最小化状态：%s", c.label)
+			}
+		case parkForget:
+			extMu.Lock()
+			if e, ok := extWins[c.hwnd]; ok {
+				e.parkConverted = false
+			}
+			extMu.Unlock()
+		}
+	}
+}
+
 // ---------- desktop fullscreen (layer 3, basic) ----------
 
 type fsAction int
