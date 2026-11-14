@@ -585,6 +585,22 @@ func refreshWebAppAssets(ctx context.Context, a *webApp, wantIcon bool) bool {
 	if !wantIcon {
 		return changed
 	}
+	// v0.71 test5: preset real artwork (preset_icons.go)
+	// outranks the live hunt whenever it beats what is
+	// stored -- it is the service's own published icon at a
+	// verified size, with no network dependency at all. A
+	// stored icon at least as large stays put: the live
+	// chain may have found something even better.
+	if pid, pb, psz, ok := presetIconFor(a.URL); ok && psz > storedIconRealSize(a) {
+		name := webIconName(a.URL) + ".png"
+		if err := os.MkdirAll(webIconDir(), 0o755); err == nil {
+			if err := os.WriteFile(filepath.Join(webIconDir(), name), pb, 0o644); err == nil {
+				a.Icon = name
+				logf("browser", "info", "网站图标：%s 命中预置真图（%s，%dpx），已用作桌面图标", a.URL, pid, psz)
+				return true
+			}
+		}
+	}
 	best, ok := fetchBestIcon(ctx, pu, meta)
 	if !ok {
 		return changed
@@ -632,6 +648,12 @@ func ensureWebAppIcon(ctx context.Context, a *webApp) bool {
 // letter tile it falls back to is the site's own.
 
 func webAppIconStale(a *webApp) bool {
+	// A preset larger than the stored icon is reason enough
+	// on its own: the backfill swaps the preset in without
+	// any network fetch.
+	if _, _, psz, ok := presetIconFor(a.URL); ok && storedIconRealSize(a) < psz {
+		return true
+	}
 	if a.ThemeColor == "" {
 		return true
 	}
