@@ -18,5 +18,6 @@ const interceptPlatformSupported = false
 func interceptPlatformSetWanted(want bool) (bool, bool) { return false, false }
 func interceptPlatformStop()                            {}
 func interceptPlatformReinstall()                       {}
-func interceptPlatformRefreshMetrics()                  {}
-func interceptPlatformLastEvent() time.Time             { return time.Time{} }
+func interceptPlatformHookEvents() (time.Time, time.Time) {
+	return time.Time{}, time.Time{}
+}

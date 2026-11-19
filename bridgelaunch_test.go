@@ -137,7 +137,7 @@ func TestBridgeLoadViaPortUnreachableIsContained(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		bridgeLoadViaPort(dead, "/nonexistent-ext", "chrome.exe")
+		bridgeLoadViaPort(dead, "/nonexistent-ext", "chrome.exe", false, time.Now())
 		close(done)
 	}()
 	select {

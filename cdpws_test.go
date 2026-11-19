@@ -26,6 +26,69 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// TestBridgeHandoffAction pins the test6 handoff rule: a
+// launch that hands off to a running browser must never wait
+// on the fresh launch's (dead) port when the bridge is
+// already alive, must retry over the remembered port when
+// the bridge is silent, and must stay quiet when there is no
+// port to retry over.
+func TestBridgeHandoffAction(t *testing.T) {
+	cases := []struct {
+		name      string
+		handoff   bool
+		knownPort int
+		alive     bool
+		want      bridgeLoadAction
+	}{
+		{"冷启动→走本次端口装入", false, 0, false, bridgeLoadNew},
+		{"冷启动（有旧端口记录）→仍走本次端口", false, 9222, true, bridgeLoadNew},
+		{"接续且桥活着→跳过", true, 9222, true, bridgeSkipAlive},
+		{"接续且桥活着（无端口记录）→跳过", true, 0, true, bridgeSkipAlive},
+		{"接续且桥沉默、有端口→沿用旧端口重试", true, 9222, false, bridgeLoadKnown},
+		{"接续且桥沉默、无端口→安静跳过", true, 0, false, bridgeSkipNoPort},
+	}
+	for _, c := range cases {
+		if got := bridgeHandoffAction(c.handoff, c.knownPort, c.alive); got != c.want {
+			t.Errorf("%s: bridgeHandoffAction(%v, %d, %v) = %v, want %v", c.name, c.handoff, c.knownPort, c.alive, got, c.want)
+		}
+	}
+}
+
+// TestBridgeKnownPortGeneration pins the port memory's
+// scope: a remembered port is valid only inside the browser
+// generation that produced it; a restarted browser (new
+// generation stamp) invalidates it.
+func TestBridgeKnownPortGeneration(t *testing.T) {
+	setGen := func(tm time.Time) {
+		webNotifyGen.Lock()
+		webNotifyGen.start = tm
+		webNotifyGen.seen = !tm.IsZero()
+		webNotifyGen.Unlock()
+	}
+	bridgePortMem.Lock()
+	bridgePortMem.port, bridgePortMem.gen = 0, time.Time{}
+	bridgePortMem.Unlock()
+	t.Cleanup(func() {
+		bridgePortMem.Lock()
+		bridgePortMem.port, bridgePortMem.gen = 0, time.Time{}
+		bridgePortMem.Unlock()
+		setGen(time.Time{})
+	})
+	gen1 := time.Now().Add(-time.Minute)
+	setGen(gen1)
+	if got := bridgeKnownPort(); got != 0 {
+		t.Fatalf("nothing remembered: known port = %d, want 0", got)
+	}
+	bridgeRememberPort(9222)
+	if got := bridgeKnownPort(); got != 9222 {
+		t.Fatalf("same generation: known port = %d, want 9222", got)
+	}
+	setGen(gen1.Add(time.Minute)) // browser restarted: new generation
+	if got := bridgeKnownPort(); got != 0 {
+		t.Fatalf("new generation: known port = %d, want 0", got)
+	}
+}
+
 func testServerPort(t *testing.T, srv *httptest.Server) int {
 	t.Helper()
 	u, err := url.Parse(srv.URL)

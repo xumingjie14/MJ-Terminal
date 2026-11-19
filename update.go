@@ -332,10 +332,87 @@ func recordInstalledTag(tag string) {
 	logf("update", "info", "软件更新：已记录安装来源标签 %s（v%s）", tag, AppVersion)
 }
 
+// cleanLeftoverUpdateArtifacts removes a tag's staged
+// leftovers (partial download, package, staged exe, tag note)
+// from an update dir and reports how many files went away.
+// v0.71 test6: once a tag is recorded as installed, any bytes
+// of it still sitting in Data/update are dead weight -- before
+// test6 they were exactly what the phantom-Data bug left
+// behind, and a fresh same-tag download would trip over the
+// stale partial. The caller only runs this when the newest
+// offered tag IS the installed one (a newer tag's in-flight
+// download is never touched: its tag differs) and no download
+// is running in this daemon.
+func cleanLeftoverUpdateArtifactsIn(dir string) int {
+	removed := 0
+	for _, name := range []string{"pkg.zip.part", "pkg.zip", "MJ-System.exe", "source-tag.txt"} {
+		if err := os.Remove(filepath.Join(dir, name)); err == nil {
+			removed++
+		}
+	}
+	return removed
+}
+
 // pendingSourceTagPath carries the offered update's tag from
 // downloadUpdate (old daemon) to runApplyUpdate (the staged
 // new binary) inside Data/update, next to the staged package.
 func pendingSourceTagPath() string { return filepath.Join(updateDir(), "source-tag.txt") }
+
+// applyLayout resolves the installation layout from the
+// STAGED binary's own path (test6): downloadUpdate staged this
+// exe into <Data>/update/, so the exe's folder is the update
+// folder and its parent is the installation's real Data
+// directory. The apply process must derive Data from here and
+// never from dataDir(): dataDir() follows the RUNNING
+// executable, and the staged exe lives inside Data/update/, so
+// the daemon's own resolution lands in a phantom
+// Data/update/Data. That is exactly why the installed-tag
+// record never landed before test6 -- runApplyUpdate read the
+// pending tag from the phantom update folder (never found it,
+// silently recorded nothing) and the beta channel therefore
+// re-offered, and re-downloaded, the very build the user had
+// just applied (field evidence 2026-11-18: test5 applied at
+// 21:18:18, re-offered at 21:18:30 and 21:18:43, the same
+// 62.5 MB package downloaded again by 21:18:53).
+func applyLayout(self string) (stagedDir, dataDirPath string) {
+	stagedDir = filepath.Dir(self)
+	return stagedDir, filepath.Dir(stagedDir)
+}
+
+// consumePendingInstalledTag is the apply process's half of
+// the tag handover: read the pending source tag from the
+// staged exe's OWN folder (where downloadUpdate actually
+// wrote it -- the same folder as the staged exe) and record
+// it as the installed tag in the REAL Data directory.
+// Returns the recorded tag, or "" when no tag was pending.
+func consumePendingInstalledTag(self string) string {
+	stagedDir, dataDirPath := applyLayout(self)
+	tagFile := filepath.Join(stagedDir, "source-tag.txt")
+	b, err := os.ReadFile(tagFile)
+	if err != nil {
+		return ""
+	}
+	tag := strings.TrimSpace(string(b))
+	_ = os.Remove(tagFile)
+	if tag == "" {
+		return ""
+	}
+	body, _ := json.Marshal(updateStateFile{InstalledTag: tag, InstalledVersion: AppVersion})
+	if err := dsSaveAtRoot(dataDirPath, "update-state", body); err != nil {
+		applyLog("FAILED: cannot record installed tag %s: %v", tag, err)
+		return ""
+	}
+	applyLog("recorded installed source tag: %s", tag)
+	return tag
+}
+
+// removePendingSourceTag drops a pending tag file from the
+// staged exe's folder (the rollback paths: a failed apply
+// must not let a stale tag be consumed by a later install).
+func removePendingSourceTag(self string) {
+	stagedDir, _ := applyLayout(self)
+	_ = os.Remove(filepath.Join(stagedDir, "source-tag.txt"))
+}
 
 // ---------- signed manifest verification (v0.61) ----------
 
@@ -577,12 +654,24 @@ func checkUpdateBeta() {
 			break
 		}
 	}
-	if betaOffer(rel.TagName, man.Version, loadUpdateState().InstalledTag, AppVersion, officialExists) {
+	installedTag := loadUpdateState().InstalledTag
+	if betaOffer(rel.TagName, man.Version, installedTag, AppVersion, officialExists) {
 		upd.set("available", fmt.Sprintf("发现测试版 %s（当前 v%s），大小 %.1f MB", rel.TagName, AppVersion, float64(man.Size)/1024/1024))
 		postNotifyOnce("update-available:"+rel.TagName, notifySrcUpdate, "available",
 			"发现测试版 "+rel.TagName, fmt.Sprintf("测试版 %s 已可下载（当前 v%s）", rel.TagName, AppVersion), "setpage:update")
 	} else {
 		upd.set("uptodate", "已是最新测试版")
+		// v0.71 test6: the newest tag is the installed one --
+		// sweep any staged leftovers of it so the update dir
+		// ends clean (and stays silent: nothing removed, no
+		// line). Never while this daemon is mid-download.
+		if installedTag != "" && rel.TagName == installedTag {
+			if phase := upd.snapshot().Phase; phase != "downloading" && phase != "verifying" && phase != "ready" {
+				if n := cleanLeftoverUpdateArtifactsIn(updateDir()); n > 0 {
+					logf("update", "info", "软件更新：已清理当前测试版 %s 的残留下载文件（%d 个）", installedTag, n)
+				}
+			}
+		}
 	}
 }
 
@@ -994,7 +1083,16 @@ func updateApplyHandler(w http.ResponseWriter, r *http.Request) {
 
 func applyLog(format string, args ...any) {
 	line := time.Now().Format("15:04:05 ") + fmt.Sprintf(format, args...) + "\n"
-	f, err := os.OpenFile(filepath.Join(updateDir(), "apply.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	// The apply process runs from the staged exe inside the
+	// real Data/update folder; updateDir() would resolve
+	// through dataDir() to the phantom Data/update/Data (see
+	// applyLayout), so the log goes to the exe's own folder --
+	// the real update folder a human would look in.
+	dir := updateDir()
+	if self, err := os.Executable(); err == nil {
+		dir = filepath.Dir(self)
+	}
+	f, err := os.OpenFile(filepath.Join(dir, "apply.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err == nil {
 		_, _ = f.WriteString(line)
 		_ = f.Close()
@@ -1096,7 +1194,7 @@ func runApplyUpdate(target string) {
 	}
 	if !copyOK {
 		applyLog("FAILED: cannot copy new exe, rolling back")
-		_ = os.Remove(pendingSourceTagPath())
+		removePendingSourceTag(self)
 		_ = os.Rename(old, target)
 		_ = exec.Command(target).Start()
 		return
@@ -1106,7 +1204,7 @@ func runApplyUpdate(target string) {
 	launch.Dir = filepath.Dir(target)
 	if err := launch.Start(); err != nil {
 		applyLog("FAILED: cannot launch new exe: %v, rolling back", err)
-		_ = os.Remove(pendingSourceTagPath())
+		removePendingSourceTag(self)
 		_ = os.Remove(target)
 		_ = os.Rename(old, target)
 		_ = exec.Command(target).Start()
@@ -1120,22 +1218,19 @@ func runApplyUpdate(target string) {
 			// release tag this installation came from (the
 			// beta channel's offer rule reads it). Absent file
 			// = the previous daemon predates the tag handover;
-			// nothing to record.
-			if b, rerr := os.ReadFile(pendingSourceTagPath()); rerr == nil {
-				if tag := strings.TrimSpace(string(b)); tag != "" {
-					recordInstalledTag(tag)
-					applyLog("recorded installed source tag: %s", tag)
-				}
-				_ = os.Remove(pendingSourceTagPath())
-			}
+			// nothing to record. The handover resolves its
+			// paths from THIS exe's location, never dataDir()
+			// (test6 -- see applyLayout/consumePendingInstalledTag).
+			consumePendingInstalledTag(self)
 			_ = os.Remove(old)
-			_ = os.Remove(filepath.Join(updateDir(), "pkg.zip"))
+			stagedDir, _ := applyLayout(self)
+			_ = os.Remove(filepath.Join(stagedDir, "pkg.zip"))
 			return
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
 	applyLog("FAILED: new daemon never became healthy, rolling back")
-	_ = os.Remove(pendingSourceTagPath())
+	removePendingSourceTag(self)
 	_ = os.Remove(target)
 	_ = os.Rename(old, target)
 	rb := exec.Command(target)

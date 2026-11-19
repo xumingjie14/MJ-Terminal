@@ -36,6 +36,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -131,10 +132,84 @@ func cdpLoadUnpackedWS(wsURL, path string, timeout time.Duration, maxAttempts in
 	return cdpCallLoadUnpacked(mio, path, timeout, maxAttempts)
 }
 
-// bridgeLoadViaPort is the port route's launch-path
-// driver, the mirror of bridgeLoadViaCDP: it runs after a
-// successful browser start and only ever logs. Its
-// outcomes:
+// ---------- remembered port + handoff rule (test6) ----------
+//
+// Every launch allocates a FRESH debugging port and passes it
+// to the chrome.exe invocation -- but when Chrome is already
+// running, the invocation hands off to the running instance
+// and exits: the running browser keeps the FIRST launch's
+// port, the new port is never bound, and test5's loader waited
+// the full timeout on a dead port and reported "本次网页通知
+// 不可用" even though the bridge loaded by the first launch
+// was alive and reporting (field evidence 2026-11-18: dead
+// ports 55260 and 55395 while the first load had connected).
+// The port route now remembers the port that first answered,
+// keyed to the browser generation (webnotify.go's tracker: a
+// restarted browser starts a new generation and gets a new
+// port), and a handoff launch consults the bridge's own
+// liveness before touching any port at all.
+
+var bridgePortMem = struct {
+	sync.Mutex
+	port int
+	gen  time.Time // browser generation the remembered port belongs to
+}{}
+
+// bridgeRememberPort records the debugging port whose
+// endpoint answered, stamped with the current browser
+// generation.
+func bridgeRememberPort(port int) {
+	if port <= 0 {
+		return
+	}
+	bridgePortMem.Lock()
+	bridgePortMem.port = port
+	bridgePortMem.gen = webNotifyGenerationStart()
+	bridgePortMem.Unlock()
+}
+
+// bridgeKnownPort returns the remembered port while it still
+// belongs to the current browser generation, else 0.
+func bridgeKnownPort() int {
+	bridgePortMem.Lock()
+	defer bridgePortMem.Unlock()
+	if bridgePortMem.port == 0 || !bridgePortMem.gen.Equal(webNotifyGenerationStart()) {
+		return 0
+	}
+	return bridgePortMem.port
+}
+
+type bridgeLoadAction int
+
+const (
+	bridgeLoadNew    bridgeLoadAction = iota // cold launch: load over this launch's own port
+	bridgeSkipAlive                          // handoff, and the bridge already reports in this generation
+	bridgeLoadKnown                          // handoff, not reporting: retry the load over the remembered port
+	bridgeSkipNoPort                         // handoff, no remembered port (daemon restarted under a running browser)
+)
+
+// bridgeHandoffAction is the port route's per-launch
+// decision, kept pure: a handoff launch whose bridge is
+// already alive must not wait on the fresh (dead) port at
+// all; one whose bridge is silent retries over the port the
+// running browser actually owns; one with neither stays
+// quiet and lets webNotifyLaunchCheck arbitrate by pings.
+func bridgeHandoffAction(handoff bool, knownPort int, alive bool) bridgeLoadAction {
+	if !handoff {
+		return bridgeLoadNew
+	}
+	if alive {
+		return bridgeSkipAlive
+	}
+	if knownPort > 0 {
+		return bridgeLoadKnown
+	}
+	return bridgeSkipNoPort
+}
+
+// bridgeLoadViaPort is the port route's launch-path driver,
+// the mirror of bridgeLoadViaCDP: it runs after a successful
+// browser start and only ever logs. Its outcomes:
 //
 //   - success: the bridge is in, web notifications flow;
 //   - the browser refusing the command (a protocol error,
@@ -147,12 +222,49 @@ func cdpLoadUnpackedWS(wsURL, path string, timeout time.Duration, maxAttempts in
 //     in a handed-off instance, which the launch check
 //     (webNotifyLaunchCheck) arbitrates via the bridge's
 //     own pings.
-func bridgeLoadViaPort(port int, extDir, browserName string) {
+//
+// Handoff launches (the browser was already running) follow
+// bridgeHandoffAction instead of the cold path above.
+func bridgeLoadViaPort(port int, extDir, browserName string, handoff bool, since time.Time) {
+	if handoff {
+		webNotifyBridge.Lock()
+		last := webNotifyBridge.lastPing
+		webNotifyBridge.Unlock()
+		alive := !webNotifyShouldWarn(true, last, webNotifyGenerationStart(), since)
+		switch bridgeHandoffAction(true, bridgeKnownPort(), alive) {
+		case bridgeSkipAlive:
+			logf("notify", "info", "网页通知桥已在运行中的浏览器里连接着（沿用首次装入的桥），本次跳过重复装入（浏览器：%s）", browserName)
+			return
+		case bridgeSkipNoPort:
+			logf("notify", "info", "网页通知桥：浏览器已在运行，本次未重复装入；桥是否可用看它有没有向终端机报到（浏览器：%s）", browserName)
+			return
+		case bridgeLoadKnown:
+			known := bridgeKnownPort()
+			wsURL, err := cdpDevToolsWSURL(known, cdpVersionWait/2)
+			if err != nil {
+				logf("notify", "warn", "网页通知桥未能装入（浏览器：%s）：运行中的浏览器调试接口未应答（%v）——网页通知暂时不可用，浏览器本身不受影响", browserName, err)
+				return
+			}
+			bridgeLoadAttempt(wsURL, extDir, browserName)
+			return
+		}
+	}
 	wsURL, err := cdpDevToolsWSURL(port, cdpVersionWait)
 	if err != nil {
 		logf("notify", "warn", "网页通知桥未能装入（浏览器：%s）：%v——本次网页通知不可用，浏览器本身不受影响", browserName, err)
 		return
 	}
+	// The endpoint answered: this port is the running
+	// browser's DevTools port for this generation, whatever
+	// the load itself decides.
+	bridgeRememberPort(port)
+	bridgeLoadAttempt(wsURL, extDir, browserName)
+}
+
+// bridgeLoadAttempt runs the loadUnpacked conversation over
+// an answered endpoint and logs the outcome (see
+// bridgeLoadViaPort's outcome list).
+func bridgeLoadAttempt(wsURL, extDir, browserName string) {
 	id, err := cdpLoadUnpackedWS(wsURL, extDir, 6*time.Second, 3)
 	if err != nil {
 		var ce *cdpError

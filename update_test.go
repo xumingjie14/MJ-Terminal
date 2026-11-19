@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"mjlight/internal/asec"
+	"mjlight/internal/datastore"
 )
 
 func stubRenameSleep(t *testing.T) {
@@ -492,5 +493,83 @@ func TestRecordInstalledTagRoundtrip(t *testing.T) {
 	st := loadUpdateState()
 	if st.InstalledTag != "v0.59-test2" || st.InstalledVersion != AppVersion {
 		t.Fatalf("recorded state = %+v", st)
+	}
+}
+
+// TestConsumePendingInstalledTagFromStagedExe is the test6
+// regression for the re-offered test build (field evidence
+// 2026-11-18: test5 applied, then offered and downloaded
+// again). The apply process runs from the staged exe inside
+// <Data>/update/; the handover must resolve the pending tag
+// and the record's Data root from THAT path -- resolving
+// through dataDir() lands in a phantom <Data>/update/Data and
+// the record silently never lands.
+func TestConsumePendingInstalledTagFromStagedExe(t *testing.T) {
+	dataDir := t.TempDir() // the installation's real Data directory
+	stagedDir := filepath.Join(dataDir, "update")
+	if err := os.MkdirAll(stagedDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	self := filepath.Join(stagedDir, "MJ-System.exe")
+	if sd, dd := applyLayout(self); sd != stagedDir || dd != dataDir {
+		t.Fatalf("applyLayout = (%q, %q), want (%q, %q)", sd, dd, stagedDir, dataDir)
+	}
+	// No pending tag beside the staged exe: nothing to record.
+	if got := consumePendingInstalledTag(self); got != "" {
+		t.Fatalf("consume without pending tag = %q, want \"\"", got)
+	}
+	// The old daemon's downloadUpdate writes source-tag.txt
+	// next to the staged exe; the apply process must find it
+	// there and record it under the REAL Data root.
+	if err := os.WriteFile(filepath.Join(stagedDir, "source-tag.txt"), []byte("v0.71-test6\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := consumePendingInstalledTag(self); got != "v0.71-test6" {
+		t.Fatalf("consume = %q, want v0.71-test6", got)
+	}
+	if _, err := os.Stat(filepath.Join(stagedDir, "source-tag.txt")); !os.IsNotExist(err) {
+		t.Fatal("pending tag file not consumed")
+	}
+	// Read the record back from the real Data root.
+	old := datastore.RootOverride
+	datastore.RootOverride = dataDir
+	datastore.ResetManifestCache()
+	defer func() {
+		datastore.RootOverride = old
+		datastore.ResetManifestCache()
+	}()
+	st := loadUpdateState()
+	if st.InstalledTag != "v0.71-test6" || st.InstalledVersion != AppVersion {
+		t.Fatalf("recorded state = %+v", st)
+	}
+	// And the beta offer rule now suppresses the very build
+	// that was just applied (the field bug's user-visible end).
+	if betaOffer("v0.71-test6", AppVersion, st.InstalledTag, AppVersion, false) {
+		t.Error("betaOffer offers the just-applied test build again")
+	}
+	// A consumed tag does not record twice.
+	if got := consumePendingInstalledTag(self); got != "" {
+		t.Fatalf("second consume = %q, want \"\"", got)
+	}
+}
+
+// TestCleanLeftoverUpdateArtifacts pins the test6 sweep: a
+// tag's staged leftovers go away, unrelated files survive, and
+// a second sweep is a silent no-op.
+func TestCleanLeftoverUpdateArtifacts(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"pkg.zip.part", "pkg.zip", "MJ-System.exe", "source-tag.txt", "keep.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := cleanLeftoverUpdateArtifactsIn(dir); n != 4 {
+		t.Fatalf("removed = %d, want 4", n)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "keep.txt")); err != nil {
+		t.Fatal("unrelated file was removed")
+	}
+	if n := cleanLeftoverUpdateArtifactsIn(dir); n != 0 {
+		t.Fatalf("second sweep removed = %d, want 0", n)
 	}
 }

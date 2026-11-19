@@ -95,6 +95,27 @@ type dsManifest = datastore.Manifest
 
 func dsSave(name string, b []byte) error { return datastore.Save(name, b) }
 
+// dsSaveAtRoot saves a named record with the datastore rooted
+// at dir instead of the running process's Data directory, then
+// restores the previous root. The update-apply process needs
+// it: it runs from the staged exe inside Data/update/, so its
+// own dataDir() resolution points at a phantom Data/update/Data
+// that the real daemon never opens (see applyLayout in
+// update.go).
+func dsSaveAtRoot(dir, name string, b []byte) error {
+	prev := datastore.RootOverride
+	datastore.RootOverride = dir
+	// The manifest cache is not keyed by root; drop it on the
+	// way in and out so the bookkeeping never mixes two Data
+	// directories (the same discipline dsTestRoot uses).
+	datastore.ResetManifestCache()
+	defer func() {
+		datastore.RootOverride = prev
+		datastore.ResetManifestCache()
+	}()
+	return datastore.Save(name, b)
+}
+
 func dsLoad(name string) ([]byte, dsStatus, error) { return datastore.Load(name) }
 
 func dsSaveFile(path string, b []byte, perm os.FileMode, validate func([]byte) error, backup bool) error {

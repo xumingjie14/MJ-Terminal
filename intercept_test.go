@@ -12,8 +12,13 @@ package main
 import "testing"
 
 func icMouseFacts() interceptFacts {
-	// A locked window at (100,100)-(900,700); close zone with
-	// closeW=46, captionH=32: x in [854,900), y in [100,132).
+	// A locked window at (100,100)-(900,700) whose visible
+	// frame is inset by the usual 8px resize overhang on the
+	// left/right/bottom: frame (108,100)-(892,692). Metrics at
+	// 96 DPI (BtnW 45, frames 8, caption 23, padded 4) anchor
+	// the close zone on the frame: x in [839,892), y in
+	// [100,135). The click point (880,110) is the close
+	// button's heart.
 	return interceptFacts{
 		Kind:           interceptMouseDown,
 		TargetHWND:     42,
@@ -22,8 +27,17 @@ func icMouseFacts() interceptFacts {
 		RectT:          100,
 		RectR:          900,
 		RectB:          700,
-		CloseW:         46,
-		CaptionH:       32,
+		FrameL:         108,
+		FrameT:         100,
+		FrameR:         892,
+		FrameB:         692,
+		FrameOK:        true,
+		DpiWindow:      96,
+		BtnW:           45,
+		FrameXW:        8,
+		FrameYW:        8,
+		CaptionH:       23,
+		PaddedB:        4,
 		X:              880,
 		Y:              110,
 		ServicesActive: true,
@@ -47,7 +61,7 @@ func TestDecideCloseInterceptMouse(t *testing.T) {
 		{"注入事件→放行", func(f *interceptFacts) { f.Injected = true }, interceptPass, 0},
 		{"保险库锁定（服务未启）→放行", func(f *interceptFacts) { f.ServicesActive = false }, interceptPass, 0},
 		{"钩子未生效→放行", func(f *interceptFacts) { f.Enabled = false }, interceptPass, 0},
-		{"度量缺失→放行", func(f *interceptFacts) { f.CloseW = 0 }, interceptPass, 0},
+		{"度量缺失→放行", func(f *interceptFacts) { f.BtnW = 0 }, interceptPass, 0},
 		{"UP同窗区内→吞下并藏", func(f *interceptFacts) {
 			f.Kind = interceptMouseUp
 			f.ArmedHWND = 42
@@ -114,25 +128,138 @@ func TestDecideCloseInterceptKeyboard(t *testing.T) {
 	}
 }
 
-func TestInterceptInCloseZone(t *testing.T) {
-	// Window rect (-1920,0)-(-20,1040) on a left-hand monitor:
-	// negative coordinates must work relatively, no branches.
-	if !interceptInCloseZone(-40, 10, -1920, 0, -20, 1040, 46, 32) {
+func TestCloseZoneFor(t *testing.T) {
+	zoneOf := func(f interceptFacts) closeZone {
+		z, ok := closeZoneFor(f)
+		if !ok {
+			t.Fatalf("closeZoneFor(%+v) not ok", f)
+		}
+		return z
+	}
+	// Negative coordinates (left-hand monitor): the formula is
+	// purely relative, no branches.
+	f := icMouseFacts()
+	f.RectL, f.RectT, f.RectR, f.RectB = -1928, 0, -28, 1040
+	f.FrameL, f.FrameT, f.FrameR, f.FrameB = -1920, 0, -36, 1032
+	z := zoneOf(f)
+	if !z.contains(-40, 10) {
 		t.Error("negative-coordinate rect: point in close zone not detected")
 	}
-	if interceptInCloseZone(-100, 10, -1920, 0, -20, 1040, 46, 32) {
+	if z.contains(-100, 10) {
 		t.Error("negative-coordinate rect: caption middle wrongly in close zone")
 	}
 	// Maximized: the rect runs past the visible screen edge;
-	// the formula uses the rect as-is.
-	if !interceptInCloseZone(1905, 5, -8, -8, 1928, 1048, 46, 32) {
-		t.Error("maximized rect: X at the screen's top-right corner not detected")
+	// the visible frame is the screen itself and anchors.
+	f = icMouseFacts()
+	f.RectL, f.RectT, f.RectR, f.RectB = -8, -8, 1928, 1048
+	f.FrameL, f.FrameT, f.FrameR, f.FrameB = 0, 0, 1920, 1040
+	if z := zoneOf(f); !z.contains(1905, 5) {
+		t.Error("maximized: X at the screen's top-right corner not detected")
 	}
-	if interceptInCloseZone(880, 110, 100, 100, 900, 700, 0, 32) {
-		t.Error("closeW=0 must never hit")
+	// No DWM frame answer: the rect anchors and the zone grows
+	// by the second frame width, so it still ends at the
+	// rect's right edge (the invisible border strip included);
+	// WITH a frame, that same strip is outside the zone.
+	f = icMouseFacts()
+	f.FrameOK = false
+	if z := zoneOf(f); !z.contains(895, 110) {
+		t.Error("rect-anchored zone should cover the invisible border strip")
 	}
-	if interceptInCloseZone(880, 110, 100, 100, 900, 700, 46, 0) {
-		t.Error("captionH=0 must never hit")
+	f.FrameOK = true
+	if z := zoneOf(f); z.contains(895, 110) {
+		t.Error("frame-anchored zone must end at the visible frame edge")
+	}
+	// Missing metrics never hit.
+	f = icMouseFacts()
+	f.BtnW = 0
+	if _, ok := closeZoneFor(f); ok {
+		t.Error("BtnW=0 must yield no zone")
+	}
+	f = icMouseFacts()
+	f.CaptionH, f.FrameYW, f.PaddedB = 0, 0, 0
+	if _, ok := closeZoneFor(f); ok {
+		t.Error("zero caption height must yield no zone")
+	}
+}
+
+// TestCloseZoneDPITable pins the geometry across the three
+// scaling tiers against a Chrome app window's real button
+// placement: the close button's centre sits about 23*scale px
+// left of the visible frame's right edge and 14*scale px
+// below its top, the button spans the caption band's full
+// height, and the minimize cell sits one full button further
+// left. Metrics are the system quantities AT THE WINDOW'S
+// DPI (what the platform layer now measures); the window rect
+// is physical pixels, identical at every tier.
+func TestCloseZoneDPITable(t *testing.T) {
+	for _, dpi := range []int32{96, 120, 144} {
+		s := float64(dpi) / 96
+		px := func(v float64) int32 { return int32(v*s + 0.5) }
+		f := icMouseFacts()
+		f.RectL, f.RectT, f.RectR, f.RectB = 100, 100, 1300, 900
+		f.FrameL, f.FrameT = 100+px(8), 100
+		f.FrameR, f.FrameB = 1300-px(8), 900-px(8)
+		f.DpiWindow = dpi
+		f.BtnW, f.FrameXW, f.FrameYW = px(45), px(8), px(8)
+		f.CaptionH, f.PaddedB = px(23), px(4)
+		z, ok := closeZoneFor(f)
+		if !ok {
+			t.Fatalf("dpi %d: no zone", dpi)
+		}
+		xCenter, xTop := f.FrameR-px(23), f.FrameT+px(14)
+		if !z.contains(xCenter, xTop) {
+			t.Errorf("dpi %d: close centre (%d,%d) outside zone %+v", dpi, xCenter, xTop, z)
+		}
+		// The button's lower half: its band is ~32*scale tall
+		// (centre at +14*scale), so a click at +26*scale is
+		// still on the button and must hit.
+		if !z.contains(xCenter, f.FrameT+px(26)) {
+			t.Errorf("dpi %d: close lower half (%d,%d) outside zone %+v", dpi, xCenter, f.FrameT+px(26), z)
+		}
+		// Minimize centre: one full button plus a half further
+		// left -- never in the zone.
+		if z.contains(f.FrameR-px(112), xTop) {
+			t.Errorf("dpi %d: minimize centre wrongly in close zone %+v", dpi, z)
+		}
+		// Content area below the caption band: never in.
+		if z.contains(xCenter, z.Y1+px(30)) {
+			t.Errorf("dpi %d: content point wrongly in close zone %+v", dpi, z)
+		}
+		// The full gesture at this tier: DOWN arms, UP hides.
+		f.X, f.Y = xCenter, xTop
+		if dec := decideCloseIntercept(f); dec.Action != interceptSwallow {
+			t.Errorf("dpi %d: DOWN on X = %v, want swallow", dpi, dec.Action)
+		}
+		f.Kind, f.ArmedHWND = interceptMouseUp, f.TargetHWND
+		if dec := decideCloseIntercept(f); dec.Action != interceptSwallowHide || dec.HideHWND != f.TargetHWND {
+			t.Errorf("dpi %d: UP on X = (%v, %d), want swallow+hide", dpi, dec.Action, dec.HideHWND)
+		}
+	}
+}
+
+// TestCloseZoneMetricDrift is the test5 field geometry in
+// miniature: the window lives at 150% (DPI 144) but the
+// metrics were measured at the logon system DPI (96) -- the
+// old formula's zone. A click on the close button's lower
+// half misses that zone; measured at the window's own DPI
+// (the test6 rule) the same click hits.
+func TestCloseZoneMetricDrift(t *testing.T) {
+	f := icMouseFacts()
+	f.RectL, f.RectT, f.RectR, f.RectB = 100, 100, 1300, 900
+	f.FrameL, f.FrameT, f.FrameR, f.FrameB = 112, 100, 1288, 888
+	clickX, clickY := f.FrameR-34, f.FrameT+39 // 23*1.5 left, 26*1.5 down (the button's lower half)
+	// Old way: metrics at 96 while the window is at 144.
+	f.DpiWindow = 96
+	f.BtnW, f.FrameXW, f.FrameYW, f.CaptionH, f.PaddedB = 45, 8, 8, 23, 4
+	if z, _ := closeZoneFor(f); z.contains(clickX, clickY) {
+		t.Fatalf("drift case unexpectedly hits with system-DPI metrics; the case no longer discriminates")
+	}
+	// New way: the same facts with metrics at the window DPI.
+	f.DpiWindow = 144
+	f.BtnW, f.FrameXW, f.FrameYW, f.CaptionH, f.PaddedB = 68, 12, 12, 34, 6
+	z, ok := closeZoneFor(f)
+	if !ok || !z.contains(clickX, clickY) {
+		t.Errorf("window-DPI metrics: click (%d,%d) outside zone %+v", clickX, clickY, z)
 	}
 }
 

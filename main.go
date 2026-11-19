@@ -1109,7 +1109,11 @@ func launchIsolatedBrowser(proxy bool, target string, appMode bool) error {
 		// Windows route: the browser is already up; load the
 		// bridge through its loopback debugging port in the
 		// background. Log-only by construction (cdpws.go).
-		go bridgeLoadViaPort(bridgePlan.debugPort, extDir, filepath.Base(browser))
+		// handoff (computed above, before Start) tells the
+		// loader this launch handed off to a running browser,
+		// whose debugging port is an earlier launch's -- the
+		// fresh port in the plan will never answer (test6).
+		go bridgeLoadViaPort(bridgePlan.debugPort, extDir, filepath.Base(browser), handoff, launchAt)
 	}
 	// v0.68: if the bridge never reports after this launch, the
 	// console hears about it once (webnotify.go has the rules).
@@ -1541,35 +1545,21 @@ func layoutGetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// v0.35: the desktop regularizes old layouts into a single
-	// non-overlapping order on load (frontend). When the STORED
-	// positions already collide with each other, leave a trace in
-	// the console hub so the owner can see the cleanup happened.
-	// The file itself is served unchanged.
-	var lay layoutBlob
-	if json.Unmarshal(b, &lay) == nil && len(lay.Pos) > 1 {
-		type pt struct{ x, y float64 }
-		pts := make([]pt, 0, len(lay.Pos))
-		for _, p := range lay.Pos {
-			pts = append(pts, pt{p.X, p.Y})
-		}
-		n := 0
-		for i := 0; i < len(pts); i++ {
-			for j := i + 1; j < len(pts); j++ {
-				dx := pts[i].x - pts[j].x
-				if dx < 0 {
-					dx = -dx
-				}
-				dy := pts[i].y - pts[j].y
-				if dy < 0 {
-					dy = -dy
-				}
-				if dx < 92 && dy < 100 {
-					n++
-				}
-			}
-		}
-		if n > 0 {
-			logf("layout", "warn", "检测到旧布局有 %d 处图标位置重叠，桌面载入时将自动规整为不重叠的顺序", n)
+	// non-overlapping order on load (frontend); this handler
+	// left a trace in the console hub when the STORED positions
+	// collided -- but served the file unchanged, so positions
+	// the frontend never rewrites (folder members, removed
+	// apps, legacy free positions) collided forever and the
+	// warning repeated on every load. v0.71 test6: heal once
+	// and write the healed blob back through the datastore
+	// (layout.go), then serve the healed bytes; the warning
+	// below survives only for the case the write-back fails.
+	if healed, n, ok := healLayoutBlob(b, layoutPitch()); ok {
+		if err := dsSave("layout", healed); err == nil {
+			logf("layout", "info", "桌面布局已自动规整并保存（原有 %d 处图标位置重叠）", n)
+			b = healed
+		} else {
+			logf("layout", "warn", "检测到旧布局有 %d 处图标位置重叠，规整结果保存失败：%v", n, err)
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")

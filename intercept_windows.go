@@ -48,7 +48,11 @@ var (
 	procGetAncestor            = user32.NewProc("GetAncestor")
 	procGetSystemMetricsForDpi = user32.NewProc("GetSystemMetricsForDpi")
 	procGetDpiForSystem        = user32.NewProc("GetDpiForSystem")
+	procGetDpiForWindow        = user32.NewProc("GetDpiForWindow")
+	procDwmGetWindowAttribute  = dwmapi.NewProc("DwmGetWindowAttribute")
 )
+
+const dwmwaExtendedFrameBounds = 9 // DWMWA_EXTENDED_FRAME_BOUNDS
 
 const (
 	whMouseLL    = 14 // WH_MOUSE_LL
@@ -71,6 +75,7 @@ const (
 
 	icHideMsg = 0x0412 // WM_USER+0x12: callback -> us, queue a hide (wParam=hwnd, lParam=gesture)
 	icSyncMsg = 0x0413 // WM_USER+0x13: reconcile hooks with icWant (lParam=1 forces a reinstall cycle)
+	icTeleMsg = 0x0414 // WM_USER+0x14: callback -> us, one telemetry record (lParam=*icTeleBox)
 
 	gestureMouseIC uintptr = 1
 	gestureKeyIC   uintptr = 2
@@ -104,14 +109,20 @@ type kbdllHookStruct struct {
 }
 
 var (
-	icStartOnce sync.Once
-	icHWND      atomic.Uintptr
-	icWant      atomic.Bool
-	icInstalled atomic.Bool
-	icFailed    atomic.Bool
-	icLastEvent atomic.Int64 // UnixNano of the last event any callback saw
-	icCloseW    atomic.Int32
-	icCaptionH  atomic.Int32
+	icHWND        atomic.Uintptr
+	icWant        atomic.Bool
+	icInstalled   atomic.Bool
+	icFailed      atomic.Bool
+	icThreadAlive atomic.Bool
+	icPrevWant    atomic.Bool
+	// Per-hook liveness stamps (UnixNano). Test5 shared one
+	// stamp across both hooks, which let a live hook mask a
+	// silently-removed sibling forever; the watchdog in
+	// intercept.go now reads them separately.
+	icLastMouse atomic.Int64
+	icLastKey   atomic.Int64
+
+	icStartMu sync.Mutex
 
 	// Hook-thread-only state (the callbacks and the reconcile
 	// run on that thread because it installed the hooks and
@@ -124,18 +135,56 @@ var (
 	icWndProcPtr uintptr
 )
 
+// ensureICThread starts the hook thread if it is not running.
+// Test5 started it once per process (sync.Once): if the
+// thread ever died, its hooks died with it while icInstalled
+// stayed true forever -- the layer reported itself active and
+// intercepted nothing. The thread now clears the installed
+// flag on exit (see interceptThread's defer) and the patrol's
+// per-tick SetWanted respawns it.
+func ensureICThread() {
+	if icThreadAlive.Load() {
+		return
+	}
+	icStartMu.Lock()
+	defer icStartMu.Unlock()
+	if !icThreadAlive.Load() {
+		icThreadAlive.Store(true)
+		go interceptThread()
+	}
+}
+
 // interceptPlatformSetWanted pushes the reconcile wish toward
 // the hook thread (starting it on first use) and reports the
-// last known install state; the reconcile itself completes on
-// the hook thread, and interceptPatrol reads the fresh state
-// on its next tick.
+// install state. On the false->true transition it waits
+// briefly (bounded, transitions only) for the hook thread's
+// verdict, so the patrol's arm log and degraded state describe
+// THIS attempt instead of a previous tick's: in test5 the
+// reconcile itself ran on the hook thread, but the patrol only
+// OBSERVED the installed flag on its next 2 s tick (and ticks
+// slip further whenever the shared patrol body is busy), so
+// the lock -> armed gap stretched to 18 s in the field and the
+// console's "armed" line never proved the hooks were live at
+// any given click.
 func interceptPlatformSetWanted(want bool) (bool, bool) {
 	icWant.Store(want)
 	if want {
-		icStartOnce.Do(func() { go interceptThread() })
+		ensureICThread()
 	}
 	if h := icHWND.Load(); h != 0 {
 		procPostMessageW.Call(h, icSyncMsg, 0, 0)
+	}
+	if want && icPrevWant.CompareAndSwap(false, true) {
+		deadline := time.Now().Add(400 * time.Millisecond)
+		for time.Now().Before(deadline) {
+			if icInstalled.Load() || icFailed.Load() {
+				break
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	if !want {
+		icPrevWant.Store(false)
 	}
 	return icInstalled.Load(), icFailed.Load()
 }
@@ -152,12 +201,16 @@ func interceptPlatformStop() {
 	}
 }
 
-func interceptPlatformLastEvent() time.Time {
-	n := icLastEvent.Load()
-	if n == 0 {
-		return time.Time{}
+// interceptPlatformHookEvents returns the per-hook liveness
+// stamps the watchdog reconciles against.
+func interceptPlatformHookEvents() (mouse, key time.Time) {
+	if n := icLastMouse.Load(); n != 0 {
+		mouse = time.Unix(0, n)
 	}
-	return time.Unix(0, n)
+	if n := icLastKey.Load(); n != 0 {
+		key = time.Unix(0, n)
+	}
+	return mouse, key
 }
 
 // interceptPlatformReinstall forces an unhook+rehook cycle on
@@ -169,25 +222,90 @@ func interceptPlatformReinstall() {
 	}
 }
 
-// interceptPlatformRefreshMetrics re-reads the caption metrics
-// the hit geometry consumes. The values are system quantities
-// (per the review: never literal pixels); the callbacks only
-// read the atomics.
-func interceptPlatformRefreshMetrics() {
-	dpi := uintptr(96)
-	if r, _, _ := procGetDpiForSystem.Call(); r != 0 {
-		dpi = r
+// icCaptionMetrics measures the caption quantities at the
+// TARGET WINDOW's dpi (test6): test5 measured them once per
+// patrol into atomics at the logon system DPI and the
+// callbacks consumed the frozen pair. Measuring per event, at
+// the window the event is about, keeps the metric set in the
+// same coordinate space as the event's other facts whatever
+// the process's DPI awareness (today: none -- no manifest, so
+// every value arrives virtualized at 96) and however the
+// display configuration changes between events. Leaf user32
+// calls only; the callbacks invoke this solely for events on
+// locked windows, never on the mouse-move path.
+func icCaptionMetrics(dpi int32) (btnW, frameX, frameY, caption, padded int32) {
+	if dpi <= 0 {
+		if r, _, _ := procGetDpiForSystem.Call(); r != 0 {
+			dpi = int32(r)
+		}
+	}
+	if dpi <= 0 {
+		dpi = 96
 	}
 	get := func(idx int) int32 {
-		r, _, _ := procGetSystemMetricsForDpi.Call(uintptr(idx), dpi)
+		r, _, _ := procGetSystemMetricsForDpi.Call(uintptr(idx), uintptr(dpi))
 		return int32(r)
 	}
-	if w := get(smCxSize) + 2*get(smCxSizeFrame); w > 0 {
-		icCloseW.Store(w)
+	return get(smCxSize), get(smCxSizeFrame), get(smCySizeFrame), get(smCyCaption), get(smCxPaddedBorder)
+}
+
+// icWindowDPI reads the target window's own DPI
+// (GetDpiForWindow): the value Chrome sized the window's
+// caption for. 0 = the call failed (facts carry it honestly;
+// the metrics then fall back to the system DPI).
+func icWindowDPI(hwnd uint64) int32 {
+	r, _, _ := procGetDpiForWindow.Call(uintptr(hwnd))
+	return int32(r)
+}
+
+// icFrameBounds reads the window's VISIBLE frame
+// (DWMWA_EXTENDED_FRAME_BOUNDS): the border Chrome draws its
+// caption buttons against, without GetWindowRect's invisible
+// resize overhang.
+func icFrameBounds(hwnd uint64) (int32, int32, int32, int32, bool) {
+	var rc wmRect
+	hr, _, _ := procDwmGetWindowAttribute.Call(uintptr(hwnd), dwmwaExtendedFrameBounds,
+		uintptr(unsafe.Pointer(&rc)), unsafe.Sizeof(rc))
+	if hr != 0 {
+		return 0, 0, 0, 0, false
 	}
-	if h := get(smCyCaption) + get(smCySizeFrame) + get(smCxPaddedBorder); h > 0 {
-		icCaptionH.Store(h)
+	return rc.Left, rc.Top, rc.Right, rc.Bottom, true
+}
+
+// icFillGeometry completes the mouse/keyboard facts for one
+// locked target window: rect, visible frame, window DPI and
+// the caption metrics at that DPI. Callback-legal calls only.
+func icFillGeometry(f *interceptFacts, hwnd uint64) {
+	f.RectL, f.RectT, f.RectR, f.RectB, _ = platformWindowRect(hwnd)
+	f.FrameL, f.FrameT, f.FrameR, f.FrameB, f.FrameOK = icFrameBounds(hwnd)
+	f.DpiWindow = icWindowDPI(hwnd)
+	f.BtnW, f.FrameXW, f.FrameYW, f.CaptionH, f.PaddedB = icCaptionMetrics(f.DpiWindow)
+}
+
+// ---------- telemetry hand-off (callback -> wndproc -> worker) ----------
+
+// icTeleBox carries one decision record from a callback to
+// the hook window. The box is held in icTeleInFlight from the
+// post until the dispatch, so the GC always sees a live
+// reference while the only other copy is a uintptr inside the
+// OS message queue (which the GC does not scan).
+type icTeleBox struct{ t interceptTelemetry }
+
+var (
+	icTeleMu       sync.Mutex
+	icTeleInFlight = map[*icTeleBox]bool{}
+)
+
+func icPostTelemetry(t interceptTelemetry) {
+	h := icHWND.Load()
+	if h == 0 {
+		return
 	}
+	box := &icTeleBox{t: t}
+	icTeleMu.Lock()
+	icTeleInFlight[box] = true
+	icTeleMu.Unlock()
+	procPostMessageW.Call(h, icTeleMsg, 0, uintptr(unsafe.Pointer(box)))
 }
 
 // icReconcileHooks makes the OS hook state match icWant. Hook
@@ -212,7 +330,9 @@ func icReconcileHooks() {
 		icMouseHook, icKeyHook = mh, kh
 		icFailed.Store(false)
 		icInstalled.Store(true)
-		icLastEvent.Store(time.Now().UnixNano())
+		now := time.Now().UnixNano()
+		icLastMouse.Store(now)
+		icLastKey.Store(now)
 	}
 	if !want && icMouseHook != 0 {
 		procUnhookWindowsHookEx.Call(icMouseHook)
@@ -251,7 +371,7 @@ func icNext(nCode int32, wParam, lParam uintptr) uintptr {
 
 func makeICMouseProc() uintptr {
 	return syscall.NewCallback(func(nCode int32, wParam, lParam uintptr) uintptr {
-		icLastEvent.Store(time.Now().UnixNano())
+		icLastMouse.Store(time.Now().UnixNano())
 		if nCode < 0 {
 			return icNext(nCode, wParam, lParam)
 		}
@@ -263,39 +383,43 @@ func makeICMouseProc() uintptr {
 			return icNext(nCode, wParam, lParam)
 		}
 		ms := (*msllHookStruct)(unsafe.Pointer(lParam))
-		var (
-			target     uint64
-			lockURL    string
-			l, t, r, b int32
-		)
-		if hw := icTopFromPoint(ms.Pt); hw != 0 {
-			target = hw
-			lockURL = interceptLockFor(hw)
-			if lockURL != "" {
-				l, t, r, b, _ = platformWindowRect(hw)
-			}
-		}
 		kind := interceptMouseDown
 		if msg == wmLButtonUpIC {
 			kind = interceptMouseUp
 		}
-		dec := decideCloseIntercept(interceptFacts{
+		facts := interceptFacts{
 			Kind:           kind,
 			Injected:       ms.Flags&llmhfInjected != 0,
 			X:              ms.Pt.X,
 			Y:              ms.Pt.Y,
-			TargetHWND:     target,
-			TargetLockURL:  lockURL,
-			RectL:          l,
-			RectT:          t,
-			RectR:          r,
-			RectB:          b,
-			CloseW:         icCloseW.Load(),
-			CaptionH:       icCaptionH.Load(),
 			ArmedHWND:      icArmed,
 			ServicesActive: servicesActive(),
 			Enabled:        icInstalled.Load(),
-		})
+		}
+		if hw := icTopFromPoint(ms.Pt); hw != 0 {
+			facts.TargetHWND = hw
+			facts.TargetLockURL = interceptLockFor(hw)
+			if facts.TargetLockURL != "" {
+				icFillGeometry(&facts, hw)
+			}
+		}
+		dec := decideCloseIntercept(facts)
+		// Telemetry (test6): every button decision about a
+		// locked window -- plus an armed release whose target
+		// stopped being locked mid-gesture -- is posted to the
+		// worker's console line. A plain struct copy and a
+		// PostMessage; the callback still never logs.
+		if facts.TargetLockURL != "" || (kind == interceptMouseUp && icArmed != 0 && facts.TargetHWND == icArmed) {
+			zone, zoneOK := closeZoneFor(facts)
+			phase := "按下"
+			if kind == interceptMouseUp {
+				phase = "抬起"
+			}
+			icPostTelemetry(interceptTelemetry{
+				Gesture: "点击关闭按钮", Phase: phase,
+				Facts: facts, Zone: zone, ZoneOK: zoneOK, Dec: dec,
+			})
+		}
 		switch dec.Action {
 		case interceptSwallowHide:
 			icArmed = 0
@@ -303,7 +427,7 @@ func makeICMouseProc() uintptr {
 			return 1
 		case interceptSwallow:
 			if kind == interceptMouseDown {
-				icArmed = target
+				icArmed = facts.TargetHWND
 			} else {
 				icArmed = 0
 			}
@@ -318,7 +442,7 @@ func makeICMouseProc() uintptr {
 
 func makeICKeyProc() uintptr {
 	return syscall.NewCallback(func(nCode int32, wParam, lParam uintptr) uintptr {
-		icLastEvent.Store(time.Now().UnixNano())
+		icLastKey.Store(time.Now().UnixNano())
 		if nCode < 0 {
 			return icNext(nCode, wParam, lParam)
 		}
@@ -331,26 +455,37 @@ func makeICKeyProc() uintptr {
 		}
 		kb := (*kbdllHookStruct)(unsafe.Pointer(lParam))
 		altF4 := kb.VkCode == vkF4IC && kb.Flags&llkhfAltdown != 0
-		var fg uint64
-		var fgLock string
+		facts := interceptFacts{
+			Kind:           kind,
+			Injected:       kb.Flags&llkhfInjected != 0,
+			AltF4:          altF4,
+			ServicesActive: servicesActive(),
+			Enabled:        icInstalled.Load(),
+		}
 		if kind == interceptKeyDown && altF4 && kb.Flags&llkhfInjected == 0 {
 			// Target binding (L2-I1): the foreground window,
 			// resolved against the snapshot -- the only lookup
 			// the keyboard path ever makes.
-			fg = platformForegroundHWND()
+			fg := platformForegroundHWND()
 			if fg != 0 {
-				fgLock = interceptLockFor(fg)
+				facts.ForegroundHWND = fg
+				facts.ForegroundLockURL = interceptLockFor(fg)
+				if facts.ForegroundLockURL != "" {
+					facts.TargetHWND = fg
+					icFillGeometry(&facts, fg)
+				}
 			}
 		}
-		dec := decideCloseIntercept(interceptFacts{
-			Kind:              kind,
-			Injected:          kb.Flags&llkhfInjected != 0,
-			AltF4:             altF4,
-			ForegroundHWND:    fg,
-			ForegroundLockURL: fgLock,
-			ServicesActive:    servicesActive(),
-			Enabled:           icInstalled.Load(),
-		})
+		dec := decideCloseIntercept(facts)
+		// Telemetry (test6): every Alt+F4 verdict against a
+		// locked foreground window reaches the console.
+		if kind == interceptKeyDown && altF4 && facts.ForegroundLockURL != "" {
+			zone, zoneOK := closeZoneFor(facts)
+			icPostTelemetry(interceptTelemetry{
+				Gesture: "Alt+F4", Phase: "按键",
+				Facts: facts, Zone: zone, ZoneOK: zoneOK, Dec: dec,
+			})
+		}
 		if dec.Action == interceptSwallowHide {
 			icPostHide(dec.HideHWND, gestureKeyIC)
 			return 1
@@ -378,6 +513,13 @@ func makeICWndProc() uintptr {
 			}
 			icReconcileHooks()
 			return 0
+		case icTeleMsg:
+			box := (*icTeleBox)(unsafe.Pointer(lParam))
+			icTeleMu.Lock()
+			delete(icTeleInFlight, box)
+			icTeleMu.Unlock()
+			interceptQueueTelemetry(box.t)
+			return 0
 		}
 		r, _, _ := procDefWindowProcW.Call(hwnd, uintptr(msg), wParam, lParam)
 		return r
@@ -387,6 +529,17 @@ func makeICWndProc() uintptr {
 func interceptThread() {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
+	// On ANY exit the hooks die with this thread (the OS
+	// removes hooks whose installing thread is gone): clear
+	// the state the patrol and Settings read, so the layer
+	// never reports itself active while it is dead (test5's
+	// write-once-true flag could). ensureICThread respawns
+	// the thread on the next patrol tick.
+	defer func() {
+		icInstalled.Store(false)
+		icHWND.Store(0)
+		icThreadAlive.Store(false)
+	}()
 
 	icMouseProc = makeICMouseProc()
 	icKeyProc = makeICKeyProc()
