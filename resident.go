@@ -304,6 +304,41 @@ func residentHiddenSet() map[uint64]bool {
 	return out
 }
 
+// daemonHideCore is the shared body of every daemon-
+// intentional hide (v0.71 test7 splits it out so the native
+// engine in boxresident.go books its hides through exactly
+// the same presentation discipline): clear the window's
+// birth-presentation marks, stand the anti-re-cover sweep
+// down, drop the solo book, hide the window, and mark the
+// registration daemon-hidden. It reports (registered, hid):
+// an unregistered window is a plain miss, a registered one
+// whose hide failed is the caller's to log and retry. The
+// CALLER owns the per-engine bookkeeping (which book records
+// the hide debt) and the console lines.
+func daemonHideCore(hwnd uint64) (bool, bool) {
+	extMu.Lock()
+	e, ok := extWins[hwnd]
+	if ok {
+		e.presentPending = false
+		e.presentExpect = false
+	}
+	extMu.Unlock()
+	if !ok {
+		return false, false
+	}
+	raiseSweepCancel(hwnd)
+	soloForget(hwnd)
+	if !platformHideWindow(hwnd) {
+		return true, false
+	}
+	extMu.Lock()
+	if e, ok := extWins[hwnd]; ok {
+		e.hiddenClaim = true
+	}
+	extMu.Unlock()
+	return true, true
+}
+
 // daemonHideWindow is THE daemon-intentional hide of a locked
 // app's window, shared by every trigger: the patrol's relaunch
 // hide, the close interception (× / Alt+F4) and the Stage
@@ -315,27 +350,12 @@ func residentHiddenSet() map[uint64]bool {
 // resurrect a window the daemon just tucked away. via names
 // the trigger for the console line.
 func daemonHideWindow(hwnd uint64, lockURL, via string) bool {
-	extMu.Lock()
-	e, ok := extWins[hwnd]
-	if ok {
-		e.presentPending = false
-		e.presentExpect = false
-	}
-	extMu.Unlock()
-	if !ok {
+	if registered, hid := daemonHideCore(hwnd); !hid {
+		if registered {
+			logf("browser", "warn", "锁住后台：%s 的窗口隐藏失败（%s），将在下个巡逻周期重试", residentName(lockURL), via)
+		}
 		return false
 	}
-	raiseSweepCancel(hwnd)
-	soloForget(hwnd)
-	if !platformHideWindow(hwnd) {
-		logf("browser", "warn", "锁住后台：%s 的窗口隐藏失败（%s），将在下个巡逻周期重试", residentName(lockURL), via)
-		return false
-	}
-	extMu.Lock()
-	if e, ok := extWins[hwnd]; ok {
-		e.hiddenClaim = true
-	}
-	extMu.Unlock()
 	residentSt.Lock()
 	if st := residentSt.apps[lockURL]; st != nil {
 		st.HiddenHWND = hwnd

@@ -59,7 +59,7 @@ export function extPreviewOn(){ return !SETTINGS||SETTINGS.stageDisplay!=='ident
    two keys instead of removing one card and inserting
    another (the test2 "card vanishes, then pops back" feel is
    exactly what this layer exists to kill). */
-export function extCardKey(x){ return x.hwnd>0?('h:'+x.hwnd):('u:'+(x.lockurl||x.url||'')); }
+export function extCardKey(x){ return x.hwnd>0?('h:'+x.hwnd):(x.lockbox?('b:'+x.lockbox):('u:'+(x.lockurl||x.url||''))); }
 /* The daemon-derived resident state, in the card's existing
    caption/sub line (L1-S1): short release-note words, no new
    visual elements. */
@@ -68,6 +68,10 @@ export function extStateLabel(x){
   case 'back': return '后台运行中';
   case 'restoring': return '恢复中';
   case 'unstable': return '多次恢复未成功';
+  /* v0.71 test7: a locked NATIVE app that fully exited --
+     nobody brings it back unasked; the card click reopens
+     it (its boxed data and sign-in state are still there). */
+  case 'exited': return '已退出';
   default: return '';
  }
 }
@@ -113,6 +117,30 @@ export function showExtCtx(x,y,key){
     it. No window operations exist for a window that is not
     there. */
  if(card.hwnd===0){
+  /* v0.71 test7: a windowless NATIVE card (lockbox set) talks
+     to the box endpoints with the registry id, not a URL. */
+  if(w.lockbox){
+   const items=[
+    {act:'restore',label:'重新打开',icon:'switch'},
+    {act:'lockbg',label:'取消锁住后台',icon:'lock'},
+   ];
+   ctxOpen(x,y,items,async act=>{
+    if(act==='restore'){
+     const r=await api('/api/boxapps/restore',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:w.lockbox})}).catch(()=>null);
+     if(r&&r.error){ toast(r.error); return; }
+     toast('正在打开「'+(w.app||'应用')+'」');
+     setTimeout(refreshExtStrip,350);
+     return;
+    }
+    if(act==='lockbg'){
+     const r=await api('/api/boxapps/lock',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:w.lockbox,on:false})}).catch(()=>null);
+     if(!r||r.error){ toast((r&&r.error)||'设置失败'); return; }
+     toast('已取消锁住后台');
+     setTimeout(refreshExtStrip,350);
+    }
+   });
+   return;
+  }
   const items=[
    {act:'restore',label:'立即恢复',icon:'switch'},
    {act:'lockbg',label:'取消锁住后台',icon:'lock'},
@@ -156,6 +184,13 @@ export function showExtCtx(x,y,key){
     aligned it to a locked app it reports locked=true with the
     lock URL filled in, and 取消锁住后台 must be reachable. */
  if(w.url&&(w.appwindow||w.locked)) items.push({act:'lockbg',label:w.locked?'取消锁住后台':'锁住后台',icon:'lock'});
+ /* v0.71 test7: the native twin -- a window the daemon
+    attributes to a sandbox-installed app (boxapp set) can be
+    locked by registry id. The toggle state is the APP's
+    (boxlocked), not this window's: any window of the app
+    flips the one lock. Handled outside extCtxEndpoint like
+    the web toggle. */
+ if(w.boxapp) items.push({act:'lockbox',label:w.boxlocked?'取消锁住后台':'锁住后台',icon:'lock'});
  /* v0.71 test3 (L2-I4): a locked app's menu entry is
     隐藏到后台， not 关闭窗口 -- the daemon translates the
     close either way, and the menu must not promise a death
@@ -178,6 +213,20 @@ export function showExtCtx(x,y,key){
    const r=await api('/api/webapps/lock',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url,on})}).catch(()=>null);
    if(!r||r.error){ toast((r&&r.error)||'设置失败'); return; }
    toast(on?'已锁住后台：关掉窗口会转入后台继续运行，点台前调度的卡片即可回来，通知不会断':'已取消锁住后台：之后关窗即真关');
+   setTimeout(refreshExtStrip,350);
+   return;
+  }
+  if(act==='lockbox'){
+   const c2=extCards.get(key);
+   const id=c2&&c2.win&&c2.win.boxapp;
+   if(!id){ toast('这个窗口已经关掉了'); return; }
+   const on=!(c2.win.boxlocked);
+   const r=await api('/api/boxapps/lock',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,on})}).catch(()=>null);
+   if(!r||r.error){ toast((r&&r.error)||'设置失败'); return; }
+   /* Native wording, honestly (test7): no "通知不会断" --
+      a desktop app has no such promise. Hidden keeps its
+      state; exited reopens from the card with data intact. */
+   toast(on?'已锁住后台：关掉窗口会藏到后台继续运行，正在编辑的内容不会丢；应用退出后点台前调度的卡片即可重新打开':'已取消锁住后台：之后关窗即真关');
    setTimeout(refreshExtStrip,350);
    return;
   }
@@ -277,11 +326,21 @@ export function newExtCard(x,prev){
  const key=extCardKey(x);
  el.dataset.key=key;
  if(x.hwnd>0) el.dataset.hwnd=x.hwnd;
- const card={key:key,hwnd:x.hwnd,lockURL:x.lockurl||'',win:null,el:el,prev:null,iconKey:'',stateTxt:null,img:null,capB:null,subB:null,cls:'',title:null,sub:null,ver:'',blob:'',busy:false,minWait:false,needFresh:x.hwnd>0};
+ const card={key:key,hwnd:x.hwnd,lockURL:x.lockurl||'',lockBox:x.lockbox||'',win:null,el:el,prev:null,iconKey:'',stateTxt:null,img:null,capB:null,subB:null,cls:'',title:null,sub:null,ver:'',blob:'',busy:false,minWait:false,needFresh:x.hwnd>0};
  el.onclick=async()=>{
   if(card.hwnd>0){
    const r=await api('/api/extwin/focus',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hwnd:card.hwnd})}).catch(()=>null);
    if(!r||r.error) refreshExtStrip(); /* window closed or focus failed: re-sync the strip */
+   return;
+  }
+  /* v0.71 test7: a windowless NATIVE card reopens its app
+     through the box endpoint (the daemon relaunches it via
+     the sandbox; an exited app comes back with its boxed
+     data and sign-in state intact). */
+  if(card.lockBox){
+   const r=await api('/api/boxapps/restore',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:card.lockBox})}).catch(()=>null);
+   if(r&&r.error) toast(r.error);
+   setTimeout(refreshExtStrip,350);
    return;
   }
   /* v0.71 test3: a windowless card asks the daemon to bring
@@ -337,9 +396,23 @@ export async function refreshExtStrip(){
     }
    }
   }
+  /* v0.71 test7: the same in-place migration for native
+     cards, keyed 'b:<id>' while windowless. */
+  if(!card&&x.lockbox){
+   if(x.hwnd>0){
+    const ghost=extCards.get('b:'+x.lockbox);
+    if(ghost){ extCards.delete(ghost.key); card=ghost; migrateExtCard(card,x); extCards.set(key,card); }
+   } else {
+    for(const c of Array.from(extCards.values())){
+     if(c.hwnd>0&&!listHwnds.has(c.hwnd)&&c.lockBox===x.lockbox){
+      extCards.delete(c.key); card=c; migrateExtCard(card,x); extCards.set(key,card); break;
+     }
+    }
+   }
+  }
   const wantPrev=preview&&x.hwnd>0&&!thumbBad.has(key);
   if(!card){ card=newExtCard(x,wantPrev); extCards.set(key,card); }
-  card.hwnd=x.hwnd; if(x.lockurl) card.lockURL=x.lockurl;
+  card.hwnd=x.hwnd; if(x.lockurl) card.lockURL=x.lockurl; if(x.lockbox) card.lockBox=x.lockbox;
   paintExtCard(card,x,wantPrev&&!card.minWait);
   const ref=box.children[i+1]||null;
   if(ref!==card.el) box.insertBefore(card.el,ref);
@@ -368,6 +441,7 @@ export function migrateExtCard(card,x){
  card.key=extCardKey(x);
  card.hwnd=x.hwnd;
  card.lockURL=x.lockurl||card.lockURL||'';
+ card.lockBox=x.lockbox||card.lockBox||'';
  card.el.dataset.key=card.key;
  if(x.hwnd>0) card.el.dataset.hwnd=x.hwnd; else delete card.el.dataset.hwnd;
  if(card.blob){ URL.revokeObjectURL(card.blob); card.blob=''; }

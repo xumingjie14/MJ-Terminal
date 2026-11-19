@@ -275,6 +275,24 @@ type mjSettings struct {
 	// wire map (settingsMap deletes it; lock state rides
 	// /api/apps and /api/extwin instead).
 	WebAppLocks map[string]bool `json:"webAppLocks,omitempty" mjapi:"-"`
+	// v0.71 test7: 锁住后台 for sandbox-installed native apps
+	// (boxresident.go) -- the set of BOX-APP REGISTRY ids the
+	// user has locked into the background, id -> true. Written
+	// only through /api/boxapps/lock, never through the
+	// settings POST whitelist, and kept off the settings wire
+	// map (settingsMap deletes it; lock state rides
+	// /api/boxapps/lock and /api/extwin instead). Pruned
+	// against the box registry on every load
+	// (pruneBoxAppIDMap, boxresident.go).
+	BoxAppLocks map[string]bool `json:"boxAppLocks,omitempty" mjapi:"-"`
+	// v0.71 test7: per-app opt-in (default OFF) to relaunch a
+	// locked native app after it has exited -- the risk
+	// review's B4 ruling: from outside, a user quitting an app
+	// and the app crashing are indistinguishable, so automatic
+	// relaunch is the user's own per-app choice, never the
+	// default. Written only through
+	// /api/boxapps/autorelaunch.
+	BoxAppAutoRelaunch map[string]bool `json:"boxAppAutoRelaunch,omitempty" mjapi:"-"`
 	// v0.71 block 5: version marks for the post-update
 	// browser-restart hint (updaterestart.go). LastVersion is
 	// the AppVersion the previous daemon run recorded;
@@ -709,6 +727,15 @@ func sanitizeSettings(s mjSettings) mjSettings {
 	// set -- only well-formed http(s) URLs with a true value
 	// survive (resident.go owns the rule).
 	s.WebAppLocks = pruneWebAppLocks(s.WebAppLocks)
+	// v0.71 test7: same pruning for the native-app lock sets
+	// -- only ids still present in the box registry survive
+	// (boxresident.go owns the rule). When the registry
+	// dataset itself is absent the maps are left untouched:
+	// its absence proves nothing either way.
+	if ids, ok := boxRegistryIDSet(); ok {
+		s.BoxAppLocks = pruneBoxAppIDMap(s.BoxAppLocks, ids)
+		s.BoxAppAutoRelaunch = pruneBoxAppIDMap(s.BoxAppAutoRelaunch, ids)
+	}
 	return s
 }
 
@@ -788,6 +815,8 @@ func settingsMap() map[string]any {
 	// daemon-internal (see the field comments on mjSettings);
 	// lock state rides /api/apps and /api/extwin instead.
 	delete(out, "webAppLocks")
+	delete(out, "boxAppLocks")
+	delete(out, "boxAppAutoRelaunch")
 	delete(out, "lastVersion")
 	delete(out, "updateNagVersion")
 	// v0.54: per-app notification switches are emitted flattened

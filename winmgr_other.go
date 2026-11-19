@@ -109,6 +109,11 @@ func platformProcessImageBase(pid uint32) string { return "" }
 // CPU/memory figures rather than invented ones.
 func platformWindowHung(hwnd uint64) bool { return false }
 
+// v0.71 test7 native-resident stubs (no host windows off
+// Windows): no style to classify, no DPI to key a probe by.
+func platformWindowStyle(hwnd uint64) (uint32, bool) { return 0, false }
+func platformWindowDPI(hwnd uint64) int32            { return 0 }
+
 func platformProcUsage(pid uint32) (cpu100ns, create100ns int64, wsBytes uint64, ok bool) {
 	return 0, 0, 0, false
 }

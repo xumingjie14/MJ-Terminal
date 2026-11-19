@@ -104,16 +104,35 @@ type interceptFacts struct {
 	X, Y          int32
 	TargetHWND    uint64 // top-level window under the point (0 = none)
 	TargetLockURL string // the target's lock key ("" = not a locked app's window)
-	RectL         int32  // target window rect (GetWindowRect), same space as X/Y
-	RectT         int32
-	RectR         int32
-	RectB         int32
-	FrameL        int32 // DWM visible frame bounds (EXTENDED_FRAME_BOUNDS)
-	FrameT        int32
-	FrameR        int32
-	FrameB        int32
-	FrameOK       bool  // Frame* are real (DWM answered)
-	DpiWindow     int32 // target window's DPI (GetDpiForWindow; 0 = unknown)
+	// Native path (v0.71 test7): the target is a locked BOX
+	// app's ALIGNED window. TargetBoxApp is its lock key (the
+	// registry id); the close zone comes from the patrol-
+	// probed rect (ProbeOK) for self-drawn frames, from
+	// closeZoneFor for standard frames, and from nowhere when
+	// NativeNoZone -- a self-drawn window the probe could not
+	// locate a close button on, whose mouse path must pass.
+	TargetBoxApp string
+	ProbeL       int32
+	ProbeT       int32
+	ProbeR       int32
+	ProbeB       int32
+	ProbeOK      bool
+	NativeNoZone bool
+	// Telemetry-only native facts (§8 of the test7 review):
+	// how the window was attributed, and what kind of frame
+	// it carries. The decision never reads them.
+	Basis     string // "exe" | "dir"
+	FrameKind string // "standard" | "selfdrawn"
+	RectL     int32  // target window rect (GetWindowRect), same space as X/Y
+	RectT     int32
+	RectR     int32
+	RectB     int32
+	FrameL    int32 // DWM visible frame bounds (EXTENDED_FRAME_BOUNDS)
+	FrameT    int32
+	FrameR    int32
+	FrameB    int32
+	FrameOK   bool  // Frame* are real (DWM answered)
+	DpiWindow int32 // target window's DPI (GetDpiForWindow; 0 = unknown)
 	// Caption metrics at DpiWindow (system DPI when unknown):
 	BtnW      int32  // SM_CXSIZE: one caption button's width
 	FrameXW   int32  // SM_CXSIZEFRAME
@@ -126,6 +145,7 @@ type interceptFacts struct {
 	AltF4             bool   // VK_F4 with the Alt modifier down
 	ForegroundHWND    uint64 // foreground window at the keypress
 	ForegroundLockURL string // its lock key ("" = not a locked app's window)
+	ForegroundBoxApp  string // native lock key of the foreground window (test7)
 
 	// Gates. Passing is the default; swallowing is the exception.
 	ServicesActive bool // vault open, services running
@@ -204,12 +224,25 @@ func decideCloseIntercept(f interceptFacts) interceptDecision {
 	if !f.ServicesActive {
 		return pass("服务未运行")
 	}
+	// The event's close zone (test7): a probed rect when the
+	// patrol probed one for this (self-drawn, native) window,
+	// the system-metric formula otherwise.
+	zoneForEvent := func() (closeZone, bool) {
+		if f.ProbeOK {
+			return closeZone{X0: f.ProbeL, Y0: f.ProbeT, X1: f.ProbeR, Y1: f.ProbeB}, true
+		}
+		return closeZoneFor(f)
+	}
+	lockedTarget := f.TargetLockURL != "" || f.TargetBoxApp != ""
 	switch f.Kind {
 	case interceptMouseDown:
-		if f.TargetHWND == 0 || f.TargetLockURL == "" {
+		if f.TargetHWND == 0 || !lockedTarget {
 			return pass("不是已锁应用的窗口")
 		}
-		z, ok := closeZoneFor(f)
+		if f.NativeNoZone {
+			return pass("这个应用的关闭按钮无法定位，鼠标不拦截")
+		}
+		z, ok := zoneForEvent()
 		if !ok {
 			return pass("窗口度量不可用")
 		}
@@ -227,10 +260,13 @@ func decideCloseIntercept(f interceptFacts) interceptDecision {
 		if f.TargetHWND != f.ArmedHWND {
 			return cancel("抬起时已不在原窗口，取消手势")
 		}
-		if f.TargetLockURL == "" {
+		if !lockedTarget {
 			return cancel("抬起时应用已解除锁住，取消手势")
 		}
-		z, ok := closeZoneFor(f)
+		if f.NativeNoZone {
+			return cancel("抬起时关闭区已不可用，取消手势")
+		}
+		z, ok := zoneForEvent()
 		if !ok {
 			return cancel("窗口度量不可用，取消手势")
 		}
@@ -239,7 +275,7 @@ func decideCloseIntercept(f interceptFacts) interceptDecision {
 		}
 		return cancel("抬起时已拖出关闭区，取消手势")
 	case interceptKeyDown:
-		if f.AltF4 && f.ForegroundHWND != 0 && f.ForegroundLockURL != "" {
+		if f.AltF4 && f.ForegroundHWND != 0 && (f.ForegroundLockURL != "" || f.ForegroundBoxApp != "") {
 			return interceptDecision{Action: interceptSwallowHide, HideHWND: f.ForegroundHWND, Reason: "Alt+F4 命中已锁窗口，转入后台"}
 		}
 		return pass("前台不是已锁窗口")
@@ -344,7 +380,7 @@ func executeInterceptHide(req interceptHideRequest) {
 		return
 	}
 	locks := webAppLockSet()
-	if len(locks) == 0 {
+	if len(locks) == 0 && len(boxAppLockSet()) == 0 {
 		return
 	}
 	names := residentNameIndex(locks)
@@ -361,6 +397,15 @@ func executeInterceptHide(req interceptHideRequest) {
 	}
 	key := residentWindowLockURL(&cp, locks, names)
 	if key == "" {
+		// v0.71 test7: the native twin -- re-verify against the
+		// attribution snapshot and the aligned-window book.
+		if appID, ok := boxInterceptResolve(req.HWND); ok {
+			if !platformWindowVisible(req.HWND) {
+				return
+			}
+			boxDaemonHide(req.HWND, appID, req.Gesture)
+			return
+		}
 		logf("winmgr", "info", "关窗变藏：收到隐藏请求，但窗口 %d 的应用已解除锁住，忽略（手势：%s）", req.HWND, req.Gesture)
 		return
 	}
@@ -392,6 +437,14 @@ type interceptTelemetry struct {
 	Zone    closeZone
 	ZoneOK  bool
 	Dec     interceptDecision
+	// Native targets (test7, review §8): the attributed app,
+	// the attribution basis, the frame kind and where the
+	// close zone came from -- without them a native miss is as
+	// undiagnosable as test5's web miss was.
+	BoxApp    string
+	Basis     string
+	FrameKind string
+	Source    string // "formula" | "probe" | "keyboard"
 }
 
 var (
@@ -429,9 +482,14 @@ func interceptTelemetryWorker() {
 		if t.ZoneOK {
 			zone = fmt.Sprintf("(%d,%d)-(%d,%d)", t.Zone.X0, t.Zone.Y0, t.Zone.X1, t.Zone.Y1)
 		}
-		logf("winmgr", "info", "关窗变藏判定（%s·%s）：窗口 %d，点 (%d,%d)，窗口矩形 (%d,%d)-(%d,%d)，可见边框 %s，窗口 DPI %d，关闭区 %s，结论 %s——%s",
+		extra := ""
+		if t.BoxApp != "" {
+			extra = fmt.Sprintf("，归属应用 %s（依据：%s），窗口角色：主窗口，边框：%s，关闭区来源：%s",
+				boxAppName(t.BoxApp), boxBasisText(t.Basis), frameKindText(t.FrameKind), zoneSourceText(t.Source))
+		}
+		logf("winmgr", "info", "关窗变藏判定（%s·%s）：窗口 %d，点 (%d,%d)，窗口矩形 (%d,%d)-(%d,%d)，可见边框 %s，窗口 DPI %d，关闭区 %s，结论 %s——%s%s",
 			t.Gesture, t.Phase, f.TargetHWND, f.X, f.Y,
-			f.RectL, f.RectT, f.RectR, f.RectB, frame, f.DpiWindow, zone, verdict, t.Dec.Reason)
+			f.RectL, f.RectT, f.RectR, f.RectB, frame, f.DpiWindow, zone, verdict, t.Dec.Reason, extra)
 	}
 }
 
@@ -516,6 +574,30 @@ func interceptSnapshotGapCheck(locks map[string]bool) {
 	}
 }
 
+// frameKindText / zoneSourceText render the native telemetry
+// fact codes for the console line (test7, review §8).
+func frameKindText(kind string) string {
+	switch kind {
+	case "standard":
+		return "标准边框"
+	case "selfdrawn":
+		return "自绘边框"
+	}
+	return kind
+}
+
+func zoneSourceText(source string) string {
+	switch source {
+	case "formula":
+		return "系统度量公式"
+	case "probe":
+		return "巡逻预探"
+	case "keyboard":
+		return "键盘路径（无几何）"
+	}
+	return source
+}
+
 // interceptPatrol runs at the top of every patrol tick (before
 // the vault gate, so locking the vault also stands the hooks
 // down): refresh the snapshot, reconcile the install with the
@@ -524,7 +606,7 @@ func interceptPatrol() {
 	refreshInterceptSnapshot()
 	locks := webAppLockSet()
 	interceptSnapshotGapCheck(locks)
-	want := interceptDesiredFor(runtime.GOOS, len(locks), servicesActive())
+	want := interceptDesiredFor(runtime.GOOS, len(locks)+len(boxAppLockSet()), servicesActive())
 	installed, failed := interceptPlatformSetWanted(want)
 	now := time.Now()
 	interceptCtl.Lock()

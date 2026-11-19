@@ -244,7 +244,7 @@ export function bind(id){
    const s=SETTINGS||SETDEF;
    const SRCS=[['sandbox','应用隔离'],['update','软件更新'],['servermon','服务器监控'],['node','节点'],['remote','远程协助'],['files','文件'],['web','网页通知']];
    const rowHTML=(idAttr,keyBase,name)=>`<div class="sm-row"><span>${esc(name)}</span><span class="row"><span style="font-size:12px;opacity:.65">允许通知</span><label class="sm-sw"><input type="checkbox" id="nt-allow-${idAttr}" ${s['notify_allow_'+keyBase]!==false?'checked':''}><i></i></label><span style="font-size:12px;opacity:.65">横幅</span><label class="sm-sw"><input type="checkbox" id="nt-banner-${idAttr}" ${s['notify_banner_'+keyBase]!==false?'checked':''}><i></i></label></span></div>`;
-   G('set-main').innerHTML=`<div class="set-page"><div class="set-sec">系统通知</div><div class="set-desc">通知中心（点菜单栏右边的日期时间打开）里有两类东西：状态型的（隔离安装待登记、更新可用、服务器告警——状态在就一直在）和事件型的（装完了、断开了这类刚发生的事，留下来等你处理）。这里按来源逐个管：关掉「允许通知」，这个来源的事件不再记录、状态型也不再出现在通知中心（功能本身在各自页面照常）；关掉「横幅」只是不弹横幅，通知照样进通知中心。</div><div class="sm-card">${SRCS.map(([id,n])=>rowHTML(id,id,n)).join('')}</div><p class="set-note">横幅是新事件发生时在桌面右上角滑入的小卡片，约 6 秒后自动消失，鼠标停在上面会等你。沉浸模式不拦横幅——它不是专注模式。</p><div class="set-sec">应用通知</div><div class="set-desc">你装的应用由终端机产生的事件（目前是安装完成）。默认都开；关掉某个应用，它的事就不再进通知中心。网页通知（v0.68）：隔离 Chrome 里网页发的通知会通过随附的桥扩展进通知中心，按站点归到应用通知里，来源一眼能看出是哪个域名；总开关是上面系统通知里的「网页通知」，点通知能把对应的 Chrome 窗口带到前台。如实说明：宿主自己的浏览器和 Firefox 里网页的通知仍走 Windows 通知中心，管不到；网页 Service Worker 的后台推送也还拦不到，本版只接页面活着时发出的通知。</div><div class="sm-card" id="nt-apps"><div class="sm-row"><span>读取中…</span></div></div><div class="set-sec">锁住后台</div><div class="set-desc">锁住后台后，关闭这个应用的窗口不再是退出，而是转入后台继续运行：页面和登录状态都在，通知不会断，台前调度的卡片也保持原位，点一下就能回来。窗口不在台前时，靠轮询刷新的页面更新会慢一些；正在播放的视频画面会暂停，声音通常仍可继续。已隐藏的窗口只出现在台前调度里，桌面和任务栏中都看不到。解除锁住后台时，窗口会回到台前，之后关窗即真关。每个锁住的应用都会持续占用一个浏览器窗口的内存。锁住的入口在台前调度卡片的右键菜单里；这里是已锁住的清单，可以逐个解除。</div><div class="set-desc" id="nt-closehide-note" style="display:none"></div><div class="sm-card" id="nt-locks"><div class="sm-row"><span>读取中…</span></div></div></div>`;
+   G('set-main').innerHTML=`<div class="set-page"><div class="set-sec">系统通知</div><div class="set-desc">通知中心（点菜单栏右边的日期时间打开）里有两类东西：状态型的（隔离安装待登记、更新可用、服务器告警——状态在就一直在）和事件型的（装完了、断开了这类刚发生的事，留下来等你处理）。这里按来源逐个管：关掉「允许通知」，这个来源的事件不再记录、状态型也不再出现在通知中心（功能本身在各自页面照常）；关掉「横幅」只是不弹横幅，通知照样进通知中心。</div><div class="sm-card">${SRCS.map(([id,n])=>rowHTML(id,id,n)).join('')}</div><p class="set-note">横幅是新事件发生时在桌面右上角滑入的小卡片，约 6 秒后自动消失，鼠标停在上面会等你。沉浸模式不拦横幅——它不是专注模式。</p><div class="set-sec">应用通知</div><div class="set-desc">你装的应用由终端机产生的事件（目前是安装完成）。默认都开；关掉某个应用，它的事就不再进通知中心。网页通知（v0.68）：隔离 Chrome 里网页发的通知会通过随附的桥扩展进通知中心，按站点归到应用通知里，来源一眼能看出是哪个域名；总开关是上面系统通知里的「网页通知」，点通知能把对应的 Chrome 窗口带到前台。如实说明：宿主自己的浏览器和 Firefox 里网页的通知仍走 Windows 通知中心，管不到；网页 Service Worker 的后台推送也还拦不到，本版只接页面活着时发出的通知。</div><div class="sm-card" id="nt-apps"><div class="sm-row"><span>读取中…</span></div></div><div class="set-sec">锁住后台</div><div class="set-desc">锁住后台后，关闭这个应用的窗口不再是退出，而是转入后台继续运行：页面和登录状态都在，通知不会断，台前调度的卡片也保持原位，点一下就能回来。窗口不在台前时，靠轮询刷新的页面更新会慢一些；正在播放的视频画面会暂停，声音通常仍可继续。已隐藏的窗口只出现在台前调度里，桌面和任务栏中都看不到。解除锁住后台时，窗口会回到台前，之后关窗即真关。每个锁住的应用都会持续占用一个浏览器窗口的内存。锁住的入口在台前调度卡片的右键菜单里；这里是已锁住的清单，可以逐个解除。</div><div class="set-desc" id="nt-closehide-note" style="display:none"></div><div class="sm-card" id="nt-locks"><div class="sm-row"><span>读取中…</span></div></div><div class="set-sec">锁住后台 · 隔离安装的应用</div><div class="set-desc">通过隔离安装装进来的应用也可以锁住后台：关掉窗口只是藏到后台，正在编辑的内容和登录状态都不会丢，点台前调度的卡片即可回来。这类应用退出后不会被自动重新打开——卡片会显示「已退出」，点一下即可重新打开，数据和登录状态都还在；想让它退出后自动重新打开的，可以在下面逐个打开。锁住的入口在台前调度卡片的右键菜单里；这里是已锁住的清单，可以逐个解除。</div><div class="sm-card" id="nt-boxlocks"><div class="sm-row"><span>读取中…</span></div></div></div>`;
    const bindN=(elid,key)=>{ const el=G(elid); if(el) el.onchange=async e=>{ const r=await saveSetting({[key]:e.target.checked}); if(r&&r.error){ alert('保存失败：'+r.error); e.target.checked=!e.target.checked; } }; };
    SRCS.forEach(([id])=>{ bindN('nt-allow-'+id,'notify_allow_'+id); bindN('nt-banner-'+id,'notify_banner_'+id); });
    /* The installed-app list: store apps + components (incl.
@@ -293,6 +293,32 @@ export function bind(id){
      locksCard.querySelectorAll('[data-unlock]').forEach(b=>b.onclick=async()=>{ const u=b.getAttribute('data-unlock'); const r=await api('/api/webapps/lock',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:u,on:false})}).catch(()=>null); if(r&&r.error){ alert('解除失败：'+r.error); return; } toast('已解除「'+nameOf(u)+'」的锁住后台'); paintLocks(); });
     };
     paintLocks();
+   }
+   /* v0.71 test7: the native 锁住后台 list -- each locked
+      app's state and close-zone source come from the daemon
+      (GET /api/boxapps/lock), the per-app auto-relaunch
+      switch posts /api/boxapps/autorelaunch, and apps that
+      can never be locked (a shared main program) render as
+      muted note rows carrying the daemon's reason. */
+   const boxLocksCard=G('nt-boxlocks');
+   if(boxLocksCard){
+    const paintBoxLocks=async()=>{
+     let resp=null;
+     try{ resp=await api('/api/boxapps/lock'); }catch(e){}
+     const apps=(resp&&resp.apps)||[];
+     const unav=(resp&&resp.unavailable)||[];
+     const locked=apps.filter(a=>a.locked);
+     const stateTxt=s=>({front:'在台前',back:'在后台运行',restoring:'正在恢复',unstable:'多次恢复未成功',exited:'已退出'})[s]||'';
+     const modeTxt=m=>({none:'这个应用的关闭按钮位置特殊，点 × 不会转入后台，可用 Alt+F4 或台前调度卡片菜单转入后台',fused:'关窗变藏多次失败，已暂停；解除后重新锁住可恢复'})[m]||'';
+     let html='';
+     if(!locked.length) html+='<div class="sm-row"><span>暂无锁住后台的应用</span></div>';
+     html+=locked.map(a=>{ const st=stateTxt(a.state); const md=modeTxt(a.closeHideMode); return `<div class="sm-row"><span>${esc(a.name)}${st?`<span style="opacity:.55;font-size:12px;margin-left:8px">${esc(st)}</span>`:''}${md?`<span style="opacity:.55;font-size:12px;margin-left:8px">${esc(md)}</span>`:''}</span><span style="display:flex;align-items:center;gap:10px"><span style="opacity:.7;font-size:12px">退出后自动重新打开</span><label class="sm-sw"><input type="checkbox" data-autorelaunch="${esc(a.id)}" ${a.autoRelaunch?'checked':''}><i></i></label><button class="btn gray" data-boxunlock="${esc(a.id)}">解除</button></span></div>`; }).join('');
+     html+=unav.map(u=>`<div class="sm-row"><span style="opacity:.55">${esc(u.name)}：${esc(u.reason)}，暂不能锁住后台</span></div>`).join('');
+     boxLocksCard.innerHTML=html;
+     boxLocksCard.querySelectorAll('[data-boxunlock]').forEach(b=>b.onclick=async()=>{ const id=b.getAttribute('data-boxunlock'); const r=await api('/api/boxapps/lock',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,on:false})}).catch(()=>null); if(r&&r.error){ alert('解除失败：'+r.error); return; } toast('已解除锁住后台'); paintBoxLocks(); });
+     boxLocksCard.querySelectorAll('[data-autorelaunch]').forEach(sw=>sw.onchange=async()=>{ const id=sw.getAttribute('data-autorelaunch'); const r=await api('/api/boxapps/autorelaunch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,on:sw.checked})}).catch(()=>null); if(!r||r.error){ alert('设置失败：'+((r&&r.error)||'网络错误')); sw.checked=!sw.checked; return; } toast(sw.checked?'已打开：这个应用退出后会自动重新打开':'已关闭：这个应用退出后不会自动重新打开'); });
+    };
+    paintBoxLocks();
    }
   };
   const paintNetwork=async()=>{

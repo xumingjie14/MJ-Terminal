@@ -184,6 +184,56 @@ type webAppRestoreResponse struct {
 	Present bool `json:"present,omitempty"`
 }
 
+// boxAppLockInfo is one registered sandbox app's lock state
+// in boxAppLockResponse (v0.71 test7): State is the Stage
+// card state ("front" / "back" / "restoring" / "unstable" /
+// "exited", only meaningful while Locked); CloseHideMode is
+// how the aligned window's close zone is sourced ("formula"
+// / "probe" / "none" / "fused") so Settings can say honestly
+// when a self-drawn app's × will not turn into a hide.
+type boxAppLockInfo struct {
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	Locked        bool   `json:"locked"`
+	AutoRelaunch  bool   `json:"autoRelaunch"`
+	Lockable      bool   `json:"lockable"`
+	State         string `json:"state,omitempty"`
+	CloseHideMode string `json:"closeHideMode,omitempty"`
+}
+
+// boxAppUnavailable names a registered app that can never be
+// locked (v0.71 test7): it shares its main exe with another
+// registration, so window attribution refuses to guess.
+type boxAppUnavailable struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Reason string `json:"reason"`
+}
+
+// boxAppLockResponse is GET/POST /api/boxapps/lock (and POST
+// /api/boxapps/autorelaunch): every registered box app with
+// its lock state, so the Settings list re-renders without a
+// second fetch; ID/Locked echo the flip on POST.
+type boxAppLockResponse struct {
+	OK          bool                `json:"ok"`
+	ID          string              `json:"id,omitempty"`
+	Locked      bool                `json:"locked,omitempty"`
+	Apps        []boxAppLockInfo    `json:"apps"`
+	Unavailable []boxAppUnavailable `json:"unavailable,omitempty"`
+	// The close-becomes-hide layer's live state, the same
+	// honest signal the web lock response carries.
+	CloseHide         bool `json:"closeHide"`
+	CloseHideDegraded bool `json:"closeHideDegraded,omitempty"`
+}
+
+// boxAppRestoreResponse is POST /api/boxapps/restore (v0.71
+// test7): Present=true means a window existed after all and
+// was simply raised -- nothing was launched.
+type boxAppRestoreResponse struct {
+	OK      bool `json:"ok"`
+	Present bool `json:"present,omitempty"`
+}
+
 // changelogEntry is one release's notes in the in-app
 // changelog (v0.71 block 3, changelog.go): user-facing lines
 // only -- the wording rules live in assets/changelog.json.
@@ -555,6 +605,8 @@ var apiContractTypes = []contractType{
 	{"WebAppProbeResponse", reflect.TypeOf(webAppProbeResponse{})},
 	{"WebAppLockResponse", reflect.TypeOf(webAppLockResponse{})},
 	{"WebAppRestoreResponse", reflect.TypeOf(webAppRestoreResponse{})},
+	{"BoxAppLockResponse", reflect.TypeOf(boxAppLockResponse{})},
+	{"BoxAppRestoreResponse", reflect.TypeOf(boxAppRestoreResponse{})},
 	{"ChangelogResponse", reflect.TypeOf(changelogResponse{})},
 	{"RestartHintResponse", reflect.TypeOf(restartHintResponse{})},
 }

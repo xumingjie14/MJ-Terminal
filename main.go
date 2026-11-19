@@ -2120,6 +2120,12 @@ func runServer(portFlag int, isDaemon bool) {
 	// v0.71 test3: windowless Stage card restore -- LOCAL mux
 	// only, never the remote-assist surface (resident.go).
 	mux.HandleFunc("/api/webapps/restore", webAppRestoreHandler)
+	// v0.71 test7: 锁住后台 for sandbox-installed native apps
+	// (boxresident.go); restore is LOCAL mux only, exactly
+	// like the web twin.
+	mux.HandleFunc("/api/boxapps/lock", boxAppLockHandler)
+	mux.HandleFunc("/api/boxapps/restore", boxAppRestoreHandler)
+	mux.HandleFunc("/api/boxapps/autorelaunch", boxAppAutoRelaunchHandler)
 	mux.HandleFunc("/api/taskmgr", taskMgrHandler)
 	mux.HandleFunc("/api/taskmgr/kill", taskMgrKillHandler)
 	mux.HandleFunc("/api/taskmgr/restart", taskMgrRestartHandler)

@@ -3134,6 +3134,7 @@ func pollBoxLaunch(app boxApp, before map[uint32]bool, beforeWins map[uint64]boo
 				newSeen[p] = true
 			}
 			if hwnd, ok := claimWindowByPIDs(app.Name, diff, diff, beforeWins, imageBase, ownBox); ok {
+				boxNoteLaunchClaim(hwnd, app.ID) // v0.71 test7: alignment's first rung (boxresident.go)
 				logf("sandbox", "info", "盒内启动：%s 已认领窗口（路径：新 PID 直供登记，hwnd=%d，新增 PID 集 %v）",
 					app.Name, hwnd, sortedPIDList(diff))
 				return
@@ -3151,6 +3152,7 @@ func pollBoxLaunch(app boxApp, before map[uint32]bool, beforeWins map[uint64]boo
 				return
 			}
 			if hwnd, ok := claimWindowByPIDs(app.Name, before, nil, nil, imageBase, ownBox); ok {
+				boxNoteLaunchClaim(hwnd, app.ID) // v0.71 test7: alignment's first rung (boxresident.go)
 				logf("sandbox", "info", "盒内启动：%s 走二次启动路径（应用已在盒内运行，本次无新 PID），已用已有 PID 集认领其窗口（hwnd=%d）", app.Name, hwnd)
 				return
 			}
@@ -3172,6 +3174,7 @@ func pollBoxLaunch(app boxApp, before map[uint32]bool, beforeWins map[uint64]boo
 		// new PIDs first (prefer), and the picker now admits the
 		// born-hidden app window and reveals it on claim.
 		if hwnd, ok := claimWindowByPIDs(app.Name, last, newSeen, beforeWins, "", ownBox); ok {
+			boxNoteLaunchClaim(hwnd, app.ID) // v0.71 test7: alignment's first rung (boxresident.go)
 			logf("sandbox", "info", "盒内启动：%s 已认领窗口（路径：超时交叉核对——窗口在盒内其他进程名下，hwnd=%d，盒内 PID 集 %v）",
 				app.Name, hwnd, lastList)
 			return

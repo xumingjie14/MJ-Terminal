@@ -185,15 +185,18 @@ func TestFeatureRegistrySettingsCoverage(t *testing.T) {
 		if tag == "notify_allow_app" || tag == "notify_banner_app" {
 			continue // per-app maps behind the dynamic prefixes
 		}
-		if tag == "webAppLocks" || tag == "lastVersion" || tag == "updateNagVersion" {
+		if tag == "webAppLocks" || tag == "boxAppLocks" || tag == "boxAppAutoRelaunch" || tag == "lastVersion" || tag == "updateNagVersion" {
 			// v0.71 daemon-internal fields, POST-writable by
 			// NOBODY on purpose: webAppLocks is written only
 			// through the registered /api/webapps/lock route
-			// (resident.go); lastVersion / updateNagVersion
-			// only through updaterestart.go's internal
-			// setters. The view must never be able to forge
-			// a lock set or a version mark through the
-			// settings POST.
+			// (resident.go); boxAppLocks / boxAppAutoRelaunch
+			// only through the registered /api/boxapps/lock
+			// and /api/boxapps/autorelaunch routes
+			// (boxresident.go, v0.71 test7); lastVersion /
+			// updateNagVersion only through
+			// updaterestart.go's internal setters. The view
+			// must never be able to forge a lock set or a
+			// version mark through the settings POST.
 			continue
 		}
 		t.Errorf("mjSettings field %q is neither POST-writable nor a registered dynamic map", tag)

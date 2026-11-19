@@ -399,7 +399,26 @@ func makeICMouseProc() uintptr {
 		if hw := icTopFromPoint(ms.Pt); hw != 0 {
 			facts.TargetHWND = hw
 			facts.TargetLockURL = interceptLockFor(hw)
-			if facts.TargetLockURL != "" {
+			if facts.TargetLockURL == "" {
+				// v0.71 test7: the native snapshot is the same
+				// kind of read (one map lookup on an immutable
+				// snapshot); the probed zone rides along as
+				// plain facts -- the callback never probes.
+				if tgt, ok := interceptNativeTarget(hw); ok {
+					facts.TargetBoxApp = tgt.AppID
+					facts.Basis = tgt.Basis
+					facts.FrameKind = tgt.FrameKind
+					switch tgt.ZoneKind {
+					case "probe":
+						facts.ProbeL, facts.ProbeT = tgt.Zone.X0, tgt.Zone.Y0
+						facts.ProbeR, facts.ProbeB = tgt.Zone.X1, tgt.Zone.Y1
+						facts.ProbeOK = true
+					case "none":
+						facts.NativeNoZone = true
+					}
+				}
+			}
+			if facts.TargetLockURL != "" || facts.TargetBoxApp != "" {
 				icFillGeometry(&facts, hw)
 			}
 		}
@@ -409,15 +428,24 @@ func makeICMouseProc() uintptr {
 		// stopped being locked mid-gesture -- is posted to the
 		// worker's console line. A plain struct copy and a
 		// PostMessage; the callback still never logs.
-		if facts.TargetLockURL != "" || (kind == interceptMouseUp && icArmed != 0 && facts.TargetHWND == icArmed) {
+		if facts.TargetLockURL != "" || facts.TargetBoxApp != "" || (kind == interceptMouseUp && icArmed != 0 && facts.TargetHWND == icArmed) {
 			zone, zoneOK := closeZoneFor(facts)
+			if facts.ProbeOK {
+				zone, zoneOK = closeZone{facts.ProbeL, facts.ProbeT, facts.ProbeR, facts.ProbeB}, true
+			}
 			phase := "按下"
 			if kind == interceptMouseUp {
 				phase = "抬起"
 			}
+			source := "formula"
+			if facts.ProbeOK {
+				source = "probe"
+			}
 			icPostTelemetry(interceptTelemetry{
 				Gesture: "点击关闭按钮", Phase: phase,
 				Facts: facts, Zone: zone, ZoneOK: zoneOK, Dec: dec,
+				BoxApp: facts.TargetBoxApp, Basis: facts.Basis,
+				FrameKind: facts.FrameKind, Source: source,
 			})
 		}
 		switch dec.Action {
@@ -470,7 +498,15 @@ func makeICKeyProc() uintptr {
 			if fg != 0 {
 				facts.ForegroundHWND = fg
 				facts.ForegroundLockURL = interceptLockFor(fg)
-				if facts.ForegroundLockURL != "" {
+				if facts.ForegroundLockURL == "" {
+					if tgt, ok := interceptNativeTarget(fg); ok {
+						facts.ForegroundBoxApp = tgt.AppID
+						facts.TargetBoxApp = tgt.AppID
+						facts.Basis = tgt.Basis
+						facts.FrameKind = tgt.FrameKind
+					}
+				}
+				if facts.ForegroundLockURL != "" || facts.ForegroundBoxApp != "" {
 					facts.TargetHWND = fg
 					icFillGeometry(&facts, fg)
 				}
@@ -479,11 +515,13 @@ func makeICKeyProc() uintptr {
 		dec := decideCloseIntercept(facts)
 		// Telemetry (test6): every Alt+F4 verdict against a
 		// locked foreground window reaches the console.
-		if kind == interceptKeyDown && altF4 && facts.ForegroundLockURL != "" {
+		if kind == interceptKeyDown && altF4 && (facts.ForegroundLockURL != "" || facts.ForegroundBoxApp != "") {
 			zone, zoneOK := closeZoneFor(facts)
 			icPostTelemetry(interceptTelemetry{
 				Gesture: "Alt+F4", Phase: "按键",
 				Facts: facts, Zone: zone, ZoneOK: zoneOK, Dec: dec,
+				BoxApp: facts.ForegroundBoxApp, Basis: facts.Basis,
+				FrameKind: facts.FrameKind, Source: "keyboard",
 			})
 		}
 		if dec.Action == interceptSwallowHide {

@@ -18,6 +18,37 @@ export interface AccelStatusResponse {
   active: boolean;
 }
 
+export interface BoxAppLockInfo {
+  id: string;
+  name: string;
+  locked: boolean;
+  autoRelaunch: boolean;
+  lockable: boolean;
+  state?: string;
+  closeHideMode?: string;
+}
+
+export interface BoxAppLockResponse {
+  ok: boolean;
+  id?: string;
+  locked?: boolean;
+  apps: BoxAppLockInfo[];
+  unavailable?: BoxAppUnavailable[];
+  closeHide: boolean;
+  closeHideDegraded?: boolean;
+}
+
+export interface BoxAppRestoreResponse {
+  ok: boolean;
+  present?: boolean;
+}
+
+export interface BoxAppUnavailable {
+  id: string;
+  name: string;
+  reason: string;
+}
+
 export interface BusEvent {
   topic: string;
   id?: string;
@@ -83,6 +114,9 @@ export interface ExtWindow {
   locked?: boolean;
   resident?: string;
   lockurl?: string;
+  boxapp?: string;
+  boxlocked?: boolean;
+  lockbox?: string;
 }
 
 export interface FFStatusResponse {

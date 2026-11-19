@@ -420,6 +420,28 @@ func platformWindowRect(hwnd uint64) (int32, int32, int32, int32, bool) {
 	return rc.Left, rc.Top, rc.Right, rc.Bottom, true
 }
 
+// gwlStyle is the GetWindowLongPtr index for the window style.
+const gwlStyle = -16
+
+// platformWindowStyle reads the window's style bits (v0.71
+// test7): the native resident engine classifies a window's
+// frame by them -- WS_CAPTION present means the system draws
+// the caption buttons (the closeZoneFor formula applies);
+// absent means the app draws its own (the probe's problem).
+func platformWindowStyle(hwnd uint64) (uint32, bool) {
+	if hwnd == 0 {
+		return 0, false
+	}
+	return uint32(getWindowLongPtr(uintptr(hwnd), gwlStyle)), true
+}
+
+// platformWindowDPI reads the window's own DPI
+// (GetDpiForWindow), the probe cache's key companion.
+func platformWindowDPI(hwnd uint64) int32 {
+	r, _, _ := procGetDpiForWindow.Call(uintptr(hwnd))
+	return int32(r)
+}
+
 // platformWindowZoomed reports whether the window is maximized.
 // v0.23 reads this only for the desktop shell window, at landing
 // time, to decide small-window (phone-width) mode.

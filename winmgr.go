@@ -88,6 +88,18 @@ type extWindow struct {
 	// card is pinned by the lock, not by the window's life.
 	Resident string `json:"resident,omitempty"`
 	LockURL  string `json:"lockurl,omitempty"`
+	// v0.71 test7: the native twin facts (boxresident.go).
+	// BoxApp is the box-registry id this window is ATTRIBUTED
+	// to ("" = none) -- the Stage menu offers 锁住后台 for
+	// attributed windows. BoxLocked says the attributed app
+	// is locked (any of its windows may show the toggle
+	// state). LockBox is set ONLY on the app's one ALIGNED
+	// window (and on its windowless entry): that entry is the
+	// lock's card, carries Resident (now including "exited")
+	// and translates closes into hides.
+	BoxApp    string `json:"boxapp,omitempty"`
+	BoxLocked bool   `json:"boxlocked,omitempty"`
+	LockBox   string `json:"lockbox,omitempty"`
 
 	pid       uint32
 	lastTitle string // title at last AppID stamp; a change triggers a re-stamp
@@ -1024,6 +1036,51 @@ func extWinListHandler(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 	}
+	// v0.71 test7: the native twin of the block above, from
+	// the box engine's own snapshots (attribution + book --
+	// boxresident.go). Every attributed window learns its box
+	// app (the card menu's lock entry keys off it); the
+	// ALIGNED window of a locked app additionally carries the
+	// lock and its card state; a locked app with no aligned
+	// window gains a windowless entry whose state the engine
+	// derived last tick (front/back/restoring/unstable/
+	// exited).
+	boxLocks := boxAppLockSet()
+	if attr := boxAttrSnapshot(); len(attr) > 0 || len(boxLocks) > 0 {
+		boxBook := boxBookSnapshot()
+		for _, cp := range list {
+			a, ok := attr[cp.HWND]
+			if !ok || cp.Shell {
+				continue
+			}
+			cp.BoxApp = a.AppID
+			if !boxLocks[a.AppID] {
+				continue
+			}
+			cp.BoxLocked = true
+			if st := boxBook[a.AppID]; st != nil && st.AlignedHWND == cp.HWND {
+				cp.Locked = true
+				cp.LockBox = a.AppID
+				cp.Resident = st.CardState
+			}
+		}
+		for id := range boxLocks {
+			st := boxBook[id]
+			if st != nil && st.AlignedHWND != 0 {
+				continue // the aligned window's entry carries it
+			}
+			state := "exited"
+			if st != nil && st.CardState != "" {
+				state = st.CardState
+			}
+			name := boxAppName(id)
+			list = append(list, &extWindow{
+				HWND: 0, App: name, Title: name,
+				Locked: true, LockBox: id, BoxApp: id, BoxLocked: true,
+				Resident: state,
+			})
+		}
+	}
 	geomFlushGone()
 	// Re-stamp outside the lock: the COM call can be slowish.
 	for _, h := range restamp {
@@ -1186,6 +1243,21 @@ func extWinCloseHandler(w http.ResponseWriter, r *http.Request) {
 		lockSet := webAppLockSet()
 		if key := residentWindowLockURL(cp, lockSet, residentNameIndex(lockSet)); key != "" {
 			if !daemonHideWindow(body.HWND, key, "台前调度菜单") {
+				writeAPIError(w, http.StatusInternalServerError, errCodeInternal, "隐藏到后台失败")
+				return
+			}
+			logf("winmgr", "info", "台前调度卡片菜单：已锁应用的关闭已转为隐藏到后台（hwnd=%d，%s）", body.HWND, label)
+			busWindows(body.HWND)
+			writeJSON(w, okResponse{OK: true})
+			return
+		}
+		// v0.71 test7 (B2): the native translation applies to
+		// the locked app's ALIGNED window only -- a secondary
+		// window of the same app (its settings window, say)
+		// falls through to the real close below, because
+		// closing it is what the user means.
+		if id, ok := boxAlignedLockFor(body.HWND); ok {
+			if !boxDaemonHide(body.HWND, id, "台前调度菜单") {
 				writeAPIError(w, http.StatusInternalServerError, errCodeInternal, "隐藏到后台失败")
 				return
 			}
@@ -1569,6 +1641,12 @@ func patrolTick() {
 		}
 	}
 	auditMu.Unlock()
+
+	// v0.71 test7: the native resident engine rides the same
+	// cadence, after this tick's claims have settled -- it
+	// attributes the REGISTERED windows from this tick's live
+	// snapshot (boxresident.go).
+	boxResidentTick(procs, wins, boxPIDs)
 
 	// v0.38: verify birth presentations -- a window whose birth
 	// said it should be on stage but that still is not foreground

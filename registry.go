@@ -115,6 +115,11 @@ var featureRegistry = []feature{
 			// v0.71 test3: windowless Stage card restore
 			// (local-only by registration, like the thumb route)
 			lr("/api/webapps/restore"),
+			// v0.71 test7: 锁住后台 for sandbox-installed
+			// native apps (boxresident.go; restore local-only
+			// like its web twin)
+			lr("/api/boxapps/lock"), lr("/api/boxapps/restore"),
+			lr("/api/boxapps/autorelaunch"),
 			lr("/api/browser"), lr("/api/wallpaper"),
 			lr("/api/wallpaper/fromfile"),
 			lr("/api/appicon/"), lr("/api/chrome/icon"),
